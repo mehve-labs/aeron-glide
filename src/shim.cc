@@ -71,6 +71,37 @@ bool SubscriptionWrapper::isConnected() const {
     return sub->isConnected();
 }
 
+CountersReaderWrapper::CountersReaderWrapper(std::shared_ptr<aeron::Aeron> aeron) : aeron(aeron) {}
+
+CountersReaderWrapper::~CountersReaderWrapper() {}
+
+int32_t CountersReaderWrapper::maxCounterId() const {
+    return aeron->countersReader().maxCounterId();
+}
+
+int64_t CountersReaderWrapper::getCounterValue(int32_t id) const {
+    return aeron->countersReader().getCounterValue(id);
+}
+
+int32_t CountersReaderWrapper::getCounterState(int32_t id) const {
+    return aeron->countersReader().getCounterState(id);
+}
+
+int32_t CountersReaderWrapper::getCounterTypeId(int32_t id) const {
+    return aeron->countersReader().getCounterTypeId(id);
+}
+
+rust::String CountersReaderWrapper::getCounterLabel(int32_t id) const {
+    return rust::String(aeron->countersReader().getCounterLabel(id));
+}
+
+void CountersReaderWrapper::forEach(size_t handler_id) const {
+    aeron->countersReader().forEach([&](int32_t counter_id, int32_t type_id, const aeron::concurrent::AtomicBuffer& keyBuffer, const std::string& label) {
+        rust::Slice<const uint8_t> key_slice(keyBuffer.buffer(), keyBuffer.capacity());
+        aeron_rs::handle_counters_metadata(handler_id, counter_id, type_id, key_slice, rust::String(label));
+    });
+}
+
 std::unique_ptr<PublicationWrapper> AeronWrapper::addPublication(rust::Str channel, int32_t stream_id) {
     int64_t reg_id = aeron->addPublication(std::string(channel.data(), channel.size()), stream_id);
     
@@ -92,6 +123,10 @@ std::unique_ptr<SubscriptionWrapper> AeronWrapper::addSubscription(rust::Str cha
     }
 
     return std::unique_ptr<SubscriptionWrapper>(new SubscriptionWrapper(sub));
+}
+
+std::unique_ptr<CountersReaderWrapper> AeronWrapper::countersReader() const {
+    return std::unique_ptr<CountersReaderWrapper>(new CountersReaderWrapper(aeron));
 }
 
 std::unique_ptr<ContextWrapper> create_context() {

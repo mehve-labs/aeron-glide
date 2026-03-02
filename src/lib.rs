@@ -8,6 +8,7 @@ pub mod ffi {
         type PublicationWrapper;
         type SubscriptionWrapper;
         type MediaDriverWrapper;
+        type CountersReaderWrapper;
 
         fn create_context() -> UniquePtr<ContextWrapper>;
         fn create_aeron(context: UniquePtr<ContextWrapper>) -> Result<UniquePtr<AeronWrapper>>;
@@ -17,6 +18,7 @@ pub mod ffi {
         fn isClosed(self: &AeronWrapper) -> bool;
         fn addPublication(self: Pin<&mut AeronWrapper>, channel: &str, stream_id: i32) -> Result<UniquePtr<PublicationWrapper>>;
         fn addSubscription(self: Pin<&mut AeronWrapper>, channel: &str, stream_id: i32) -> Result<UniquePtr<SubscriptionWrapper>>;
+        fn countersReader(self: &AeronWrapper) -> UniquePtr<CountersReaderWrapper>;
 
         fn start(self: Pin<&mut MediaDriverWrapper>);
 
@@ -25,10 +27,18 @@ pub mod ffi {
 
         fn poll(self: Pin<&mut SubscriptionWrapper>, fragment_limit: i32, handler_id: usize) -> i32;
         fn isConnected(self: &SubscriptionWrapper) -> bool;
+
+        fn maxCounterId(self: &CountersReaderWrapper) -> i32;
+        fn getCounterValue(self: &CountersReaderWrapper, id: i32) -> i64;
+        fn getCounterState(self: &CountersReaderWrapper, id: i32) -> i32;
+        fn getCounterTypeId(self: &CountersReaderWrapper, id: i32) -> i32;
+        fn getCounterLabel(self: &CountersReaderWrapper, id: i32) -> String;
+        fn forEach(self: &CountersReaderWrapper, handler_id: usize);
     }
 
     extern "Rust" {
         fn handle_fragment(handler_id: usize, buffer: &[u8]);
+        fn handle_counters_metadata(handler_id: usize, counter_id: i32, type_id: i32, key: &[u8], label: String);
     }
 }
 
@@ -60,6 +70,12 @@ impl AeronClient {
     pub fn add_subscription(&mut self, channel: &str, stream_id: i32) -> Result<Subscription, Box<dyn std::error::Error>> {
         let sub_inner = self.inner.pin_mut().addSubscription(channel, stream_id)?;
         Ok(Subscription { inner: sub_inner })
+    }
+
+    pub fn counters_reader(&self) -> CountersReader {
+        CountersReader {
+            inner: self.inner.countersReader(),
+        }
     }
 }
 
@@ -125,6 +141,66 @@ impl Subscription {
 
     pub fn is_connected(&self) -> bool {
         self.inner.isConnected()
+    }
+}
+
+pub struct CountersReader {
+    inner: cxx::UniquePtr<ffi::CountersReaderWrapper>,
+}
+
+thread_local! {
+    static METADATA_HANDLERS: RefCell<HashMap<usize, *mut dyn FnMut(i32, i32, &[u8], &str)>> = RefCell::new(HashMap::new());
+}
+
+fn handle_counters_metadata(handler_id: usize, counter_id: i32, type_id: i32, key: &[u8], label: String) {
+    METADATA_HANDLERS.with(|handlers| {
+        if let Some(handler_ptr) = handlers.borrow_mut().get_mut(&handler_id) {
+            unsafe {
+                let handler = &mut **handler_ptr;
+                handler(counter_id, type_id, key, &label);
+            }
+        }
+    });
+}
+
+impl CountersReader {
+    pub fn max_counter_id(&self) -> i32 {
+        self.inner.maxCounterId()
+    }
+
+    pub fn get_counter_value(&self, id: i32) -> i64 {
+        self.inner.getCounterValue(id)
+    }
+
+    pub fn get_counter_state(&self, id: i32) -> i32 {
+        self.inner.getCounterState(id)
+    }
+
+    pub fn get_counter_type_id(&self, id: i32) -> i32 {
+        self.inner.getCounterTypeId(id)
+    }
+
+    pub fn get_counter_label(&self, id: i32) -> String {
+        self.inner.getCounterLabel(id)
+    }
+
+    pub fn for_each<F>(&self, mut handler: F) 
+    where F: FnMut(i32, i32, &[u8], &str)
+    {
+        let handler_id = &handler as *const _ as usize;
+        let mut_ptr: *mut (dyn FnMut(i32, i32, &[u8], &str) + 'static) = unsafe {
+            std::mem::transmute::<*mut dyn FnMut(i32, i32, &[u8], &str), *mut (dyn FnMut(i32, i32, &[u8], &str) + 'static)>(&mut handler as *mut dyn FnMut(i32, i32, &[u8], &str))
+        };
+        
+        METADATA_HANDLERS.with(|handlers| {
+            handlers.borrow_mut().insert(handler_id, mut_ptr);
+        });
+        
+        self.inner.forEach(handler_id);
+        
+        METADATA_HANDLERS.with(|handlers| {
+            handlers.borrow_mut().remove(&handler_id);
+        });
     }
 }
 

@@ -18,7 +18,7 @@ The result is a fast, safe, and significantly cleaner Aeron client for Rust.
 - **Rust** (Cargo)
 - **C++14+ compiler**
 
-*(Note: The `build.rs` script will automatically fetch and compile Aeron `v1.44.1` for you during the initial `cargo build`.)*
+*(Note: The `build.rs` script will automatically fetch and compile Aeron `v1.50.2` for you during the initial `cargo build`.)*
 
 ## Running the Examples
 

@@ -47,6 +47,22 @@ private:
     std::shared_ptr<aeron::Subscription> sub;
 };
 
+class CountersReaderWrapper {
+public:
+    CountersReaderWrapper(std::shared_ptr<aeron::Aeron> aeron);
+    ~CountersReaderWrapper();
+
+    int32_t maxCounterId() const;
+    int64_t getCounterValue(int32_t id) const;
+    int32_t getCounterState(int32_t id) const;
+    int32_t getCounterTypeId(int32_t id) const;
+    rust::String getCounterLabel(int32_t id) const;
+    void forEach(size_t handler_id) const;
+
+private:
+    std::shared_ptr<aeron::Aeron> aeron;
+};
+
 class AeronWrapper {
 public:
     AeronWrapper(std::shared_ptr<ContextWrapper> context);
@@ -57,6 +73,7 @@ public:
     
     std::unique_ptr<PublicationWrapper> addPublication(rust::Str channel, int32_t stream_id);
     std::unique_ptr<SubscriptionWrapper> addSubscription(rust::Str channel, int32_t stream_id);
+    std::unique_ptr<CountersReaderWrapper> countersReader() const;
     
 private:
     std::shared_ptr<aeron::Aeron> aeron;

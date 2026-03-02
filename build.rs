@@ -12,7 +12,7 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     
     // Configurable Aeron version
-    let aeron_version = env::var("AERON_VERSION").unwrap_or_else(|_| "1.44.1".to_string());
+    let aeron_version = env::var("AERON_VERSION").unwrap_or_else(|_| "1.50.2".to_string());
     println!("cargo:rerun-if-env-changed=AERON_VERSION");
     
     let aeron_dir = out_dir.join(format!("aeron-{}", aeron_version));
@@ -45,7 +45,6 @@ fn main() {
     println!("cargo:rustc-link-search=native={}", base_lib_dir.join("lib/Debug").display());
     println!("cargo:rustc-link-search=native={}", base_lib_dir.join("lib/Release").display());
     
-    println!("cargo:rustc-link-lib=static=aeron_client");
     println!("cargo:rustc-link-lib=static=aeron_static");
     println!("cargo:rustc-link-lib=static=aeron_driver_static");
     
@@ -59,13 +58,15 @@ fn main() {
         println!("cargo:rustc-link-lib=bsd");
     }
 
-    let include_path = aeron_dir.join("aeron-client/src/main/cpp");
+    let include_path = aeron_dir.join("aeron-client/src/main/cpp_wrapper");
+    let c_client_include_path = aeron_dir.join("aeron-client/src/main/c");
     let driver_include_path = aeron_dir.join("aeron-driver/src/main/c");
 
     // Build the cxx bridge
     cxx_build::bridge("src/lib.rs")
         .file("src/shim.cc")
         .include(include_path)
+        .include(c_client_include_path)
         .include(driver_include_path)
         .include("src")
         .flag_if_supported("-std=c++14")

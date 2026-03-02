@@ -43,4 +43,15 @@ fn main() {
     }
     
     println!("10 ping-pongs completed in {:?}", start.elapsed());
+
+    // Print Aeron counters after the benchmark
+    let reader = client.counters_reader();
+    println!("\n--- AERON COUNTERS ---");
+    reader.for_each(|id, _type_id, _key_buffer, label| {
+        let value = reader.get_counter_value(id);
+        if value != 0 {
+            println!("  {:>3}: {} = {}", id, label, value);
+        }
+    });
+    println!("----------------------");
 }

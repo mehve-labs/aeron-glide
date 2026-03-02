@@ -7,7 +7,7 @@ description = "Safe C++ bindings for Aeron via cxx"
 license = "Apache-2.0"
 
 [dependencies]
-ctrlc.workspace = true
+ctrlc = "3.5"
 cxx = "1.0"
 once_cell = "1.19"
 
@@ -29,3 +29,7 @@ path = "src/bin/pong.rs"
 [[bin]]
 name = "aeronmd"
 path = "src/bin/aeronmd.rs"
+
+[[bin]]
+name = "counters"
+path = "src/bin/counters.rs"
