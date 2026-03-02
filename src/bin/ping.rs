@@ -1,4 +1,4 @@
-use aeron_rs::{AeronClient, MediaDriver};
+use aeron_rs::AeronClient;
 use std::time::{Duration, Instant};
 use std::thread;
 
@@ -7,11 +7,6 @@ const PING_STREAM_ID: i32 = 10;
 const PONG_STREAM_ID: i32 = 11;
 
 fn main() {
-    println!("Starting Media Driver...");
-    let mut driver = MediaDriver::new();
-    driver.start();
-    thread::sleep(Duration::from_millis(100));
-
     println!("Starting Aeron Client...");
     let mut client = AeronClient::new().expect("Failed to start Aeron");
     client.start();
