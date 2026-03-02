@@ -55,6 +55,19 @@ bool PublicationWrapper::isConnected() const {
     return pub->isConnected();
 }
 
+ExclusivePublicationWrapper::ExclusivePublicationWrapper(std::shared_ptr<aeron::ExclusivePublication> pub) : pub(pub) {}
+
+ExclusivePublicationWrapper::~ExclusivePublicationWrapper() {}
+
+int64_t ExclusivePublicationWrapper::offer(rust::Slice<const uint8_t> buffer) {
+    aeron::AtomicBuffer atomic_buffer(const_cast<uint8_t*>(buffer.data()), buffer.size());
+    return pub->offer(atomic_buffer);
+}
+
+bool ExclusivePublicationWrapper::isConnected() const {
+    return pub->isConnected();
+}
+
 SubscriptionWrapper::SubscriptionWrapper(std::shared_ptr<aeron::Subscription> sub) : sub(sub) {}
 
 SubscriptionWrapper::~SubscriptionWrapper() {}
@@ -112,6 +125,17 @@ std::unique_ptr<PublicationWrapper> AeronWrapper::addPublication(rust::Str chann
     }
     
     return std::unique_ptr<PublicationWrapper>(new PublicationWrapper(pub));
+}
+
+std::unique_ptr<ExclusivePublicationWrapper> AeronWrapper::addExclusivePublication(rust::Str channel, int32_t stream_id) {
+    int64_t reg_id = aeron->addExclusivePublication(std::string(channel.data(), channel.size()), stream_id);
+
+    std::shared_ptr<aeron::ExclusivePublication> pub;
+    while (!(pub = aeron->findExclusivePublication(reg_id))) {
+        std::this_thread::yield();
+    }
+
+    return std::unique_ptr<ExclusivePublicationWrapper>(new ExclusivePublicationWrapper(pub));
 }
 
 std::unique_ptr<SubscriptionWrapper> AeronWrapper::addSubscription(rust::Str channel, int32_t stream_id) {

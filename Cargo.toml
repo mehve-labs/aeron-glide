@@ -7,6 +7,7 @@ description = "Safe C++ bindings for Aeron via cxx"
 license = "Apache-2.0"
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
 ctrlc = "3.5"
 cxx = "1.0"
 once_cell = "1.19"

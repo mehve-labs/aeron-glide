@@ -1,4 +1,5 @@
-use aeron_rs::AeronClient;
+use aeron_rs::{AeronClient, ExclusivePublication, Publication};
+use clap::Parser;
 use std::time::{Duration, Instant};
 use std::thread;
 
@@ -6,12 +7,47 @@ const PING_CHANNEL: &str = "aeron:ipc";
 const PING_STREAM_ID: i32 = 10;
 const PONG_STREAM_ID: i32 = 11;
 
+#[derive(Parser)]
+#[command(name = "ping", about = "Aeron ping client")]
+struct Args {
+    /// Use ExclusivePublication instead of Publication
+    #[arg(long)]
+    exclusive: bool,
+}
+
+enum Pub {
+    Regular(Publication),
+    Exclusive(ExclusivePublication),
+}
+
+impl Pub {
+    fn offer(&mut self, buf: &[u8]) -> i64 {
+        match self {
+            Pub::Regular(p) => p.offer(buf),
+            Pub::Exclusive(p) => p.offer(buf),
+        }
+    }
+    fn is_connected(&self) -> bool {
+        match self {
+            Pub::Regular(p) => p.is_connected(),
+            Pub::Exclusive(p) => p.is_connected(),
+        }
+    }
+}
+
 fn main() {
+    let args = Args::parse();
+
     println!("Starting Aeron Client...");
     let mut client = AeronClient::new().expect("Failed to start Aeron");
     client.start();
 
-    let mut publ = client.add_publication(PING_CHANNEL, PING_STREAM_ID).unwrap();
+    let mut publ = if args.exclusive {
+        println!("Using ExclusivePublication");
+        Pub::Exclusive(client.add_exclusive_publication(PING_CHANNEL, PING_STREAM_ID).unwrap())
+    } else {
+        Pub::Regular(client.add_publication(PING_CHANNEL, PING_STREAM_ID).unwrap())
+    };
     let mut sub = client.add_subscription(PING_CHANNEL, PONG_STREAM_ID).unwrap();
 
     println!("Waiting for pong subscriber...");
@@ -24,12 +60,10 @@ fn main() {
     let start = Instant::now();
 
     for i in 0..10 {
-        // Offer a message
         while publ.offer(msg) < 0 {
             thread::yield_now();
         }
 
-        // Wait for pong
         let mut received = false;
         while !received {
             sub.poll(1, |data| {
@@ -38,10 +72,10 @@ fn main() {
             });
             thread::yield_now();
         }
-        
+
         println!("Completed roundtrip {}", i);
     }
-    
+
     println!("10 ping-pongs completed in {:?}", start.elapsed());
 
     // Print Aeron counters after the benchmark

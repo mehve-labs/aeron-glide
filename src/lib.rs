@@ -6,6 +6,7 @@ pub mod ffi {
         type ContextWrapper;
         type AeronWrapper;
         type PublicationWrapper;
+        type ExclusivePublicationWrapper;
         type SubscriptionWrapper;
         type MediaDriverWrapper;
         type CountersReaderWrapper;
@@ -17,6 +18,7 @@ pub mod ffi {
         fn start(self: Pin<&mut AeronWrapper>);
         fn isClosed(self: &AeronWrapper) -> bool;
         fn addPublication(self: Pin<&mut AeronWrapper>, channel: &str, stream_id: i32) -> Result<UniquePtr<PublicationWrapper>>;
+        fn addExclusivePublication(self: Pin<&mut AeronWrapper>, channel: &str, stream_id: i32) -> Result<UniquePtr<ExclusivePublicationWrapper>>;
         fn addSubscription(self: Pin<&mut AeronWrapper>, channel: &str, stream_id: i32) -> Result<UniquePtr<SubscriptionWrapper>>;
         fn countersReader(self: &AeronWrapper) -> UniquePtr<CountersReaderWrapper>;
 
@@ -24,6 +26,9 @@ pub mod ffi {
 
         fn offer(self: Pin<&mut PublicationWrapper>, buffer: &[u8]) -> i64;
         fn isConnected(self: &PublicationWrapper) -> bool;
+
+        fn offer(self: Pin<&mut ExclusivePublicationWrapper>, buffer: &[u8]) -> i64;
+        fn isConnected(self: &ExclusivePublicationWrapper) -> bool;
 
         fn poll(self: Pin<&mut SubscriptionWrapper>, fragment_limit: i32, handler_id: usize) -> i32;
         fn isConnected(self: &SubscriptionWrapper) -> bool;
@@ -67,6 +72,11 @@ impl AeronClient {
         Ok(Publication { inner: pub_inner })
     }
 
+    pub fn add_exclusive_publication(&mut self, channel: &str, stream_id: i32) -> Result<ExclusivePublication, Box<dyn std::error::Error>> {
+        let pub_inner = self.inner.pin_mut().addExclusivePublication(channel, stream_id)?;
+        Ok(ExclusivePublication { inner: pub_inner })
+    }
+
     pub fn add_subscription(&mut self, channel: &str, stream_id: i32) -> Result<Subscription, Box<dyn std::error::Error>> {
         let sub_inner = self.inner.pin_mut().addSubscription(channel, stream_id)?;
         Ok(Subscription { inner: sub_inner })
@@ -84,6 +94,20 @@ pub struct Publication {
 }
 
 impl Publication {
+    pub fn offer(&mut self, buffer: &[u8]) -> i64 {
+        self.inner.pin_mut().offer(buffer)
+    }
+
+    pub fn is_connected(&self) -> bool {
+        self.inner.isConnected()
+    }
+}
+
+pub struct ExclusivePublication {
+    inner: cxx::UniquePtr<ffi::ExclusivePublicationWrapper>,
+}
+
+impl ExclusivePublication {
     pub fn offer(&mut self, buffer: &[u8]) -> i64 {
         self.inner.pin_mut().offer(buffer)
     }

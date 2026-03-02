@@ -35,6 +35,18 @@ private:
     std::shared_ptr<aeron::Publication> pub;
 };
 
+class ExclusivePublicationWrapper {
+public:
+    ExclusivePublicationWrapper(std::shared_ptr<aeron::ExclusivePublication> pub);
+    ~ExclusivePublicationWrapper();
+
+    int64_t offer(rust::Slice<const uint8_t> buffer);
+    bool isConnected() const;
+
+private:
+    std::shared_ptr<aeron::ExclusivePublication> pub;
+};
+
 class SubscriptionWrapper {
 public:
     SubscriptionWrapper(std::shared_ptr<aeron::Subscription> sub);
@@ -72,6 +84,7 @@ public:
     bool isClosed() const;
     
     std::unique_ptr<PublicationWrapper> addPublication(rust::Str channel, int32_t stream_id);
+    std::unique_ptr<ExclusivePublicationWrapper> addExclusivePublication(rust::Str channel, int32_t stream_id);
     std::unique_ptr<SubscriptionWrapper> addSubscription(rust::Str channel, int32_t stream_id);
     std::unique_ptr<CountersReaderWrapper> countersReader() const;
     

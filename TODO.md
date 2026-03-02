@@ -9,9 +9,10 @@ The `aeron-rs` project currently demonstrates basic IPC Publication and Subscrip
   - Implement zero-allocation polling of error logs, loss reporters, and real-time statistics.
   - ~~TODO: Add a command to read the counters or integrate it in the ping/pong example.~~ Done: standalone `counters` binary + integrated in ping.
 
-- [ ] **Exclusive Publications**
+- [x] **Exclusive Publications**
   - Bind `aeron::ExclusivePublication` for session-specific, higher-throughput publishing.
   - Exclusive publications avoid contention by guaranteeing a single writer per session, critical for low-latency paths.
+  - Integrated in ping/pong examples via `--exclusive` CLI flag (clap).
 
 - [ ] **Buffer Claims (Zero-Copy Offer)**
   - Bind `aeron::BufferClaim` / `tryClaim()` to allow writing directly into the log buffer.
