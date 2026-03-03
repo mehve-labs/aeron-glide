@@ -22,49 +22,64 @@ The result is a fast, safe, and significantly cleaner Aeron client for Rust.
 
 ## Running the Examples
 
-This repository includes a classic `ping-pong` pub/sub IPC example that demonstrates how to construct the Aeron client, launch an Embedded Media Driver, and send/receive messages asynchronously.
+All examples require a running Aeron Media Driver. You can start one with:
 
-To run the examples and see Aeron IPC in action, you'll need two terminal windows open side-by-side.
-
-### 1. Start the Ping node (Producer)
-In the first terminal, run:
 ```bash
-cargo run --bin ping
+cargo run --bin aeronmd
 ```
 
-You should see:
-```text
-Starting Media Driver...
-Starting Aeron Client...
-Waiting for pong subscriber...
-```
-*The ping process will launch the embedded media driver and pause, waiting until it detects a subscriber on the other end.*
+This launches an embedded C media driver that manages shared memory buffers and handles publication/subscription matching. Keep it running in a dedicated terminal, then use any of the examples below in separate terminals.
 
-### 2. Start the Pong node (Consumer)
-In the second terminal, run:
+### Ping / Pong
+
+Basic pub/sub round-trip. Sends 10 `"ping!"` messages and measures total time.
+
+```bash
+# Terminal 1                          # Terminal 2
+cargo run --bin pong                  cargo run --bin ping
+```
+
+**Exclusive publication** (single-writer, lower contention):
+```bash
+cargo run --bin pong -- --exclusive
+cargo run --bin ping -- --exclusive
+```
+
+**Zero-copy publish** (writes directly into Aeron's log buffer via `tryClaim`):
 ```bash
 cargo run --bin pong
+cargo run --bin ping -- --zero-copy
 ```
 
-You should see it immediately connect:
-```text
-Starting Aeron Client...
-Pong waiting for ping messages...
-Pong received ping: "ping!"
-Pong received ping: "ping!"
-...
+**Both combined:**
+```bash
+cargo run --bin pong -- --exclusive
+cargo run --bin ping -- --exclusive --zero-copy
 ```
 
-### 3. Watch the Messages Flow!
-Back in the **first terminal**, you will see the round-trip acknowledgements streaming in as the Pong node echoes your messages back:
-```text
-Connected. Sending pings...
-Ping received response: "ping!"
-Completed roundtrip 0
-Ping received response: "ping!"
-Completed roundtrip 1
-...
-10 ping-pongs completed in 164.5ms
+**UDP transport** (instead of IPC shared memory):
+```bash
+cargo run --bin pong -- --channel "aeron:udp?endpoint=localhost:20121"
+cargo run --bin ping -- --channel "aeron:udp?endpoint=localhost:20121"
 ```
 
-*(Note: The `ping` binary sends 10 messages and exits, which stops the embedded media driver. The `pong` binary will log errors once the media driver directory is deleted, which you can stop with `Ctrl+C`)*
+### Large Ping / Pong
+
+Sends 8 KB messages that exceed the MTU and get fragmented by Aeron. Demonstrates `poll_assembled` (automatic fragment reassembly) and `ControlledAction` (back-pressure flow control).
+
+```bash
+# Terminal 1                          # Terminal 2
+cargo run --bin large_pong            cargo run --bin large_ping
+```
+
+`large_pong` uses `ControlledAction::Abort` when it can't echo back immediately, causing Aeron to re-deliver the message on the next poll — no user-side buffering needed.
+
+### Counters
+
+Reads Aeron's CNC (command-and-control) counters — real-time stats like bytes sent/received, NAKs, errors, and heartbeats.
+
+```bash
+cargo run --bin counters
+```
+
+The `ping` binary also prints counters after its run.
