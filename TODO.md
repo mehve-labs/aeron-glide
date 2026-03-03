@@ -30,10 +30,6 @@ The `aeron-rs` project currently demonstrates basic IPC Publication and Subscrip
   - Expose flow-control actions (ABORT, BREAK, COMMIT, CONTINUE) to give consumers back-pressure control over polling.
   - Unified into `poll_assembled` via `PollAction` trait: closures returning `()` map to CONTINUE, closures returning `ControlledAction` get full flow control. Demonstrated in `large_pong`.
 
-- [ ] **Async Resource Creation**
-  - Bind `aeron::Aeron::asyncAddPublication`, `asyncAddExclusivePublication`, `asyncAddSubscription`, and `asyncAddCounter`.
-  - Provide polling-based resource acquisition for non-blocking startup patterns.
-
 - [x] **UDP Channel Support**
   - Channel strings pass through the cxx shim to Aeron unmodified — no C++ changes needed.
   - Added `--channel` CLI flag to ping and pong (default: `aeron:ipc`).
@@ -44,6 +40,9 @@ The `aeron-rs` project currently demonstrates basic IPC Publication and Subscrip
   - Generic `param(key, value)` escape hatch for any Aeron URI parameter.
   - 6 unit tests covering IPC, UDP, multicast, MDC, multi-param, and custom params.
 
+- [ ] **Advanced Media Driver Control**
+  - Currently we start the Embedded Driver with defaults. We need to expand the C Shim to map to the heavily configurable `aeron_driver_context_t` (and potentially the C++ Driver wrapper if available) to allow tuning of RingBuffer mapping, buffer sizes, threading modes, and idle strategies.
+  
 - [ ] **Aeron Archive & Image Buffers**
   - Bind `aeron::Image` to expose lower-level control of active streams.
   - Expose the Aeron Archive API (which enables recording streams to disk and replaying them) via the C++ Archive client.
@@ -52,8 +51,10 @@ The `aeron-rs` project currently demonstrates basic IPC Publication and Subscrip
   - Bind the Aeron Archive replay-merge functionality to seamlessly combine a recorded stream replay with a live stream for gap-fill scenarios.
   - Distinct from basic Archive replay — requires coordinating replay position with live subscription.
 
-- [ ] **Advanced Media Driver Control**
-  - Currently we start the Embedded Driver with defaults. We need to expand the C Shim to map to the heavily configurable `aeron_driver_context_t` (and potentially the C++ Driver wrapper if available) to allow tuning of RingBuffer mapping, buffer sizes, threading modes, and idle strategies.
-
 - [ ] **Aeron Cluster (Consensus & State Machines)**
   - Implement bindings to the Aeron Cluster C++ client, which handles interactions with Raft-based consensus logging and distributed service interactions.
+
+- [ ] **Async Resource Creation** *(low priority)*
+  - Bind `aeron::Aeron::asyncAddPublication`, `asyncAddExclusivePublication`, `asyncAddSubscription`, and `asyncAddCounter`.
+  - Provide polling-based resource acquisition for non-blocking startup patterns.
+  - Note: the current shim already does the async pattern internally (register + spin on find). The spin completes in microseconds. This would only matter if pipelining many resource creations or integrating into an event loop that can't block at all.

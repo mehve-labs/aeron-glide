@@ -1,6 +1,6 @@
 use aeron_rs::{AeronClient, ControlledAction};
-use std::time::Duration;
 use std::thread;
+use std::time::Duration;
 
 const CHANNEL: &str = "aeron:ipc";
 const PING_STREAM_ID: i32 = 20;

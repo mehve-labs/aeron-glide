@@ -14,7 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize the Media Driver
     let mut driver = MediaDriver::new();
-    
+
     // Start the driver (this spawns the internal C driver threads)
     driver.start();
     println!("Media Driver started successfully.");
@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set up a Ctrl+C handler to shut down cleanly
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
-    
+
     ctrlc::set_handler(move || {
         println!("\nShutting down Media Driver...");
         r.store(false, Ordering::SeqCst);

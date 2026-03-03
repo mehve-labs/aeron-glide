@@ -1,7 +1,7 @@
 use aeron_rs::{AeronClient, ExclusivePublication, Publication};
 use clap::Parser;
-use std::time::Duration;
 use std::thread;
+use std::time::Duration;
 
 const DEFAULT_CHANNEL: &str = "aeron:ipc";
 const PING_STREAM_ID: i32 = 10;
@@ -41,12 +41,22 @@ fn main() {
     let mut client = AeronClient::new().expect("Failed to start Aeron");
     client.start();
 
-    let mut sub = client.add_subscription(&args.channel, PING_STREAM_ID).unwrap();
+    let mut sub = client
+        .add_subscription(&args.channel, PING_STREAM_ID)
+        .unwrap();
     let mut publ = if args.exclusive {
         println!("Using ExclusivePublication");
-        Pub::Exclusive(client.add_exclusive_publication(&args.channel, PONG_STREAM_ID).unwrap())
+        Pub::Exclusive(
+            client
+                .add_exclusive_publication(&args.channel, PONG_STREAM_ID)
+                .unwrap(),
+        )
     } else {
-        Pub::Regular(client.add_publication(&args.channel, PONG_STREAM_ID).unwrap())
+        Pub::Regular(
+            client
+                .add_publication(&args.channel, PONG_STREAM_ID)
+                .unwrap(),
+        )
     };
 
     println!("Pong waiting for ping messages...");
@@ -54,7 +64,10 @@ fn main() {
     // We run endlessly in this example, echoing anything we get
     loop {
         let _ = sub.poll_assembled(1, |data| {
-            println!("Pong received ping: {:?}", std::str::from_utf8(data).unwrap());
+            println!(
+                "Pong received ping: {:?}",
+                std::str::from_utf8(data).unwrap()
+            );
 
             // Re-offer the exact same message bytes back to the other stream
             while publ.offer(data) < 0 {

@@ -1,6 +1,6 @@
 use aeron_rs::AeronClient;
-use std::time::{Duration, Instant};
 use std::thread;
+use std::time::{Duration, Instant};
 
 const CHANNEL: &str = "aeron:ipc";
 const PING_STREAM_ID: i32 = 20;
@@ -11,7 +11,10 @@ const PONG_STREAM_ID: i32 = 21;
 const MESSAGE_SIZE: usize = 8192;
 
 fn main() {
-    println!("Starting large_ping (message size: {} bytes)...", MESSAGE_SIZE);
+    println!(
+        "Starting large_ping (message size: {} bytes)...",
+        MESSAGE_SIZE
+    );
 
     let mut client = AeronClient::new().expect("Failed to start Aeron");
     client.start();
@@ -31,8 +34,8 @@ fn main() {
         // Build a large message: 4-byte sequence number + pattern fill
         let mut msg = vec![0u8; MESSAGE_SIZE];
         msg[..4].copy_from_slice(&i.to_le_bytes());
-        for j in 4..MESSAGE_SIZE {
-            msg[j] = (j % 256) as u8;
+        for (j, byte) in msg[4..].iter_mut().enumerate() {
+            *byte = ((j + 4) % 256) as u8;
         }
 
         while publ.offer(&msg) < 0 {

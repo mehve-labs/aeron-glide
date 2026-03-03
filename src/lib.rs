@@ -17,9 +17,21 @@ pub mod ffi {
 
         fn start(self: Pin<&mut AeronWrapper>);
         fn isClosed(self: &AeronWrapper) -> bool;
-        fn addPublication(self: Pin<&mut AeronWrapper>, channel: &str, stream_id: i32) -> Result<UniquePtr<PublicationWrapper>>;
-        fn addExclusivePublication(self: Pin<&mut AeronWrapper>, channel: &str, stream_id: i32) -> Result<UniquePtr<ExclusivePublicationWrapper>>;
-        fn addSubscription(self: Pin<&mut AeronWrapper>, channel: &str, stream_id: i32) -> Result<UniquePtr<SubscriptionWrapper>>;
+        fn addPublication(
+            self: Pin<&mut AeronWrapper>,
+            channel: &str,
+            stream_id: i32,
+        ) -> Result<UniquePtr<PublicationWrapper>>;
+        fn addExclusivePublication(
+            self: Pin<&mut AeronWrapper>,
+            channel: &str,
+            stream_id: i32,
+        ) -> Result<UniquePtr<ExclusivePublicationWrapper>>;
+        fn addSubscription(
+            self: Pin<&mut AeronWrapper>,
+            channel: &str,
+            stream_id: i32,
+        ) -> Result<UniquePtr<SubscriptionWrapper>>;
         fn countersReader(self: &AeronWrapper) -> UniquePtr<CountersReaderWrapper>;
 
         fn start(self: Pin<&mut MediaDriverWrapper>);
@@ -29,12 +41,25 @@ pub mod ffi {
         fn isConnected(self: &PublicationWrapper) -> bool;
 
         fn offer(self: Pin<&mut ExclusivePublicationWrapper>, buffer: &[u8]) -> i64;
-        fn tryClaim(self: Pin<&mut ExclusivePublicationWrapper>, length: usize, handler_id: usize) -> i64;
+        fn tryClaim(
+            self: Pin<&mut ExclusivePublicationWrapper>,
+            length: usize,
+            handler_id: usize,
+        ) -> i64;
         fn isConnected(self: &ExclusivePublicationWrapper) -> bool;
 
-        fn poll(self: Pin<&mut SubscriptionWrapper>, fragment_limit: i32, handler_id: usize) -> i32;
-        fn pollAssembled(self: Pin<&mut SubscriptionWrapper>, fragment_limit: i32, handler_id: usize) -> i32;
-        fn controlledPollAssembled(self: Pin<&mut SubscriptionWrapper>, fragment_limit: i32, handler_id: usize) -> i32;
+        fn poll(self: Pin<&mut SubscriptionWrapper>, fragment_limit: i32, handler_id: usize)
+            -> i32;
+        fn pollAssembled(
+            self: Pin<&mut SubscriptionWrapper>,
+            fragment_limit: i32,
+            handler_id: usize,
+        ) -> i32;
+        fn controlledPollAssembled(
+            self: Pin<&mut SubscriptionWrapper>,
+            fragment_limit: i32,
+            handler_id: usize,
+        ) -> i32;
         fn isConnected(self: &SubscriptionWrapper) -> bool;
 
         fn maxCounterId(self: &CountersReaderWrapper) -> i32;
@@ -49,7 +74,13 @@ pub mod ffi {
         fn handle_fragment(handler_id: usize, buffer: &[u8]);
         fn handle_controlled_fragment(handler_id: usize, buffer: &[u8]) -> i32;
         fn handle_claim(handler_id: usize, buffer: &mut [u8]) -> bool;
-        fn handle_counters_metadata(handler_id: usize, counter_id: i32, type_id: i32, key: &[u8], label: String);
+        fn handle_counters_metadata(
+            handler_id: usize,
+            counter_id: i32,
+            type_id: i32,
+            key: &[u8],
+            label: String,
+        );
     }
 }
 
@@ -61,7 +92,7 @@ impl AeronClient {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let ctx = ffi::create_context();
         let aeron = ffi::create_aeron(ctx)?;
-        
+
         Ok(Self { inner: aeron })
     }
 
@@ -72,18 +103,33 @@ impl AeronClient {
     pub fn is_closed(&self) -> bool {
         self.inner.isClosed()
     }
-    
-    pub fn add_publication(&mut self, channel: &str, stream_id: i32) -> Result<Publication, Box<dyn std::error::Error>> {
+
+    pub fn add_publication(
+        &mut self,
+        channel: &str,
+        stream_id: i32,
+    ) -> Result<Publication, Box<dyn std::error::Error>> {
         let pub_inner = self.inner.pin_mut().addPublication(channel, stream_id)?;
         Ok(Publication { inner: pub_inner })
     }
 
-    pub fn add_exclusive_publication(&mut self, channel: &str, stream_id: i32) -> Result<ExclusivePublication, Box<dyn std::error::Error>> {
-        let pub_inner = self.inner.pin_mut().addExclusivePublication(channel, stream_id)?;
+    pub fn add_exclusive_publication(
+        &mut self,
+        channel: &str,
+        stream_id: i32,
+    ) -> Result<ExclusivePublication, Box<dyn std::error::Error>> {
+        let pub_inner = self
+            .inner
+            .pin_mut()
+            .addExclusivePublication(channel, stream_id)?;
         Ok(ExclusivePublication { inner: pub_inner })
     }
 
-    pub fn add_subscription(&mut self, channel: &str, stream_id: i32) -> Result<Subscription, Box<dyn std::error::Error>> {
+    pub fn add_subscription(
+        &mut self,
+        channel: &str,
+        stream_id: i32,
+    ) -> Result<Subscription, Box<dyn std::error::Error>> {
         let sub_inner = self.inner.pin_mut().addSubscription(channel, stream_id)?;
         Ok(Subscription { inner: sub_inner })
     }
@@ -108,11 +154,15 @@ impl Publication {
     /// slice pointing directly into shared memory, then commits or aborts based on the return value.
     /// Returns the stream position (>0 on success, negative on back-pressure/closed).
     pub fn try_claim<F>(&mut self, length: usize, mut handler: F) -> i64
-    where F: FnMut(&mut [u8]) -> bool
+    where
+        F: FnMut(&mut [u8]) -> bool,
     {
         let handler_id = &handler as *const _ as usize;
         let mut_ptr: *mut (dyn FnMut(&mut [u8]) -> bool + 'static) = unsafe {
-            std::mem::transmute::<*mut dyn FnMut(&mut [u8]) -> bool, *mut (dyn FnMut(&mut [u8]) -> bool + 'static)>(&mut handler as *mut dyn FnMut(&mut [u8]) -> bool)
+            std::mem::transmute::<
+                *mut dyn FnMut(&mut [u8]) -> bool,
+                *mut (dyn FnMut(&mut [u8]) -> bool + 'static),
+            >(&mut handler as *mut dyn FnMut(&mut [u8]) -> bool)
         };
 
         CLAIM_HANDLERS.with(|handlers| {
@@ -146,11 +196,15 @@ impl ExclusivePublication {
     /// slice pointing directly into shared memory, then commits or aborts based on the return value.
     /// Returns the stream position (>0 on success, negative on back-pressure/closed).
     pub fn try_claim<F>(&mut self, length: usize, mut handler: F) -> i64
-    where F: FnMut(&mut [u8]) -> bool
+    where
+        F: FnMut(&mut [u8]) -> bool,
     {
         let handler_id = &handler as *const _ as usize;
         let mut_ptr: *mut (dyn FnMut(&mut [u8]) -> bool + 'static) = unsafe {
-            std::mem::transmute::<*mut dyn FnMut(&mut [u8]) -> bool, *mut (dyn FnMut(&mut [u8]) -> bool + 'static)>(&mut handler as *mut dyn FnMut(&mut [u8]) -> bool)
+            std::mem::transmute::<
+                *mut dyn FnMut(&mut [u8]) -> bool,
+                *mut (dyn FnMut(&mut [u8]) -> bool + 'static),
+            >(&mut handler as *mut dyn FnMut(&mut [u8]) -> bool)
         };
 
         CLAIM_HANDLERS.with(|handlers| {
@@ -209,12 +263,16 @@ impl PollAction for ControlledAction {
     }
 }
 
+type FragmentHandlerMap = RefCell<HashMap<usize, *mut dyn FnMut(&[u8])>>;
+type ClaimHandlerMap = RefCell<HashMap<usize, *mut dyn FnMut(&mut [u8]) -> bool>>;
+type ControlledHandlerMap = RefCell<HashMap<usize, *mut dyn FnMut(&[u8]) -> ControlledAction>>;
+
 // Thread-local registries for closures passed across the cxx boundary.
 // We use pointer-based handler IDs since cxx doesn't support passing trait objects directly.
 thread_local! {
-    static HANDLERS: RefCell<HashMap<usize, *mut dyn FnMut(&[u8])>> = RefCell::new(HashMap::new());
-    static CLAIM_HANDLERS: RefCell<HashMap<usize, *mut dyn FnMut(&mut [u8]) -> bool>> = RefCell::new(HashMap::new());
-    static CONTROLLED_HANDLERS: RefCell<HashMap<usize, *mut dyn FnMut(&[u8]) -> ControlledAction>> = RefCell::new(HashMap::new());
+    static HANDLERS: FragmentHandlerMap = RefCell::new(HashMap::new());
+    static CLAIM_HANDLERS: ClaimHandlerMap = RefCell::new(HashMap::new());
+    static CONTROLLED_HANDLERS: ControlledHandlerMap = RefCell::new(HashMap::new());
 }
 
 fn handle_fragment(handler_id: usize, buffer: &[u8]) {
@@ -259,24 +317,27 @@ pub struct Subscription {
 }
 
 impl Subscription {
-    pub fn poll<F>(&mut self, limit: i32, mut handler: F) -> i32 
-    where F: FnMut(&[u8])
+    pub fn poll<F>(&mut self, limit: i32, mut handler: F) -> i32
+    where
+        F: FnMut(&[u8]),
     {
         let handler_id = &handler as *const _ as usize;
         let mut_ptr: *mut (dyn FnMut(&[u8]) + 'static) = unsafe {
-            std::mem::transmute::<*mut dyn FnMut(&[u8]), *mut (dyn FnMut(&[u8]) + 'static)>(&mut handler as *mut dyn FnMut(&[u8]))
+            std::mem::transmute::<*mut dyn FnMut(&[u8]), *mut (dyn FnMut(&[u8]) + 'static)>(
+                &mut handler as *mut dyn FnMut(&[u8]),
+            )
         };
-        
+
         HANDLERS.with(|handlers| {
             handlers.borrow_mut().insert(handler_id, mut_ptr);
         });
-        
+
         let result = self.inner.pin_mut().poll(limit, handler_id);
-        
+
         HANDLERS.with(|handlers| {
             handlers.borrow_mut().remove(&handler_id);
         });
-        
+
         result
     }
 
@@ -292,9 +353,7 @@ impl Subscription {
         F: FnMut(&[u8]) -> R,
     {
         // Wrap the user's handler to always produce a ControlledAction
-        let mut controlled = |data: &[u8]| -> ControlledAction {
-            handler(data).into_action()
-        };
+        let mut controlled = |data: &[u8]| -> ControlledAction { handler(data).into_action() };
 
         let handler_id = &controlled as *const _ as usize;
         let mut_ptr: *mut (dyn FnMut(&[u8]) -> ControlledAction + 'static) = unsafe {
@@ -308,7 +367,10 @@ impl Subscription {
             handlers.borrow_mut().insert(handler_id, mut_ptr);
         });
 
-        let result = self.inner.pin_mut().controlledPollAssembled(limit, handler_id);
+        let result = self
+            .inner
+            .pin_mut()
+            .controlledPollAssembled(limit, handler_id);
 
         CONTROLLED_HANDLERS.with(|handlers| {
             handlers.borrow_mut().remove(&handler_id);
@@ -326,11 +388,19 @@ pub struct CountersReader {
     inner: cxx::UniquePtr<ffi::CountersReaderWrapper>,
 }
 
+type MetadataHandlerMap = RefCell<HashMap<usize, *mut dyn FnMut(i32, i32, &[u8], &str)>>;
+
 thread_local! {
-    static METADATA_HANDLERS: RefCell<HashMap<usize, *mut dyn FnMut(i32, i32, &[u8], &str)>> = RefCell::new(HashMap::new());
+    static METADATA_HANDLERS: MetadataHandlerMap = RefCell::new(HashMap::new());
 }
 
-fn handle_counters_metadata(handler_id: usize, counter_id: i32, type_id: i32, key: &[u8], label: String) {
+fn handle_counters_metadata(
+    handler_id: usize,
+    counter_id: i32,
+    type_id: i32,
+    key: &[u8],
+    label: String,
+) {
     METADATA_HANDLERS.with(|handlers| {
         if let Some(handler_ptr) = handlers.borrow_mut().get_mut(&handler_id) {
             unsafe {
@@ -362,20 +432,25 @@ impl CountersReader {
         self.inner.getCounterLabel(id)
     }
 
-    pub fn for_each<F>(&self, mut handler: F) 
-    where F: FnMut(i32, i32, &[u8], &str)
+    pub fn for_each<F>(&self, mut handler: F)
+    where
+        F: FnMut(i32, i32, &[u8], &str),
     {
         let handler_id = &handler as *const _ as usize;
+        #[allow(clippy::type_complexity)]
         let mut_ptr: *mut (dyn FnMut(i32, i32, &[u8], &str) + 'static) = unsafe {
-            std::mem::transmute::<*mut dyn FnMut(i32, i32, &[u8], &str), *mut (dyn FnMut(i32, i32, &[u8], &str) + 'static)>(&mut handler as *mut dyn FnMut(i32, i32, &[u8], &str))
+            std::mem::transmute::<
+                *mut dyn FnMut(i32, i32, &[u8], &str),
+                *mut (dyn FnMut(i32, i32, &[u8], &str) + 'static),
+            >(&mut handler as *mut dyn FnMut(i32, i32, &[u8], &str))
         };
-        
+
         METADATA_HANDLERS.with(|handlers| {
             handlers.borrow_mut().insert(handler_id, mut_ptr);
         });
-        
+
         self.inner.forEach(handler_id);
-        
+
         METADATA_HANDLERS.with(|handlers| {
             handlers.borrow_mut().remove(&handler_id);
         });
@@ -394,7 +469,9 @@ pub struct MediaDriver {
 
 impl MediaDriver {
     pub fn new() -> Self {
-        Self { inner: ffi::create_media_driver() }
+        Self {
+            inner: ffi::create_media_driver(),
+        }
     }
 
     pub fn start(&mut self) {
@@ -415,31 +492,73 @@ pub struct ChannelBuilder {
 
 impl ChannelBuilder {
     pub fn ipc() -> Self {
-        Self { media: "ipc", params: Vec::new() }
+        Self {
+            media: "ipc",
+            params: Vec::new(),
+        }
     }
 
     pub fn udp() -> Self {
-        Self { media: "udp", params: Vec::new() }
+        Self {
+            media: "udp",
+            params: Vec::new(),
+        }
     }
 
-    pub fn endpoint(self, value: &str) -> Self { self.param("endpoint", value) }
-    pub fn control(self, value: &str) -> Self { self.param("control", value) }
-    pub fn control_mode(self, value: &str) -> Self { self.param("control-mode", value) }
-    pub fn interface(self, value: &str) -> Self { self.param("interface", value) }
-    pub fn mtu(self, bytes: usize) -> Self { self.param("mtu", &bytes.to_string()) }
-    pub fn term_length(self, bytes: usize) -> Self { self.param("term-length", &bytes.to_string()) }
-    pub fn session_id(self, id: i32) -> Self { self.param("session-id", &id.to_string()) }
-    pub fn ttl(self, hops: u8) -> Self { self.param("ttl", &hops.to_string()) }
-    pub fn reliable(self, value: bool) -> Self { self.param("reliable", if value { "true" } else { "false" }) }
-    pub fn sparse(self, value: bool) -> Self { self.param("sparse", if value { "true" } else { "false" }) }
-    pub fn linger(self, ns: u64) -> Self { self.param("linger", &ns.to_string()) }
-    pub fn tether(self, value: bool) -> Self { self.param("tether", if value { "true" } else { "false" }) }
-    pub fn rejoin(self, value: bool) -> Self { self.param("rejoin", if value { "true" } else { "false" }) }
-    pub fn flow_control(self, value: &str) -> Self { self.param("fc", value) }
-    pub fn congestion_control(self, value: &str) -> Self { self.param("cc", value) }
-    pub fn socket_sndbuf(self, bytes: usize) -> Self { self.param("so-sndbuf", &bytes.to_string()) }
-    pub fn socket_rcvbuf(self, bytes: usize) -> Self { self.param("so-rcvbuf", &bytes.to_string()) }
-    pub fn receiver_window(self, bytes: usize) -> Self { self.param("rcv-wnd", &bytes.to_string()) }
+    pub fn endpoint(self, value: &str) -> Self {
+        self.param("endpoint", value)
+    }
+    pub fn control(self, value: &str) -> Self {
+        self.param("control", value)
+    }
+    pub fn control_mode(self, value: &str) -> Self {
+        self.param("control-mode", value)
+    }
+    pub fn interface(self, value: &str) -> Self {
+        self.param("interface", value)
+    }
+    pub fn mtu(self, bytes: usize) -> Self {
+        self.param("mtu", &bytes.to_string())
+    }
+    pub fn term_length(self, bytes: usize) -> Self {
+        self.param("term-length", &bytes.to_string())
+    }
+    pub fn session_id(self, id: i32) -> Self {
+        self.param("session-id", &id.to_string())
+    }
+    pub fn ttl(self, hops: u8) -> Self {
+        self.param("ttl", &hops.to_string())
+    }
+    pub fn reliable(self, value: bool) -> Self {
+        self.param("reliable", if value { "true" } else { "false" })
+    }
+    pub fn sparse(self, value: bool) -> Self {
+        self.param("sparse", if value { "true" } else { "false" })
+    }
+    pub fn linger(self, ns: u64) -> Self {
+        self.param("linger", &ns.to_string())
+    }
+    pub fn tether(self, value: bool) -> Self {
+        self.param("tether", if value { "true" } else { "false" })
+    }
+    pub fn rejoin(self, value: bool) -> Self {
+        self.param("rejoin", if value { "true" } else { "false" })
+    }
+    pub fn flow_control(self, value: &str) -> Self {
+        self.param("fc", value)
+    }
+    pub fn congestion_control(self, value: &str) -> Self {
+        self.param("cc", value)
+    }
+    pub fn socket_sndbuf(self, bytes: usize) -> Self {
+        self.param("so-sndbuf", &bytes.to_string())
+    }
+    pub fn socket_rcvbuf(self, bytes: usize) -> Self {
+        self.param("so-rcvbuf", &bytes.to_string())
+    }
+    pub fn receiver_window(self, bytes: usize) -> Self {
+        self.param("rcv-wnd", &bytes.to_string())
+    }
 
     pub fn param(mut self, key: &str, value: &str) -> Self {
         self.params.push((key.to_string(), value.to_string()));
@@ -474,11 +593,15 @@ mod tests {
         // 2. Connect client
         let mut client = AeronClient::new().expect("Failed to connect to media driver");
         client.start();
-        assert!(!client.is_closed()); 
+        assert!(!client.is_closed());
 
         // 3. Test Pub/Sub creation
-        let mut publ = client.add_publication("aeron:ipc", 10).expect("add pub failed");
-        let mut sub = client.add_subscription("aeron:ipc", 10).expect("add sub failed");
+        let publ = client
+            .add_publication("aeron:ipc", 10)
+            .expect("add pub failed");
+        let _sub = client
+            .add_subscription("aeron:ipc", 10)
+            .expect("add sub failed");
 
         assert!(publ.is_connected() || !publ.is_connected()); // Just testing boundary
     }
@@ -490,9 +613,7 @@ mod tests {
 
     #[test]
     fn test_channel_builder_udp() {
-        let uri = ChannelBuilder::udp()
-            .endpoint("localhost:20121")
-            .build();
+        let uri = ChannelBuilder::udp().endpoint("localhost:20121").build();
         assert_eq!(uri, "aeron:udp?endpoint=localhost:20121");
     }
 
@@ -504,7 +625,10 @@ mod tests {
             .term_length(65536)
             .reliable(true)
             .build();
-        assert_eq!(uri, "aeron:udp?endpoint=localhost:20121|mtu=8192|term-length=65536|reliable=true");
+        assert_eq!(
+            uri,
+            "aeron:udp?endpoint=localhost:20121|mtu=8192|term-length=65536|reliable=true"
+        );
     }
 
     #[test]
@@ -514,7 +638,10 @@ mod tests {
             .interface("localhost")
             .ttl(4)
             .build();
-        assert_eq!(uri, "aeron:udp?endpoint=224.0.1.1:40456|interface=localhost|ttl=4");
+        assert_eq!(
+            uri,
+            "aeron:udp?endpoint=224.0.1.1:40456|interface=localhost|ttl=4"
+        );
     }
 
     #[test]
@@ -523,14 +650,15 @@ mod tests {
             .control("localhost:40456")
             .control_mode("dynamic")
             .build();
-        assert_eq!(uri, "aeron:udp?control=localhost:40456|control-mode=dynamic");
+        assert_eq!(
+            uri,
+            "aeron:udp?control=localhost:40456|control-mode=dynamic"
+        );
     }
 
     #[test]
     fn test_channel_builder_custom_param() {
-        let uri = ChannelBuilder::ipc()
-            .param("alias", "my-channel")
-            .build();
+        let uri = ChannelBuilder::ipc().param("alias", "my-channel").build();
         assert_eq!(uri, "aeron:ipc?alias=my-channel");
     }
 }

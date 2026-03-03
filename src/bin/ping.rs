@@ -1,7 +1,7 @@
 use aeron_rs::{AeronClient, ExclusivePublication, Publication};
 use clap::Parser;
-use std::time::{Duration, Instant};
 use std::thread;
+use std::time::{Duration, Instant};
 
 const DEFAULT_CHANNEL: &str = "aeron:ipc";
 const PING_STREAM_ID: i32 = 10;
@@ -36,7 +36,8 @@ impl Pub {
         }
     }
     fn try_claim<F>(&mut self, length: usize, handler: F) -> i64
-    where F: FnMut(&mut [u8]) -> bool
+    where
+        F: FnMut(&mut [u8]) -> bool,
     {
         match self {
             Pub::Regular(p) => p.try_claim(length, handler),
@@ -60,11 +61,21 @@ fn main() {
 
     let mut publ = if args.exclusive {
         println!("Using ExclusivePublication");
-        Pub::Exclusive(client.add_exclusive_publication(&args.channel, PING_STREAM_ID).unwrap())
+        Pub::Exclusive(
+            client
+                .add_exclusive_publication(&args.channel, PING_STREAM_ID)
+                .unwrap(),
+        )
     } else {
-        Pub::Regular(client.add_publication(&args.channel, PING_STREAM_ID).unwrap())
+        Pub::Regular(
+            client
+                .add_publication(&args.channel, PING_STREAM_ID)
+                .unwrap(),
+        )
     };
-    let mut sub = client.add_subscription(&args.channel, PONG_STREAM_ID).unwrap();
+    let mut sub = client
+        .add_subscription(&args.channel, PONG_STREAM_ID)
+        .unwrap();
 
     println!("Waiting for pong subscriber...");
     while !publ.is_connected() {
@@ -83,7 +94,8 @@ fn main() {
             while publ.try_claim(5, |buf| {
                 buf[..5].copy_from_slice(b"ping!");
                 true
-            }) < 0 {
+            }) < 0
+            {
                 thread::yield_now();
             }
         } else {
@@ -96,7 +108,10 @@ fn main() {
         let mut received = false;
         while !received {
             sub.poll_assembled(1, |data| {
-                println!("Ping received response: {:?}", std::str::from_utf8(data).unwrap());
+                println!(
+                    "Ping received response: {:?}",
+                    std::str::from_utf8(data).unwrap()
+                );
                 received = true;
             });
             thread::yield_now();
