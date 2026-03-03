@@ -6,6 +6,9 @@ authors = ["Davide"]
 description = "Safe C++ bindings for Aeron via cxx"
 license = "Apache-2.0"
 
+[features]
+archive = []
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 ctrlc = "3.5"
@@ -44,3 +47,13 @@ path = "src/bin/large_ping.rs"
 [[bin]]
 name = "large_pong"
 path = "src/bin/large_pong.rs"
+
+[[bin]]
+name = "record"
+path = "src/bin/record.rs"
+required-features = ["archive"]
+
+[[bin]]
+name = "replay"
+path = "src/bin/replay.rs"
+required-features = ["archive"]

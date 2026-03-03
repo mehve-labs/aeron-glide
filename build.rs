@@ -25,11 +25,13 @@ fn main() {
         download_and_extract(&url, &out_dir);
     }
 
+    let archive_enabled = env::var("CARGO_FEATURE_ARCHIVE").is_ok();
+
     // Build Aeron C++ using CMake
     let mut config = Config::new(&aeron_dir);
     config
         .define("BUILD_AERON_DRIVER", "ON")
-        .define("BUILD_AERON_ARCHIVE_API", "OFF")
+        .define("BUILD_AERON_ARCHIVE_API", if archive_enabled { "ON" } else { "OFF" })
         .define("AERON_TESTS", "OFF")
         .define("AERON_BUILD_SAMPLES", "OFF")
         .define("AERON_BUILD_DOCUMENTATION", "OFF");
@@ -60,6 +62,10 @@ fn main() {
     println!("cargo:rustc-link-lib=static=aeron_static");
     println!("cargo:rustc-link-lib=static=aeron_driver_static");
 
+    if archive_enabled {
+        println!("cargo:rustc-link-lib=static=aeron_archive_c_client_static");
+    }
+
     // OS specific dependencies
     if cfg!(target_os = "windows") {
         println!("cargo:rustc-link-lib=shell32");
@@ -74,16 +80,33 @@ fn main() {
     let c_client_include_path = aeron_dir.join("aeron-client/src/main/c");
     let driver_include_path = aeron_dir.join("aeron-driver/src/main/c");
 
-    // Build the cxx bridge
-    cxx_build::bridge("src/lib.rs")
+    // Build the cxx bridge(s)
+    let mut bridge_sources: Vec<&str> = vec!["src/lib.rs"];
+    if archive_enabled {
+        bridge_sources.push("src/archive.rs");
+        println!("cargo:rerun-if-changed=src/archive.rs");
+    }
+
+    let mut builder = cxx_build::bridges(bridge_sources);
+    builder
         .file("src/shim.cc")
-        .include(include_path)
-        .include(c_client_include_path)
-        .include(driver_include_path)
+        .include(&include_path)
+        .include(&c_client_include_path)
+        .include(&driver_include_path)
         .include("src")
         .flag_if_supported("-std=c++14")
-        .flag_if_supported("-Wno-unused-parameter")
-        .compile("aeron_rs_cxx");
+        .flag_if_supported("-Wno-unused-parameter");
+
+    if archive_enabled {
+        let archive_cpp_path = aeron_dir.join("aeron-archive/src/main/cpp_wrapper");
+        let archive_c_path = aeron_dir.join("aeron-archive/src/main/c");
+        builder
+            .include(&archive_cpp_path)
+            .include(&archive_c_path)
+            .define("AERON_ARCHIVE", None);
+    }
+
+    builder.compile("aeron_rs_cxx");
 }
 
 fn download_and_extract(url: &str, dest_dir: &PathBuf) {

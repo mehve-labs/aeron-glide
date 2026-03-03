@@ -1,3 +1,6 @@
+#[cfg(feature = "archive")]
+pub mod archive;
+
 #[cxx::bridge(namespace = "aeron_rs")]
 pub mod ffi {
     unsafe extern "C++" {

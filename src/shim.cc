@@ -339,4 +339,154 @@ std::unique_ptr<MediaDriverWrapper> create_media_driver() {
     return std::unique_ptr<MediaDriverWrapper>(new MediaDriverWrapper());
 }
 
+} // namespace aeron_rs (close before archive include to avoid double namespace)
+
+#ifdef AERON_ARCHIVE
+#include "aeron-rs/src/archive.rs.h"
+
+namespace aeron_rs {
+
+ArchiveWrapper::ArchiveWrapper(std::shared_ptr<aeron::archive::client::AeronArchive> archive)
+    : archive_(archive) {}
+
+ArchiveWrapper::~ArchiveWrapper() {}
+
+int64_t ArchiveWrapper::startRecording(::rust::Str channel, int32_t stream_id, int32_t source_location, bool auto_stop) {
+    return archive_->startRecording(
+        std::string(channel.data(), channel.size()),
+        stream_id,
+        static_cast<aeron::archive::client::AeronArchive::SourceLocation>(source_location),
+        auto_stop);
+}
+
+void ArchiveWrapper::stopRecording(int64_t subscription_id) {
+    archive_->stopRecording(subscription_id);
+}
+
+void ArchiveWrapper::stopRecordingByChannelAndStream(::rust::Str channel, int32_t stream_id) {
+    archive_->stopRecording(std::string(channel.data(), channel.size()), stream_id);
+}
+
+int64_t ArchiveWrapper::getRecordingPosition(int64_t recording_id) {
+    return archive_->getRecordingPosition(recording_id);
+}
+
+int64_t ArchiveWrapper::getStartPosition(int64_t recording_id) {
+    return archive_->getStartPosition(recording_id);
+}
+
+int64_t ArchiveWrapper::getStopPosition(int64_t recording_id) {
+    return archive_->getStopPosition(recording_id);
+}
+
+int64_t ArchiveWrapper::getMaxRecordedPosition(int64_t recording_id) {
+    return archive_->getMaxRecordedPosition(recording_id);
+}
+
+int32_t ArchiveWrapper::listRecordings(int64_t from_recording_id, int32_t record_count, size_t handler_id) {
+    auto consumer = [handler_id](aeron::archive::client::RecordingDescriptor& rd) {
+        aeron_rs::handle_recording_descriptor(
+            handler_id,
+            rd.m_controlSessionId,
+            rd.m_correlationId,
+            rd.m_recordingId,
+            rd.m_startTimestamp,
+            rd.m_stopTimestamp,
+            rd.m_startPosition,
+            rd.m_stopPosition,
+            rd.m_initialTermId,
+            rd.m_segmentFileLength,
+            rd.m_termBufferLength,
+            rd.m_mtuLength,
+            rd.m_sessionId,
+            rd.m_streamId,
+            ::rust::String(rd.m_strippedChannel),
+            ::rust::String(rd.m_originalChannel));
+    };
+    return archive_->listRecordings(from_recording_id, record_count, consumer);
+}
+
+int32_t ArchiveWrapper::listRecordingsForUri(int64_t from_recording_id, int32_t record_count, ::rust::Str channel_fragment, int32_t stream_id, size_t handler_id) {
+    auto consumer = [handler_id](aeron::archive::client::RecordingDescriptor& rd) {
+        aeron_rs::handle_recording_descriptor(
+            handler_id,
+            rd.m_controlSessionId,
+            rd.m_correlationId,
+            rd.m_recordingId,
+            rd.m_startTimestamp,
+            rd.m_stopTimestamp,
+            rd.m_startPosition,
+            rd.m_stopPosition,
+            rd.m_initialTermId,
+            rd.m_segmentFileLength,
+            rd.m_termBufferLength,
+            rd.m_mtuLength,
+            rd.m_sessionId,
+            rd.m_streamId,
+            ::rust::String(rd.m_strippedChannel),
+            ::rust::String(rd.m_originalChannel));
+    };
+    return archive_->listRecordingsForUri(
+        from_recording_id, record_count,
+        std::string(channel_fragment.data(), channel_fragment.size()),
+        stream_id, consumer);
+}
+
+int64_t ArchiveWrapper::findLastMatchingRecording(int64_t min_recording_id, ::rust::Str channel_fragment, int32_t stream_id, int32_t session_id) {
+    return archive_->findLastMatchingRecording(
+        min_recording_id,
+        std::string(channel_fragment.data(), channel_fragment.size()),
+        stream_id, session_id);
+}
+
+int64_t ArchiveWrapper::startReplay(int64_t recording_id, ::rust::Str replay_channel, int32_t replay_stream_id, int64_t position, int64_t length) {
+    aeron::archive::client::ReplayParams params;
+    params.position(position).length(length);
+    return archive_->startReplay(
+        recording_id,
+        std::string(replay_channel.data(), replay_channel.size()),
+        replay_stream_id, params);
+}
+
+void ArchiveWrapper::stopReplay(int64_t replay_session_id) {
+    archive_->stopReplay(replay_session_id);
+}
+
+void ArchiveWrapper::stopAllReplays(int64_t recording_id) {
+    archive_->stopAllReplays(recording_id);
+}
+
+int64_t ArchiveWrapper::truncateRecording(int64_t recording_id, int64_t position) {
+    return archive_->truncateRecording(recording_id, position);
+}
+
+::rust::String ArchiveWrapper::pollForErrorResponse() {
+    return ::rust::String(archive_->pollForErrorResponse());
+}
+
+void ArchiveWrapper::checkForErrorResponse() {
+    archive_->checkForErrorResponse();
+}
+
+int64_t ArchiveWrapper::archiveId() const {
+    return archive_->archiveId();
+}
+
+int64_t ArchiveWrapper::controlSessionId() const {
+    return archive_->controlSessionId();
+}
+
+std::unique_ptr<ArchiveWrapper> connect_archive(
+    ::rust::Str control_request_channel, int32_t control_request_stream_id,
+    ::rust::Str control_response_channel, int32_t control_response_stream_id) {
+    aeron::archive::client::Context ctx;
+    ctx.controlRequestChannel(std::string(control_request_channel.data(), control_request_channel.size()));
+    ctx.controlRequestStreamId(control_request_stream_id);
+    ctx.controlResponseChannel(std::string(control_response_channel.data(), control_response_channel.size()));
+    ctx.controlResponseStreamId(control_response_stream_id);
+    auto archive = aeron::archive::client::AeronArchive::connect(ctx);
+    return std::unique_ptr<ArchiveWrapper>(new ArchiveWrapper(archive));
+}
+
 } // namespace aeron_rs
+#endif

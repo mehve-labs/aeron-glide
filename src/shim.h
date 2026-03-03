@@ -6,6 +6,12 @@
 #include <ControlledFragmentAssembler.h>
 #include "rust/cxx.h"
 
+#ifdef AERON_ARCHIVE
+#include <client/archive/AeronArchive.h>
+#include <client/archive/ArchiveContext.h>
+#include <client/archive/ReplayParams.h>
+#endif
+
 // Forward declarations for C driver types (defined in aeronmd.h)
 extern "C" {
     struct aeron_driver_context_stct;
@@ -147,5 +153,51 @@ private:
 std::unique_ptr<ContextWrapper> create_context();
 std::unique_ptr<AeronWrapper> create_aeron(std::unique_ptr<ContextWrapper> context);
 std::unique_ptr<MediaDriverWrapper> create_media_driver();
+
+#ifdef AERON_ARCHIVE
+class ArchiveWrapper {
+public:
+    ArchiveWrapper(std::shared_ptr<aeron::archive::client::AeronArchive> archive);
+    ~ArchiveWrapper();
+
+    // Recording
+    int64_t startRecording(::rust::Str channel, int32_t stream_id, int32_t source_location, bool auto_stop);
+    void stopRecording(int64_t subscription_id);
+    void stopRecordingByChannelAndStream(::rust::Str channel, int32_t stream_id);
+
+    // Position queries
+    int64_t getRecordingPosition(int64_t recording_id);
+    int64_t getStartPosition(int64_t recording_id);
+    int64_t getStopPosition(int64_t recording_id);
+    int64_t getMaxRecordedPosition(int64_t recording_id);
+
+    // Listing
+    int32_t listRecordings(int64_t from_recording_id, int32_t record_count, size_t handler_id);
+    int32_t listRecordingsForUri(int64_t from_recording_id, int32_t record_count, ::rust::Str channel_fragment, int32_t stream_id, size_t handler_id);
+    int64_t findLastMatchingRecording(int64_t min_recording_id, ::rust::Str channel_fragment, int32_t stream_id, int32_t session_id);
+
+    // Replay
+    int64_t startReplay(int64_t recording_id, ::rust::Str replay_channel, int32_t replay_stream_id, int64_t position, int64_t length);
+    void stopReplay(int64_t replay_session_id);
+    void stopAllReplays(int64_t recording_id);
+
+    // Truncate
+    int64_t truncateRecording(int64_t recording_id, int64_t position);
+
+    // Error polling
+    ::rust::String pollForErrorResponse();
+    void checkForErrorResponse();
+
+    int64_t archiveId() const;
+    int64_t controlSessionId() const;
+
+private:
+    std::shared_ptr<aeron::archive::client::AeronArchive> archive_;
+};
+
+std::unique_ptr<ArchiveWrapper> connect_archive(
+    ::rust::Str control_request_channel, int32_t control_request_stream_id,
+    ::rust::Str control_response_channel, int32_t control_response_stream_id);
+#endif
 
 } // namespace aeron_rs

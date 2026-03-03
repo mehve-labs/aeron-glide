@@ -47,9 +47,18 @@ The `aeron-rs` project currently demonstrates basic IPC Publication and Subscrip
   - `MediaDriver::new()` and `start()` now return `Result`.
   - Renamed `aeronmd` binary to `mediadriver`. Config via YAML file (`example_configs/mediadriver.yaml`) instead of CLI flags.
   
-- [ ] **Aeron Archive & Image Buffers**
+- [x] **Aeron Archive**
+  - Expose the Aeron Archive API (recording, replay, listing, position queries, truncation) via the C++ Archive wrapper.
+  - Gated behind `archive` Cargo feature flag (requires Java 17+ for SBE codec generation).
+  - `AeronArchive::connect()` with configurable control request/response channels.
+  - Recording: `start_recording`, `stop_recording`, `stop_recording_by_channel_and_stream`.
+  - Replay: `start_replay`, `stop_replay`, `stop_all_replays`.
+  - Listing: `list_recordings`, `list_recordings_for_uri`, `find_last_matching_recording` with closure-based `RecordingDescriptor` callback.
+  - Position: `get_recording_position`, `get_start_position`, `get_stop_position`, `get_max_recorded_position`.
+  - Error polling: `poll_for_error_response`, `check_for_error_response`.
+
+- [ ] **Image Buffers**
   - Bind `aeron::Image` to expose lower-level control of active streams.
-  - Expose the Aeron Archive API (which enables recording streams to disk and replaying them) via the C++ Archive client.
 
 - [ ] **Replay Merge**
   - Bind the Aeron Archive replay-merge functionality to seamlessly combine a recorded stream replay with a live stream for gap-fill scenarios.

@@ -17,6 +17,7 @@ The result is a fast, safe, and significantly cleaner Aeron client for Rust.
 - **CMake** (for building the Aeron C++ Driver from source)
 - **Rust** (Cargo)
 - **C++14+ compiler**
+- **Java JDK 17+** (only required when building with `--features archive`)
 
 *(Note: The `build.rs` script will automatically fetch and compile Aeron `v1.50.2` for you during the initial `cargo build`.)*
 
@@ -89,3 +90,72 @@ cargo run --bin counters
 ```
 
 The `ping` binary also prints counters after its run.
+
+## Archive Support
+
+The Aeron Archive enables recording streams to disk and replaying them later.
+
+**Important**: The Aeron Archive **server** (the process that actually records and replays streams) is Java-only — it is not exposed by the C or C++ API. You must run the Java `ArchivingMediaDriver` separately. This crate provides the **client** bindings that connect to and control that server.
+
+Archive support is behind a Cargo feature flag because it requires Java 17+ at build time (for SBE codec generation):
+
+```bash
+cargo build --features archive
+```
+
+If your default Java is too old, set `JAVA_HOME`:
+
+```bash
+JAVA_HOME=/path/to/jdk17+ cargo build --features archive
+```
+
+### Running the Archive Server
+
+Start the Java ArchivingMediaDriver (which includes both a media driver and the archive):
+
+```bash
+bash scripts/start-archive.sh
+```
+
+This finds the `aeron-all` jar built during `cargo build --features archive` and launches the server. Keep it running in a dedicated terminal.
+
+### Record / Replay
+
+With the archive server running:
+
+```bash
+# Terminal 2: Record 10 messages to the archive
+cargo run --features archive --bin record
+
+# Terminal 3: Replay all recorded messages from the beginning
+cargo run --features archive --bin replay
+```
+
+### Archive Client API
+
+The archive client API provides:
+- **Recording**: start/stop recording any channel+stream to the archive
+- **Replay**: replay recorded streams from any position
+- **Listing**: query recording descriptors by ID, channel, or stream
+- **Position queries**: get recording/start/stop/max positions
+- **Truncation**: truncate stopped recordings
+
+```rust
+use aeron_rs::archive::{AeronArchive, SourceLocation};
+
+let mut archive = AeronArchive::connect(
+    "aeron:udp?endpoint=localhost:8010", 10,  // control request
+    "aeron:udp?endpoint=localhost:0", 20,     // control response
+)?;
+
+// Start recording
+let sub_id = archive.start_recording("aeron:ipc", 1001, SourceLocation::Local, false)?;
+
+// List recordings
+archive.list_recordings(0, 100, |desc| {
+    println!("Recording {}: stream={} channel={}", desc.recording_id, desc.stream_id, desc.stripped_channel);
+})?;
+
+// Replay
+let replay_session = archive.start_replay(0, "aeron:ipc", 1002, 0, i64::MAX)?;
+```
