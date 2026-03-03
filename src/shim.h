@@ -3,6 +3,7 @@
 #include <string>
 #include <Aeron.h>
 #include <FragmentAssembler.h>
+#include <ControlledFragmentAssembler.h>
 #include "rust/cxx.h"
 
 namespace aeron_rs {
@@ -57,12 +58,15 @@ public:
 
     int poll(int fragment_limit, size_t handler_id);
     int pollAssembled(int fragment_limit, size_t handler_id);
+    int controlledPollAssembled(int fragment_limit, size_t handler_id);
     bool isConnected() const;
 
 private:
     std::shared_ptr<aeron::Subscription> sub;
     size_t assembled_handler_id_ = 0;
+    size_t controlled_handler_id_ = 0;
     aeron::FragmentAssembler assembler_;
+    aeron::ControlledFragmentAssembler controlled_assembler_;
 };
 
 class CountersReaderWrapper {

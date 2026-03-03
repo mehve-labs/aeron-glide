@@ -34,6 +34,7 @@ pub mod ffi {
 
         fn poll(self: Pin<&mut SubscriptionWrapper>, fragment_limit: i32, handler_id: usize) -> i32;
         fn pollAssembled(self: Pin<&mut SubscriptionWrapper>, fragment_limit: i32, handler_id: usize) -> i32;
+        fn controlledPollAssembled(self: Pin<&mut SubscriptionWrapper>, fragment_limit: i32, handler_id: usize) -> i32;
         fn isConnected(self: &SubscriptionWrapper) -> bool;
 
         fn maxCounterId(self: &CountersReaderWrapper) -> i32;
@@ -46,6 +47,7 @@ pub mod ffi {
 
     extern "Rust" {
         fn handle_fragment(handler_id: usize, buffer: &[u8]);
+        fn handle_controlled_fragment(handler_id: usize, buffer: &[u8]) -> i32;
         fn handle_claim(handler_id: usize, buffer: &mut [u8]) -> bool;
         fn handle_counters_metadata(handler_id: usize, counter_id: i32, type_id: i32, key: &[u8], label: String);
     }
@@ -172,11 +174,47 @@ impl ExclusivePublication {
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+/// Flow-control actions for `poll_assembled` when the handler returns a `ControlledAction`.
+/// Matches Aeron's `ControlledPollAction` enum values.
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlledAction {
+    /// Abort polling — rewind position, re-deliver this fragment next poll.
+    Abort = 0,
+    /// Stop polling this image, commit position up to this fragment.
+    Break = 1,
+    /// Checkpoint position for flow control, continue polling.
+    Commit = 2,
+    /// Continue processing (default behavior).
+    Continue = 3,
+}
+
+/// Trait that allows `poll_assembled` to accept handlers returning either `()` or `ControlledAction`.
+/// Closures returning `()` map to `ControlledAction::Continue`.
+pub trait PollAction {
+    fn into_action(self) -> ControlledAction;
+}
+
+impl PollAction for () {
+    #[inline]
+    fn into_action(self) -> ControlledAction {
+        ControlledAction::Continue
+    }
+}
+
+impl PollAction for ControlledAction {
+    #[inline]
+    fn into_action(self) -> ControlledAction {
+        self
+    }
+}
+
 // Thread-local registries for closures passed across the cxx boundary.
 // We use pointer-based handler IDs since cxx doesn't support passing trait objects directly.
 thread_local! {
     static HANDLERS: RefCell<HashMap<usize, *mut dyn FnMut(&[u8])>> = RefCell::new(HashMap::new());
     static CLAIM_HANDLERS: RefCell<HashMap<usize, *mut dyn FnMut(&mut [u8]) -> bool>> = RefCell::new(HashMap::new());
+    static CONTROLLED_HANDLERS: RefCell<HashMap<usize, *mut dyn FnMut(&[u8]) -> ControlledAction>> = RefCell::new(HashMap::new());
 }
 
 fn handle_fragment(handler_id: usize, buffer: &[u8]) {
@@ -188,6 +226,19 @@ fn handle_fragment(handler_id: usize, buffer: &[u8]) {
             }
         }
     });
+}
+
+fn handle_controlled_fragment(handler_id: usize, buffer: &[u8]) -> i32 {
+    CONTROLLED_HANDLERS.with(|handlers| {
+        if let Some(handler_ptr) = handlers.borrow_mut().get_mut(&handler_id) {
+            unsafe {
+                let handler = &mut **handler_ptr;
+                handler(buffer) as i32
+            }
+        } else {
+            ControlledAction::Abort as i32
+        }
+    })
 }
 
 fn handle_claim(handler_id: usize, buffer: &mut [u8]) -> bool {
@@ -232,21 +283,34 @@ impl Subscription {
     /// Poll with automatic fragment reassembly. Messages that span multiple fragments
     /// are reassembled before being delivered to the handler, which always receives
     /// complete messages.
-    pub fn poll_assembled<F>(&mut self, limit: i32, mut handler: F) -> i32
-    where F: FnMut(&[u8])
+    ///
+    /// The handler can return `()` (maps to Continue) or a `ControlledAction` for
+    /// flow-control (Abort to retry, Break to stop, Commit to checkpoint, Continue to proceed).
+    pub fn poll_assembled<R, F>(&mut self, limit: i32, mut handler: F) -> i32
+    where
+        R: PollAction,
+        F: FnMut(&[u8]) -> R,
     {
-        let handler_id = &handler as *const _ as usize;
-        let mut_ptr: *mut (dyn FnMut(&[u8]) + 'static) = unsafe {
-            std::mem::transmute::<*mut dyn FnMut(&[u8]), *mut (dyn FnMut(&[u8]) + 'static)>(&mut handler as *mut dyn FnMut(&[u8]))
+        // Wrap the user's handler to always produce a ControlledAction
+        let mut controlled = |data: &[u8]| -> ControlledAction {
+            handler(data).into_action()
         };
 
-        HANDLERS.with(|handlers| {
+        let handler_id = &controlled as *const _ as usize;
+        let mut_ptr: *mut (dyn FnMut(&[u8]) -> ControlledAction + 'static) = unsafe {
+            std::mem::transmute::<
+                *mut dyn FnMut(&[u8]) -> ControlledAction,
+                *mut (dyn FnMut(&[u8]) -> ControlledAction + 'static),
+            >(&mut controlled as *mut dyn FnMut(&[u8]) -> ControlledAction)
+        };
+
+        CONTROLLED_HANDLERS.with(|handlers| {
             handlers.borrow_mut().insert(handler_id, mut_ptr);
         });
 
-        let result = self.inner.pin_mut().pollAssembled(limit, handler_id);
+        let result = self.inner.pin_mut().controlledPollAssembled(limit, handler_id);
 
-        HANDLERS.with(|handlers| {
+        CONTROLLED_HANDLERS.with(|handlers| {
             handlers.borrow_mut().remove(&handler_id);
         });
 

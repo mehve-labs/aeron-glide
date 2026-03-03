@@ -1,4 +1,4 @@
-use aeron_rs::AeronClient;
+use aeron_rs::{AeronClient, ControlledAction};
 use std::time::Duration;
 use std::thread;
 
@@ -7,7 +7,7 @@ const PING_STREAM_ID: i32 = 20;
 const PONG_STREAM_ID: i32 = 21;
 
 fn main() {
-    println!("Starting large_pong (fragment assembler)...");
+    println!("Starting large_pong (controlled flow + fragment assembler)...");
 
     let mut client = AeronClient::new().expect("Failed to start Aeron");
     client.start();
@@ -18,14 +18,19 @@ fn main() {
     println!("large_pong waiting for messages...");
 
     loop {
-        let _ = sub.poll_assembled(10, |data| {
+        // poll_assembled with ControlledAction: if we can't echo back immediately,
+        // return Abort so Aeron rewinds and re-delivers the message next poll.
+        let _ = sub.poll_assembled(10, |data| -> ControlledAction {
             let seq = u32::from_le_bytes(data[..4].try_into().unwrap());
-            println!("Received assembled ping: seq={}, size={} bytes", seq, data.len());
 
-            // Echo the full reassembled message back
-            while publ.offer(data) < 0 {
-                thread::yield_now();
+            if publ.offer(data) < 0 {
+                // Back-pressure: can't send right now, tell Aeron to retry
+                println!("  seq={}: back-pressure, aborting", seq);
+                return ControlledAction::Abort;
             }
+
+            println!("Echoed ping: seq={}, size={} bytes", seq, data.len());
+            ControlledAction::Continue
         });
 
         thread::sleep(Duration::from_millis(1));

@@ -25,9 +25,10 @@ The `aeron-rs` project currently demonstrates basic IPC Publication and Subscrip
   - Provide a safe Rust closure interface for reassembled message handlers.
   - `Subscription::poll_assembled()` method reuses existing handler trampoline. Used by default in ping/pong.
 
-- [ ] **Controlled Fragment Handlers**
+- [x] **Controlled Fragment Handlers**
   - Bind `aeron::ControlledFragmentAssembler` and the `ControlledFragmentHandler` interface.
   - Expose flow-control actions (ABORT, BREAK, COMMIT, CONTINUE) to give consumers back-pressure control over polling.
+  - Unified into `poll_assembled` via `PollAction` trait: closures returning `()` map to CONTINUE, closures returning `ControlledAction` get full flow control. Demonstrated in `large_pong`.
 
 - [ ] **Async Resource Creation**
   - Bind `aeron::Aeron::asyncAddPublication`, `asyncAddExclusivePublication`, `asyncAddSubscription`, and `asyncAddCounter`.

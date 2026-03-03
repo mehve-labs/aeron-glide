@@ -109,6 +109,11 @@ SubscriptionWrapper::SubscriptionWrapper(std::shared_ptr<aeron::Subscription> su
       assembler_([this](aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
           rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
           aeron_rs::handle_fragment(this->assembled_handler_id_, slice);
+      }),
+      controlled_assembler_([this](aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) -> aeron::ControlledPollAction {
+          rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
+          int32_t action = aeron_rs::handle_controlled_fragment(this->controlled_handler_id_, slice);
+          return static_cast<aeron::ControlledPollAction>(action);
       }) {}
 
 SubscriptionWrapper::~SubscriptionWrapper() {}
@@ -124,6 +129,11 @@ int SubscriptionWrapper::poll(int fragment_limit, size_t handler_id) {
 int SubscriptionWrapper::pollAssembled(int fragment_limit, size_t handler_id) {
     assembled_handler_id_ = handler_id;
     return sub->poll(assembler_.handler(), fragment_limit);
+}
+
+int SubscriptionWrapper::controlledPollAssembled(int fragment_limit, size_t handler_id) {
+    controlled_handler_id_ = handler_id;
+    return sub->controlledPoll(controlled_assembler_.handler(), fragment_limit);
 }
 
 bool SubscriptionWrapper::isConnected() const {
