@@ -34,3 +34,11 @@ path = "src/bin/aeronmd.rs"
 [[bin]]
 name = "counters"
 path = "src/bin/counters.rs"
+
+[[bin]]
+name = "large_ping"
+path = "src/bin/large_ping.rs"
+
+[[bin]]
+name = "large_pong"
+path = "src/bin/large_pong.rs"

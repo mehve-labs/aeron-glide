@@ -33,6 +33,7 @@ pub mod ffi {
         fn isConnected(self: &ExclusivePublicationWrapper) -> bool;
 
         fn poll(self: Pin<&mut SubscriptionWrapper>, fragment_limit: i32, handler_id: usize) -> i32;
+        fn pollAssembled(self: Pin<&mut SubscriptionWrapper>, fragment_limit: i32, handler_id: usize) -> i32;
         fn isConnected(self: &SubscriptionWrapper) -> bool;
 
         fn maxCounterId(self: &CountersReaderWrapper) -> i32;
@@ -225,6 +226,30 @@ impl Subscription {
             handlers.borrow_mut().remove(&handler_id);
         });
         
+        result
+    }
+
+    /// Poll with automatic fragment reassembly. Messages that span multiple fragments
+    /// are reassembled before being delivered to the handler, which always receives
+    /// complete messages.
+    pub fn poll_assembled<F>(&mut self, limit: i32, mut handler: F) -> i32
+    where F: FnMut(&[u8])
+    {
+        let handler_id = &handler as *const _ as usize;
+        let mut_ptr: *mut (dyn FnMut(&[u8]) + 'static) = unsafe {
+            std::mem::transmute::<*mut dyn FnMut(&[u8]), *mut (dyn FnMut(&[u8]) + 'static)>(&mut handler as *mut dyn FnMut(&[u8]))
+        };
+
+        HANDLERS.with(|handlers| {
+            handlers.borrow_mut().insert(handler_id, mut_ptr);
+        });
+
+        let result = self.inner.pin_mut().pollAssembled(limit, handler_id);
+
+        HANDLERS.with(|handlers| {
+            handlers.borrow_mut().remove(&handler_id);
+        });
+
         result
     }
 

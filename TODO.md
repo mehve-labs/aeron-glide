@@ -20,9 +20,10 @@ The `aeron-rs` project currently demonstrates basic IPC Publication and Subscrip
   - Callback-based API: closure receives `&mut [u8]` into shared memory, returns bool (commit/abort).
   - Integrated in ping example via `--zero-copy` CLI flag.
 
-- [ ] **Aeron Fragment Assemblers**
+- [x] **Aeron Fragment Assemblers**
   - Bind `aeron::FragmentAssembler` to automatically reassemble messages that exceed the MTU (Maximum Transmission Unit) across multiple fragments.
   - Provide a safe Rust closure interface for reassembled message handlers.
+  - `Subscription::poll_assembled()` method reuses existing handler trampoline. Used by default in ping/pong.
 
 - [ ] **Controlled Fragment Handlers**
   - Bind `aeron::ControlledFragmentAssembler` and the `ControlledFragmentHandler` interface.

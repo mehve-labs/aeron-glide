@@ -104,7 +104,12 @@ bool ExclusivePublicationWrapper::isConnected() const {
     return pub->isConnected();
 }
 
-SubscriptionWrapper::SubscriptionWrapper(std::shared_ptr<aeron::Subscription> sub) : sub(sub) {}
+SubscriptionWrapper::SubscriptionWrapper(std::shared_ptr<aeron::Subscription> sub)
+    : sub(sub),
+      assembler_([this](aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
+          rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
+          aeron_rs::handle_fragment(this->assembled_handler_id_, slice);
+      }) {}
 
 SubscriptionWrapper::~SubscriptionWrapper() {}
 
@@ -114,6 +119,11 @@ int SubscriptionWrapper::poll(int fragment_limit, size_t handler_id) {
         aeron_rs::handle_fragment(handler_id, slice);
     };
     return sub->poll(fragment_handler, fragment_limit);
+}
+
+int SubscriptionWrapper::pollAssembled(int fragment_limit, size_t handler_id) {
+    assembled_handler_id_ = handler_id;
+    return sub->poll(assembler_.handler(), fragment_limit);
 }
 
 bool SubscriptionWrapper::isConnected() const {

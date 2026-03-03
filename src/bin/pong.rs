@@ -49,7 +49,7 @@ fn main() {
 
     // We run endlessly in this example, echoing anything we get
     loop {
-        let _ = sub.poll(1, |data| {
+        let _ = sub.poll_assembled(1, |data| {
             println!("Pong received ping: {:?}", std::str::from_utf8(data).unwrap());
 
             // Re-offer the exact same message bytes back to the other stream
