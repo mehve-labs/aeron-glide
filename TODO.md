@@ -39,9 +39,10 @@ The `aeron-rs` project currently demonstrates basic IPC Publication and Subscrip
   - Added `--channel` CLI flag to ping and pong (default: `aeron:ipc`).
   - UDP usage: `--channel "aeron:udp?endpoint=localhost:20121"`.
 
-- [ ] **URI / Channel Builder**
-  - Provide a Rust-side builder for constructing Aeron channel URIs programmatically (endpoint, control, interface, MTU, term length, etc.).
-  - Eliminates error-prone manual string construction.
+- [x] **URI / Channel Builder**
+  - Pure Rust `ChannelBuilder` with `ipc()` / `udp()` constructors and typed methods for all common params.
+  - Generic `param(key, value)` escape hatch for any Aeron URI parameter.
+  - 6 unit tests covering IPC, UDP, multicast, MDC, multi-param, and custom params.
 
 - [ ] **Aeron Archive & Image Buffers**
   - Bind `aeron::Image` to expose lower-level control of active streams.

@@ -408,6 +408,56 @@ impl Default for MediaDriver {
     }
 }
 
+pub struct ChannelBuilder {
+    media: &'static str,
+    params: Vec<(String, String)>,
+}
+
+impl ChannelBuilder {
+    pub fn ipc() -> Self {
+        Self { media: "ipc", params: Vec::new() }
+    }
+
+    pub fn udp() -> Self {
+        Self { media: "udp", params: Vec::new() }
+    }
+
+    pub fn endpoint(self, value: &str) -> Self { self.param("endpoint", value) }
+    pub fn control(self, value: &str) -> Self { self.param("control", value) }
+    pub fn control_mode(self, value: &str) -> Self { self.param("control-mode", value) }
+    pub fn interface(self, value: &str) -> Self { self.param("interface", value) }
+    pub fn mtu(self, bytes: usize) -> Self { self.param("mtu", &bytes.to_string()) }
+    pub fn term_length(self, bytes: usize) -> Self { self.param("term-length", &bytes.to_string()) }
+    pub fn session_id(self, id: i32) -> Self { self.param("session-id", &id.to_string()) }
+    pub fn ttl(self, hops: u8) -> Self { self.param("ttl", &hops.to_string()) }
+    pub fn reliable(self, value: bool) -> Self { self.param("reliable", if value { "true" } else { "false" }) }
+    pub fn sparse(self, value: bool) -> Self { self.param("sparse", if value { "true" } else { "false" }) }
+    pub fn linger(self, ns: u64) -> Self { self.param("linger", &ns.to_string()) }
+    pub fn tether(self, value: bool) -> Self { self.param("tether", if value { "true" } else { "false" }) }
+    pub fn rejoin(self, value: bool) -> Self { self.param("rejoin", if value { "true" } else { "false" }) }
+    pub fn flow_control(self, value: &str) -> Self { self.param("fc", value) }
+    pub fn congestion_control(self, value: &str) -> Self { self.param("cc", value) }
+    pub fn socket_sndbuf(self, bytes: usize) -> Self { self.param("so-sndbuf", &bytes.to_string()) }
+    pub fn socket_rcvbuf(self, bytes: usize) -> Self { self.param("so-rcvbuf", &bytes.to_string()) }
+    pub fn receiver_window(self, bytes: usize) -> Self { self.param("rcv-wnd", &bytes.to_string()) }
+
+    pub fn param(mut self, key: &str, value: &str) -> Self {
+        self.params.push((key.to_string(), value.to_string()));
+        self
+    }
+
+    pub fn build(&self) -> String {
+        let mut uri = format!("aeron:{}", self.media);
+        for (i, (key, value)) in self.params.iter().enumerate() {
+            uri.push(if i == 0 { '?' } else { '|' });
+            uri.push_str(key);
+            uri.push('=');
+            uri.push_str(value);
+        }
+        uri
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -431,5 +481,56 @@ mod tests {
         let mut sub = client.add_subscription("aeron:ipc", 10).expect("add sub failed");
 
         assert!(publ.is_connected() || !publ.is_connected()); // Just testing boundary
+    }
+
+    #[test]
+    fn test_channel_builder_ipc() {
+        assert_eq!(ChannelBuilder::ipc().build(), "aeron:ipc");
+    }
+
+    #[test]
+    fn test_channel_builder_udp() {
+        let uri = ChannelBuilder::udp()
+            .endpoint("localhost:20121")
+            .build();
+        assert_eq!(uri, "aeron:udp?endpoint=localhost:20121");
+    }
+
+    #[test]
+    fn test_channel_builder_multiple_params() {
+        let uri = ChannelBuilder::udp()
+            .endpoint("localhost:20121")
+            .mtu(8192)
+            .term_length(65536)
+            .reliable(true)
+            .build();
+        assert_eq!(uri, "aeron:udp?endpoint=localhost:20121|mtu=8192|term-length=65536|reliable=true");
+    }
+
+    #[test]
+    fn test_channel_builder_multicast() {
+        let uri = ChannelBuilder::udp()
+            .endpoint("224.0.1.1:40456")
+            .interface("localhost")
+            .ttl(4)
+            .build();
+        assert_eq!(uri, "aeron:udp?endpoint=224.0.1.1:40456|interface=localhost|ttl=4");
+    }
+
+    #[test]
+    fn test_channel_builder_mdc() {
+        let uri = ChannelBuilder::udp()
+            .control("localhost:40456")
+            .control_mode("dynamic")
+            .build();
+        assert_eq!(uri, "aeron:udp?control=localhost:40456|control-mode=dynamic");
+    }
+
+    #[test]
+    fn test_channel_builder_custom_param() {
+        let uri = ChannelBuilder::ipc()
+            .param("alias", "my-channel")
+            .build();
+        assert_eq!(uri, "aeron:ipc?alias=my-channel");
     }
 }
