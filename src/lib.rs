@@ -25,9 +25,11 @@ pub mod ffi {
         fn start(self: Pin<&mut MediaDriverWrapper>);
 
         fn offer(self: Pin<&mut PublicationWrapper>, buffer: &[u8]) -> i64;
+        fn tryClaim(self: Pin<&mut PublicationWrapper>, length: usize, handler_id: usize) -> i64;
         fn isConnected(self: &PublicationWrapper) -> bool;
 
         fn offer(self: Pin<&mut ExclusivePublicationWrapper>, buffer: &[u8]) -> i64;
+        fn tryClaim(self: Pin<&mut ExclusivePublicationWrapper>, length: usize, handler_id: usize) -> i64;
         fn isConnected(self: &ExclusivePublicationWrapper) -> bool;
 
         fn poll(self: Pin<&mut SubscriptionWrapper>, fragment_limit: i32, handler_id: usize) -> i32;
@@ -43,6 +45,7 @@ pub mod ffi {
 
     extern "Rust" {
         fn handle_fragment(handler_id: usize, buffer: &[u8]);
+        fn handle_claim(handler_id: usize, buffer: &mut [u8]) -> bool;
         fn handle_counters_metadata(handler_id: usize, counter_id: i32, type_id: i32, key: &[u8], label: String);
     }
 }
@@ -98,6 +101,30 @@ impl Publication {
         self.inner.pin_mut().offer(buffer)
     }
 
+    /// Zero-copy publish: claims a region of the log buffer, calls `handler` with a mutable
+    /// slice pointing directly into shared memory, then commits or aborts based on the return value.
+    /// Returns the stream position (>0 on success, negative on back-pressure/closed).
+    pub fn try_claim<F>(&mut self, length: usize, mut handler: F) -> i64
+    where F: FnMut(&mut [u8]) -> bool
+    {
+        let handler_id = &handler as *const _ as usize;
+        let mut_ptr: *mut (dyn FnMut(&mut [u8]) -> bool + 'static) = unsafe {
+            std::mem::transmute::<*mut dyn FnMut(&mut [u8]) -> bool, *mut (dyn FnMut(&mut [u8]) -> bool + 'static)>(&mut handler as *mut dyn FnMut(&mut [u8]) -> bool)
+        };
+
+        CLAIM_HANDLERS.with(|handlers| {
+            handlers.borrow_mut().insert(handler_id, mut_ptr);
+        });
+
+        let result = self.inner.pin_mut().tryClaim(length, handler_id);
+
+        CLAIM_HANDLERS.with(|handlers| {
+            handlers.borrow_mut().remove(&handler_id);
+        });
+
+        result
+    }
+
     pub fn is_connected(&self) -> bool {
         self.inner.isConnected()
     }
@@ -112,6 +139,30 @@ impl ExclusivePublication {
         self.inner.pin_mut().offer(buffer)
     }
 
+    /// Zero-copy publish: claims a region of the log buffer, calls `handler` with a mutable
+    /// slice pointing directly into shared memory, then commits or aborts based on the return value.
+    /// Returns the stream position (>0 on success, negative on back-pressure/closed).
+    pub fn try_claim<F>(&mut self, length: usize, mut handler: F) -> i64
+    where F: FnMut(&mut [u8]) -> bool
+    {
+        let handler_id = &handler as *const _ as usize;
+        let mut_ptr: *mut (dyn FnMut(&mut [u8]) -> bool + 'static) = unsafe {
+            std::mem::transmute::<*mut dyn FnMut(&mut [u8]) -> bool, *mut (dyn FnMut(&mut [u8]) -> bool + 'static)>(&mut handler as *mut dyn FnMut(&mut [u8]) -> bool)
+        };
+
+        CLAIM_HANDLERS.with(|handlers| {
+            handlers.borrow_mut().insert(handler_id, mut_ptr);
+        });
+
+        let result = self.inner.pin_mut().tryClaim(length, handler_id);
+
+        CLAIM_HANDLERS.with(|handlers| {
+            handlers.borrow_mut().remove(&handler_id);
+        });
+
+        result
+    }
+
     pub fn is_connected(&self) -> bool {
         self.inner.isConnected()
     }
@@ -120,10 +171,11 @@ impl ExclusivePublication {
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-// We use a thread_local registry to hold closures during poll since cxx
-// doesn't support passing traits easily across the boundary, and poll is synchronous.
+// Thread-local registries for closures passed across the cxx boundary.
+// We use pointer-based handler IDs since cxx doesn't support passing trait objects directly.
 thread_local! {
     static HANDLERS: RefCell<HashMap<usize, *mut dyn FnMut(&[u8])>> = RefCell::new(HashMap::new());
+    static CLAIM_HANDLERS: RefCell<HashMap<usize, *mut dyn FnMut(&mut [u8]) -> bool>> = RefCell::new(HashMap::new());
 }
 
 fn handle_fragment(handler_id: usize, buffer: &[u8]) {
@@ -135,6 +187,19 @@ fn handle_fragment(handler_id: usize, buffer: &[u8]) {
             }
         }
     });
+}
+
+fn handle_claim(handler_id: usize, buffer: &mut [u8]) -> bool {
+    CLAIM_HANDLERS.with(|handlers| {
+        if let Some(handler_ptr) = handlers.borrow_mut().get_mut(&handler_id) {
+            unsafe {
+                let handler = &mut **handler_ptr;
+                handler(buffer)
+            }
+        } else {
+            false // abort if handler not found
+        }
+    })
 }
 
 pub struct Subscription {

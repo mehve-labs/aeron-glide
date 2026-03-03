@@ -13,6 +13,10 @@ struct Args {
     /// Use ExclusivePublication instead of Publication
     #[arg(long)]
     exclusive: bool,
+
+    /// Use zero-copy tryClaim instead of offer
+    #[arg(long)]
+    zero_copy: bool,
 }
 
 enum Pub {
@@ -25,6 +29,14 @@ impl Pub {
         match self {
             Pub::Regular(p) => p.offer(buf),
             Pub::Exclusive(p) => p.offer(buf),
+        }
+    }
+    fn try_claim<F>(&mut self, length: usize, handler: F) -> i64
+    where F: FnMut(&mut [u8]) -> bool
+    {
+        match self {
+            Pub::Regular(p) => p.try_claim(length, handler),
+            Pub::Exclusive(p) => p.try_claim(length, handler),
         }
     }
     fn is_connected(&self) -> bool {
@@ -55,13 +67,26 @@ fn main() {
         thread::sleep(Duration::from_millis(10));
     }
 
+    if args.zero_copy {
+        println!("Using zero-copy tryClaim");
+    }
+
     println!("Connected. Sending pings...");
-    let msg = b"ping!";
     let start = Instant::now();
 
-    for i in 0..10 {
-        while publ.offer(msg) < 0 {
-            thread::yield_now();
+    for i in 0..10u32 {
+        if args.zero_copy {
+            while publ.try_claim(5, |buf| {
+                buf[..5].copy_from_slice(b"ping!");
+                true
+            }) < 0 {
+                thread::yield_now();
+            }
+        } else {
+            let msg = b"ping!";
+            while publ.offer(msg) < 0 {
+                thread::yield_now();
+            }
         }
 
         let mut received = false;

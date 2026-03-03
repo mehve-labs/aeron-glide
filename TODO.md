@@ -14,9 +14,11 @@ The `aeron-rs` project currently demonstrates basic IPC Publication and Subscrip
   - Exclusive publications avoid contention by guaranteeing a single writer per session, critical for low-latency paths.
   - Integrated in ping/pong examples via `--exclusive` CLI flag (clap).
 
-- [ ] **Buffer Claims (Zero-Copy Offer)**
+- [x] **Buffer Claims (Zero-Copy Offer)**
   - Bind `aeron::BufferClaim` / `tryClaim()` to allow writing directly into the log buffer.
   - Avoids a memcpy on the offer path — essential for performance-sensitive messaging.
+  - Callback-based API: closure receives `&mut [u8]` into shared memory, returns bool (commit/abort).
+  - Integrated in ping example via `--zero-copy` CLI flag.
 
 - [ ] **Aeron Fragment Assemblers**
   - Bind `aeron::FragmentAssembler` to automatically reassemble messages that exceed the MTU (Maximum Transmission Unit) across multiple fragments.

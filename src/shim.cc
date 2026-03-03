@@ -51,6 +51,24 @@ int64_t PublicationWrapper::offer(rust::Slice<const uint8_t> buffer) {
     return pub->offer(atomic_buffer);
 }
 
+int64_t PublicationWrapper::tryClaim(size_t length, size_t handler_id) {
+    aeron::concurrent::logbuffer::BufferClaim bufferClaim;
+    int64_t position = pub->tryClaim(static_cast<aeron::util::index_t>(length), bufferClaim);
+    if (position > 0) {
+        rust::Slice<uint8_t> slice(
+            bufferClaim.buffer().buffer() + bufferClaim.offset(),
+            bufferClaim.length()
+        );
+        bool commit = aeron_rs::handle_claim(handler_id, slice);
+        if (commit) {
+            bufferClaim.commit();
+        } else {
+            bufferClaim.abort();
+        }
+    }
+    return position;
+}
+
 bool PublicationWrapper::isConnected() const {
     return pub->isConnected();
 }
@@ -62,6 +80,24 @@ ExclusivePublicationWrapper::~ExclusivePublicationWrapper() {}
 int64_t ExclusivePublicationWrapper::offer(rust::Slice<const uint8_t> buffer) {
     aeron::AtomicBuffer atomic_buffer(const_cast<uint8_t*>(buffer.data()), buffer.size());
     return pub->offer(atomic_buffer);
+}
+
+int64_t ExclusivePublicationWrapper::tryClaim(size_t length, size_t handler_id) {
+    aeron::concurrent::logbuffer::BufferClaim bufferClaim;
+    int64_t position = pub->tryClaim(static_cast<aeron::util::index_t>(length), bufferClaim);
+    if (position > 0) {
+        rust::Slice<uint8_t> slice(
+            bufferClaim.buffer().buffer() + bufferClaim.offset(),
+            bufferClaim.length()
+        );
+        bool commit = aeron_rs::handle_claim(handler_id, slice);
+        if (commit) {
+            bufferClaim.commit();
+        } else {
+            bufferClaim.abort();
+        }
+    }
+    return position;
 }
 
 bool ExclusivePublicationWrapper::isConnected() const {

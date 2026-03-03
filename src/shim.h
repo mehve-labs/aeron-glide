@@ -29,6 +29,7 @@ public:
     ~PublicationWrapper();
     
     int64_t offer(rust::Slice<const uint8_t> buffer);
+    int64_t tryClaim(size_t length, size_t handler_id);
     bool isConnected() const;
 
 private:
@@ -41,6 +42,7 @@ public:
     ~ExclusivePublicationWrapper();
 
     int64_t offer(rust::Slice<const uint8_t> buffer);
+    int64_t tryClaim(size_t length, size_t handler_id);
     bool isConnected() const;
 
 private:
