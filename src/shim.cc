@@ -9,17 +9,130 @@ extern "C" {
 
 namespace aeron_rs {
 
-MediaDriverWrapper::MediaDriverWrapper() {}
+MediaDriverWrapper::MediaDriverWrapper() : context_(nullptr), driver_(nullptr) {
+    if (aeron_driver_context_init(&context_) < 0) {
+        throw std::runtime_error(std::string("Failed to init driver context: ") + aeron_errmsg());
+    }
+}
 
-MediaDriverWrapper::~MediaDriverWrapper() {}
+MediaDriverWrapper::~MediaDriverWrapper() {
+    if (driver_) { aeron_driver_close(driver_); driver_ = nullptr; }
+    if (context_) { aeron_driver_context_close(context_); context_ = nullptr; }
+}
 
 void MediaDriverWrapper::start() {
-    aeron_driver_context_t *context = NULL;
-    aeron_driver_context_init(&context);
-    
-    aeron_driver_t *driver = NULL;
-    aeron_driver_init(&driver, context);
-    aeron_driver_start(driver, false);
+    if (aeron_driver_init(&driver_, context_) < 0) {
+        throw std::runtime_error(std::string("Failed to init driver: ") + aeron_errmsg());
+    }
+    if (aeron_driver_start(driver_, false) < 0) {
+        throw std::runtime_error(std::string("Failed to start driver: ") + aeron_errmsg());
+    }
+}
+
+void MediaDriverWrapper::setDir(rust::Str dir) {
+    std::string s(dir.data(), dir.size());
+    if (aeron_driver_context_set_dir(context_, s.c_str()) < 0) {
+        throw std::runtime_error(std::string("Failed to set dir: ") + aeron_errmsg());
+    }
+}
+
+void MediaDriverWrapper::setDirDeleteOnStart(bool value) {
+    if (aeron_driver_context_set_dir_delete_on_start(context_, value) < 0) {
+        throw std::runtime_error(std::string("Failed to set dir_delete_on_start: ") + aeron_errmsg());
+    }
+}
+
+void MediaDriverWrapper::setDirDeleteOnShutdown(bool value) {
+    if (aeron_driver_context_set_dir_delete_on_shutdown(context_, value) < 0) {
+        throw std::runtime_error(std::string("Failed to set dir_delete_on_shutdown: ") + aeron_errmsg());
+    }
+}
+
+void MediaDriverWrapper::setThreadingMode(int32_t mode) {
+    if (aeron_driver_context_set_threading_mode(context_, static_cast<aeron_threading_mode_t>(mode)) < 0) {
+        throw std::runtime_error(std::string("Failed to set threading_mode: ") + aeron_errmsg());
+    }
+}
+
+void MediaDriverWrapper::setConductorIdleStrategy(rust::Str name) {
+    std::string s(name.data(), name.size());
+    if (aeron_driver_context_set_conductor_idle_strategy(context_, s.c_str()) < 0) {
+        throw std::runtime_error(std::string("Failed to set conductor_idle_strategy: ") + aeron_errmsg());
+    }
+}
+
+void MediaDriverWrapper::setSenderIdleStrategy(rust::Str name) {
+    std::string s(name.data(), name.size());
+    if (aeron_driver_context_set_sender_idle_strategy(context_, s.c_str()) < 0) {
+        throw std::runtime_error(std::string("Failed to set sender_idle_strategy: ") + aeron_errmsg());
+    }
+}
+
+void MediaDriverWrapper::setReceiverIdleStrategy(rust::Str name) {
+    std::string s(name.data(), name.size());
+    if (aeron_driver_context_set_receiver_idle_strategy(context_, s.c_str()) < 0) {
+        throw std::runtime_error(std::string("Failed to set receiver_idle_strategy: ") + aeron_errmsg());
+    }
+}
+
+void MediaDriverWrapper::setTermBufferLength(size_t value) {
+    if (aeron_driver_context_set_term_buffer_length(context_, value) < 0) {
+        throw std::runtime_error(std::string("Failed to set term_buffer_length: ") + aeron_errmsg());
+    }
+}
+
+void MediaDriverWrapper::setIpcTermBufferLength(size_t value) {
+    if (aeron_driver_context_set_ipc_term_buffer_length(context_, value) < 0) {
+        throw std::runtime_error(std::string("Failed to set ipc_term_buffer_length: ") + aeron_errmsg());
+    }
+}
+
+void MediaDriverWrapper::setMtuLength(size_t value) {
+    if (aeron_driver_context_set_mtu_length(context_, value) < 0) {
+        throw std::runtime_error(std::string("Failed to set mtu_length: ") + aeron_errmsg());
+    }
+}
+
+void MediaDriverWrapper::setIpcMtuLength(size_t value) {
+    if (aeron_driver_context_set_ipc_mtu_length(context_, value) < 0) {
+        throw std::runtime_error(std::string("Failed to set ipc_mtu_length: ") + aeron_errmsg());
+    }
+}
+
+void MediaDriverWrapper::setSocketSoRcvbuf(size_t value) {
+    if (aeron_driver_context_set_socket_so_rcvbuf(context_, value) < 0) {
+        throw std::runtime_error(std::string("Failed to set socket_so_rcvbuf: ") + aeron_errmsg());
+    }
+}
+
+void MediaDriverWrapper::setSocketSoSndbuf(size_t value) {
+    if (aeron_driver_context_set_socket_so_sndbuf(context_, value) < 0) {
+        throw std::runtime_error(std::string("Failed to set socket_so_sndbuf: ") + aeron_errmsg());
+    }
+}
+
+void MediaDriverWrapper::setPrintConfiguration(bool value) {
+    if (aeron_driver_context_set_print_configuration(context_, value) < 0) {
+        throw std::runtime_error(std::string("Failed to set print_configuration: ") + aeron_errmsg());
+    }
+}
+
+void MediaDriverWrapper::setConductorCpuAffinity(int32_t cpu_id) {
+    if (aeron_driver_context_set_conductor_cpu_affinity(context_, cpu_id) < 0) {
+        throw std::runtime_error(std::string("Failed to set conductor_cpu_affinity: ") + aeron_errmsg());
+    }
+}
+
+void MediaDriverWrapper::setSenderCpuAffinity(int32_t cpu_id) {
+    if (aeron_driver_context_set_sender_cpu_affinity(context_, cpu_id) < 0) {
+        throw std::runtime_error(std::string("Failed to set sender_cpu_affinity: ") + aeron_errmsg());
+    }
+}
+
+void MediaDriverWrapper::setReceiverCpuAffinity(int32_t cpu_id) {
+    if (aeron_driver_context_set_receiver_cpu_affinity(context_, cpu_id) < 0) {
+        throw std::runtime_error(std::string("Failed to set receiver_cpu_affinity: ") + aeron_errmsg());
+    }
 }
 
 ContextWrapper::ContextWrapper() : ctx(std::make_shared<aeron::Context>()) {}

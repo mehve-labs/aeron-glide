@@ -40,8 +40,12 @@ The `aeron-rs` project currently demonstrates basic IPC Publication and Subscrip
   - Generic `param(key, value)` escape hatch for any Aeron URI parameter.
   - 6 unit tests covering IPC, UDP, multicast, MDC, multi-param, and custom params.
 
-- [ ] **Advanced Media Driver Control**
-  - Currently we start the Embedded Driver with defaults. We need to expand the C Shim to map to the heavily configurable `aeron_driver_context_t` (and potentially the C++ Driver wrapper if available) to allow tuning of RingBuffer mapping, buffer sizes, threading modes, and idle strategies.
+- [x] **Advanced Media Driver Control**
+  - Expanded `MediaDriverWrapper` to hold `aeron_driver_context_t*` and `aeron_driver_t*` with proper lifecycle (context init in constructor, driver+context close in destructor).
+  - 17 setter methods exposed through cxx: dir, dir_delete_on_start/shutdown, threading_mode, conductor/sender/receiver idle strategies, term/ipc_term buffer lengths, mtu/ipc_mtu lengths, socket so_rcvbuf/so_sndbuf, print_configuration, conductor/sender/receiver CPU affinity.
+  - Rust enums: `ThreadingMode` (Dedicated, SharedNetwork, Shared, Invoker) and `IdleStrategy` (Backoff, Spin, Yield, Sleeping, Noop).
+  - `MediaDriver::new()` and `start()` now return `Result`.
+  - Renamed `aeronmd` binary to `mediadriver`. Config via YAML file (`example_configs/mediadriver.yaml`) instead of CLI flags.
   
 - [ ] **Aeron Archive & Image Buffers**
   - Bind `aeron::Image` to expose lower-level control of active streams.

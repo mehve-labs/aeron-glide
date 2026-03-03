@@ -6,6 +6,14 @@
 #include <ControlledFragmentAssembler.h>
 #include "rust/cxx.h"
 
+// Forward declarations for C driver types (defined in aeronmd.h)
+extern "C" {
+    struct aeron_driver_context_stct;
+    typedef struct aeron_driver_context_stct aeron_driver_context_t;
+    struct aeron_driver_stct;
+    typedef struct aeron_driver_stct aeron_driver_t;
+}
+
 namespace aeron_rs {
 
 // We wrap the aeron::Context because it's required to initialize Aeron
@@ -23,6 +31,39 @@ public:
     ~MediaDriverWrapper();
 
     void start();
+
+    // Directory
+    void setDir(rust::Str dir);
+    void setDirDeleteOnStart(bool value);
+    void setDirDeleteOnShutdown(bool value);
+
+    // Threading
+    void setThreadingMode(int32_t mode);
+    void setConductorIdleStrategy(rust::Str name);
+    void setSenderIdleStrategy(rust::Str name);
+    void setReceiverIdleStrategy(rust::Str name);
+
+    // Buffer sizes
+    void setTermBufferLength(size_t value);
+    void setIpcTermBufferLength(size_t value);
+    void setMtuLength(size_t value);
+    void setIpcMtuLength(size_t value);
+
+    // Socket
+    void setSocketSoRcvbuf(size_t value);
+    void setSocketSoSndbuf(size_t value);
+
+    // Debug
+    void setPrintConfiguration(bool value);
+
+    // CPU Affinity
+    void setConductorCpuAffinity(int32_t cpu_id);
+    void setSenderCpuAffinity(int32_t cpu_id);
+    void setReceiverCpuAffinity(int32_t cpu_id);
+
+private:
+    aeron_driver_context_t* context_;
+    aeron_driver_t* driver_;
 };
 
 class PublicationWrapper {

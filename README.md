@@ -25,10 +25,16 @@ The result is a fast, safe, and significantly cleaner Aeron client for Rust.
 All examples require a running Aeron Media Driver. You can start one with:
 
 ```bash
-cargo run --bin aeronmd
+cargo run --bin mediadriver
 ```
 
 This launches an embedded C media driver that manages shared memory buffers and handles publication/subscription matching. Keep it running in a dedicated terminal, then use any of the examples below in separate terminals.
+
+You can optionally pass a YAML config file to tune driver settings (threading mode, buffer sizes, idle strategies, etc.):
+
+```bash
+cargo run --bin mediadriver -- example_configs/mediadriver.yaml
+```
 
 ### Ping / Pong
 

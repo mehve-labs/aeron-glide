@@ -1,0 +1,35 @@
+# Aeron Media Driver Configuration
+# All fields are optional — omitted fields use Aeron defaults.
+
+# Aeron directory for shared memory files
+# dir: /dev/shm/aeron
+
+# Delete Aeron directory on startup / shutdown
+dir_delete_on_start: true
+# dir_delete_on_shutdown: false
+
+# Threading mode: dedicated | shared_network | shared | invoker
+# threading_mode: dedicated
+
+# Idle strategies: backoff | spin | yield | sleeping | noop
+# conductor_idle_strategy: backoff
+# sender_idle_strategy: backoff
+# receiver_idle_strategy: backoff
+
+# Buffer sizes (bytes, must be power of 2)
+# term_buffer_length: 16777216
+# ipc_term_buffer_length: 67108864
+# mtu_length: 1408
+# ipc_mtu_length: 1408
+
+# Socket buffer sizes
+# socket_so_rcvbuf: 131072
+# socket_so_sndbuf: 0
+
+# Print driver configuration on startup
+print_configuration: true
+
+# CPU affinity (core ID, -1 = no affinity)
+# conductor_cpu_affinity: -1
+# sender_cpu_affinity: -1
+# receiver_cpu_affinity: -1

@@ -13,7 +13,7 @@ pub mod ffi {
 
         fn create_context() -> UniquePtr<ContextWrapper>;
         fn create_aeron(context: UniquePtr<ContextWrapper>) -> Result<UniquePtr<AeronWrapper>>;
-        fn create_media_driver() -> UniquePtr<MediaDriverWrapper>;
+        fn create_media_driver() -> Result<UniquePtr<MediaDriverWrapper>>;
 
         fn start(self: Pin<&mut AeronWrapper>);
         fn isClosed(self: &AeronWrapper) -> bool;
@@ -34,7 +34,25 @@ pub mod ffi {
         ) -> Result<UniquePtr<SubscriptionWrapper>>;
         fn countersReader(self: &AeronWrapper) -> UniquePtr<CountersReaderWrapper>;
 
-        fn start(self: Pin<&mut MediaDriverWrapper>);
+        fn start(self: Pin<&mut MediaDriverWrapper>) -> Result<()>;
+
+        fn setDir(self: Pin<&mut MediaDriverWrapper>, dir: &str) -> Result<()>;
+        fn setDirDeleteOnStart(self: Pin<&mut MediaDriverWrapper>, value: bool) -> Result<()>;
+        fn setDirDeleteOnShutdown(self: Pin<&mut MediaDriverWrapper>, value: bool) -> Result<()>;
+        fn setThreadingMode(self: Pin<&mut MediaDriverWrapper>, mode: i32) -> Result<()>;
+        fn setConductorIdleStrategy(self: Pin<&mut MediaDriverWrapper>, name: &str) -> Result<()>;
+        fn setSenderIdleStrategy(self: Pin<&mut MediaDriverWrapper>, name: &str) -> Result<()>;
+        fn setReceiverIdleStrategy(self: Pin<&mut MediaDriverWrapper>, name: &str) -> Result<()>;
+        fn setTermBufferLength(self: Pin<&mut MediaDriverWrapper>, value: usize) -> Result<()>;
+        fn setIpcTermBufferLength(self: Pin<&mut MediaDriverWrapper>, value: usize) -> Result<()>;
+        fn setMtuLength(self: Pin<&mut MediaDriverWrapper>, value: usize) -> Result<()>;
+        fn setIpcMtuLength(self: Pin<&mut MediaDriverWrapper>, value: usize) -> Result<()>;
+        fn setSocketSoRcvbuf(self: Pin<&mut MediaDriverWrapper>, value: usize) -> Result<()>;
+        fn setSocketSoSndbuf(self: Pin<&mut MediaDriverWrapper>, value: usize) -> Result<()>;
+        fn setPrintConfiguration(self: Pin<&mut MediaDriverWrapper>, value: bool) -> Result<()>;
+        fn setConductorCpuAffinity(self: Pin<&mut MediaDriverWrapper>, cpu_id: i32) -> Result<()>;
+        fn setSenderCpuAffinity(self: Pin<&mut MediaDriverWrapper>, cpu_id: i32) -> Result<()>;
+        fn setReceiverCpuAffinity(self: Pin<&mut MediaDriverWrapper>, cpu_id: i32) -> Result<()>;
 
         fn offer(self: Pin<&mut PublicationWrapper>, buffer: &[u8]) -> i64;
         fn tryClaim(self: Pin<&mut PublicationWrapper>, length: usize, handler_id: usize) -> i64;
@@ -463,25 +481,140 @@ impl Default for AeronClient {
     }
 }
 
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThreadingMode {
+    Dedicated = 0,
+    SharedNetwork = 1,
+    Shared = 2,
+    Invoker = 3,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdleStrategy {
+    Backoff,
+    Spin,
+    Yield,
+    Sleeping,
+    Noop,
+}
+
+impl IdleStrategy {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            IdleStrategy::Backoff => "backoff",
+            IdleStrategy::Spin => "spin",
+            IdleStrategy::Yield => "yield",
+            IdleStrategy::Sleeping => "sleeping",
+            IdleStrategy::Noop => "noop",
+        }
+    }
+}
+
 pub struct MediaDriver {
     inner: cxx::UniquePtr<ffi::MediaDriverWrapper>,
 }
 
 impl MediaDriver {
-    pub fn new() -> Self {
-        Self {
-            inner: ffi::create_media_driver(),
-        }
+    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        let inner = ffi::create_media_driver()?;
+        Ok(Self { inner })
     }
 
-    pub fn start(&mut self) {
-        self.inner.pin_mut().start();
+    pub fn start(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.inner.pin_mut().start()?;
+        Ok(())
+    }
+
+    pub fn set_dir(&mut self, dir: &str) -> Result<(), Box<dyn std::error::Error>> {
+        self.inner.pin_mut().setDir(dir)?;
+        Ok(())
+    }
+
+    pub fn set_dir_delete_on_start(&mut self, value: bool) -> Result<(), Box<dyn std::error::Error>> {
+        self.inner.pin_mut().setDirDeleteOnStart(value)?;
+        Ok(())
+    }
+
+    pub fn set_dir_delete_on_shutdown(&mut self, value: bool) -> Result<(), Box<dyn std::error::Error>> {
+        self.inner.pin_mut().setDirDeleteOnShutdown(value)?;
+        Ok(())
+    }
+
+    pub fn set_threading_mode(&mut self, mode: ThreadingMode) -> Result<(), Box<dyn std::error::Error>> {
+        self.inner.pin_mut().setThreadingMode(mode as i32)?;
+        Ok(())
+    }
+
+    pub fn set_conductor_idle_strategy(&mut self, strategy: IdleStrategy) -> Result<(), Box<dyn std::error::Error>> {
+        self.inner.pin_mut().setConductorIdleStrategy(strategy.as_str())?;
+        Ok(())
+    }
+
+    pub fn set_sender_idle_strategy(&mut self, strategy: IdleStrategy) -> Result<(), Box<dyn std::error::Error>> {
+        self.inner.pin_mut().setSenderIdleStrategy(strategy.as_str())?;
+        Ok(())
+    }
+
+    pub fn set_receiver_idle_strategy(&mut self, strategy: IdleStrategy) -> Result<(), Box<dyn std::error::Error>> {
+        self.inner.pin_mut().setReceiverIdleStrategy(strategy.as_str())?;
+        Ok(())
+    }
+
+    pub fn set_term_buffer_length(&mut self, value: usize) -> Result<(), Box<dyn std::error::Error>> {
+        self.inner.pin_mut().setTermBufferLength(value)?;
+        Ok(())
+    }
+
+    pub fn set_ipc_term_buffer_length(&mut self, value: usize) -> Result<(), Box<dyn std::error::Error>> {
+        self.inner.pin_mut().setIpcTermBufferLength(value)?;
+        Ok(())
+    }
+
+    pub fn set_mtu_length(&mut self, value: usize) -> Result<(), Box<dyn std::error::Error>> {
+        self.inner.pin_mut().setMtuLength(value)?;
+        Ok(())
+    }
+
+    pub fn set_ipc_mtu_length(&mut self, value: usize) -> Result<(), Box<dyn std::error::Error>> {
+        self.inner.pin_mut().setIpcMtuLength(value)?;
+        Ok(())
+    }
+
+    pub fn set_socket_so_rcvbuf(&mut self, value: usize) -> Result<(), Box<dyn std::error::Error>> {
+        self.inner.pin_mut().setSocketSoRcvbuf(value)?;
+        Ok(())
+    }
+
+    pub fn set_socket_so_sndbuf(&mut self, value: usize) -> Result<(), Box<dyn std::error::Error>> {
+        self.inner.pin_mut().setSocketSoSndbuf(value)?;
+        Ok(())
+    }
+
+    pub fn set_print_configuration(&mut self, value: bool) -> Result<(), Box<dyn std::error::Error>> {
+        self.inner.pin_mut().setPrintConfiguration(value)?;
+        Ok(())
+    }
+
+    pub fn set_conductor_cpu_affinity(&mut self, cpu_id: i32) -> Result<(), Box<dyn std::error::Error>> {
+        self.inner.pin_mut().setConductorCpuAffinity(cpu_id)?;
+        Ok(())
+    }
+
+    pub fn set_sender_cpu_affinity(&mut self, cpu_id: i32) -> Result<(), Box<dyn std::error::Error>> {
+        self.inner.pin_mut().setSenderCpuAffinity(cpu_id)?;
+        Ok(())
+    }
+
+    pub fn set_receiver_cpu_affinity(&mut self, cpu_id: i32) -> Result<(), Box<dyn std::error::Error>> {
+        self.inner.pin_mut().setReceiverCpuAffinity(cpu_id)?;
+        Ok(())
     }
 }
 
 impl Default for MediaDriver {
     fn default() -> Self {
-        Self::new()
+        Self::new().expect("Failed to create MediaDriver")
     }
 }
 
@@ -584,8 +717,8 @@ mod tests {
     #[test]
     fn test_aeron_creation_with_driver() {
         // 1. Start embedded driver
-        let mut driver = MediaDriver::new();
-        driver.start();
+        let mut driver = MediaDriver::new().expect("Failed to create MediaDriver");
+        driver.start().expect("Failed to start MediaDriver");
 
         // Wait a tiny bit for the driver to spin up its files in /dev/shm
         std::thread::sleep(std::time::Duration::from_millis(100));
