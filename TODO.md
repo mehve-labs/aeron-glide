@@ -34,9 +34,10 @@ The `aeron-rs` project currently demonstrates basic IPC Publication and Subscrip
   - Bind `aeron::Aeron::asyncAddPublication`, `asyncAddExclusivePublication`, `asyncAddSubscription`, and `asyncAddCounter`.
   - Provide polling-based resource acquisition for non-blocking startup patterns.
 
-- [ ] **UDP Channel Support**
-  - Extend examples and testing beyond IPC to cover UDP unicast and multicast channels.
-  - Ensure `aeron:udp?endpoint=...` channels work end-to-end through the cxx shim.
+- [x] **UDP Channel Support**
+  - Channel strings pass through the cxx shim to Aeron unmodified — no C++ changes needed.
+  - Added `--channel` CLI flag to ping and pong (default: `aeron:ipc`).
+  - UDP usage: `--channel "aeron:udp?endpoint=localhost:20121"`.
 
 - [ ] **URI / Channel Builder**
   - Provide a Rust-side builder for constructing Aeron channel URIs programmatically (endpoint, control, interface, MTU, term length, etc.).

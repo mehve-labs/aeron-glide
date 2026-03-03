@@ -3,13 +3,17 @@ use clap::Parser;
 use std::time::{Duration, Instant};
 use std::thread;
 
-const PING_CHANNEL: &str = "aeron:ipc";
+const DEFAULT_CHANNEL: &str = "aeron:ipc";
 const PING_STREAM_ID: i32 = 10;
 const PONG_STREAM_ID: i32 = 11;
 
 #[derive(Parser)]
 #[command(name = "ping", about = "Aeron ping client")]
 struct Args {
+    /// Aeron channel URI (e.g. "aeron:ipc", "aeron:udp?endpoint=localhost:20121")
+    #[arg(long, default_value = DEFAULT_CHANNEL)]
+    channel: String,
+
     /// Use ExclusivePublication instead of Publication
     #[arg(long)]
     exclusive: bool,
@@ -50,17 +54,17 @@ impl Pub {
 fn main() {
     let args = Args::parse();
 
-    println!("Starting Aeron Client...");
+    println!("Starting Aeron Client (channel: {})...", args.channel);
     let mut client = AeronClient::new().expect("Failed to start Aeron");
     client.start();
 
     let mut publ = if args.exclusive {
         println!("Using ExclusivePublication");
-        Pub::Exclusive(client.add_exclusive_publication(PING_CHANNEL, PING_STREAM_ID).unwrap())
+        Pub::Exclusive(client.add_exclusive_publication(&args.channel, PING_STREAM_ID).unwrap())
     } else {
-        Pub::Regular(client.add_publication(PING_CHANNEL, PING_STREAM_ID).unwrap())
+        Pub::Regular(client.add_publication(&args.channel, PING_STREAM_ID).unwrap())
     };
-    let mut sub = client.add_subscription(PING_CHANNEL, PONG_STREAM_ID).unwrap();
+    let mut sub = client.add_subscription(&args.channel, PONG_STREAM_ID).unwrap();
 
     println!("Waiting for pong subscriber...");
     while !publ.is_connected() {
