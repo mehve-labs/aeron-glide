@@ -4,6 +4,7 @@
 #include <Aeron.h>
 #include <FragmentAssembler.h>
 #include <ControlledFragmentAssembler.h>
+#include <ImageControlledFragmentAssembler.h>
 #include "rust/cxx.h"
 
 #ifdef AERON_ARCHIVE
@@ -98,6 +99,8 @@ private:
     std::shared_ptr<aeron::ExclusivePublication> pub;
 };
 
+class ImageWrapper; // forward declaration
+
 class SubscriptionWrapper {
 public:
     SubscriptionWrapper(std::shared_ptr<aeron::Subscription> sub);
@@ -108,12 +111,47 @@ public:
     int controlledPollAssembled(int fragment_limit, size_t handler_id);
     bool isConnected() const;
 
+    // Image accessors
+    int imageCount() const;
+    std::unique_ptr<ImageWrapper> imageByIndex(size_t index);
+    std::unique_ptr<ImageWrapper> imageBySessionId(int32_t session_id);
+
 private:
     std::shared_ptr<aeron::Subscription> sub;
     size_t assembled_handler_id_ = 0;
     size_t controlled_handler_id_ = 0;
     aeron::FragmentAssembler assembler_;
     aeron::ControlledFragmentAssembler controlled_assembler_;
+};
+
+class ImageWrapper {
+public:
+    ImageWrapper(std::shared_ptr<aeron::Image> image);
+    ~ImageWrapper();
+
+    // Metadata
+    int32_t sessionId() const;
+    int64_t correlationId() const;
+    int64_t joinPosition() const;
+    rust::String sourceIdentity() const;
+
+    // Position
+    int64_t position() const;
+    void setPosition(int64_t new_position);
+
+    // State
+    bool isClosed() const;
+    bool isEndOfStream() const;
+    int64_t endOfStreamPosition() const;
+
+    // Polling
+    int poll(int fragment_limit, size_t handler_id);
+    int controlledPollAssembled(int fragment_limit, size_t handler_id);
+
+private:
+    std::shared_ptr<aeron::Image> image_;
+    size_t controlled_handler_id_ = 0;
+    aeron::ImageControlledFragmentAssembler controlled_assembler_;
 };
 
 class CountersReaderWrapper {

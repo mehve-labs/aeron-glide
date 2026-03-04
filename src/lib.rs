@@ -82,6 +82,32 @@ pub mod ffi {
             handler_id: usize,
         ) -> i32;
         fn isConnected(self: &SubscriptionWrapper) -> bool;
+        fn imageCount(self: &SubscriptionWrapper) -> i32;
+        fn imageByIndex(
+            self: Pin<&mut SubscriptionWrapper>,
+            index: usize,
+        ) -> Result<UniquePtr<ImageWrapper>>;
+        fn imageBySessionId(
+            self: Pin<&mut SubscriptionWrapper>,
+            session_id: i32,
+        ) -> Result<UniquePtr<ImageWrapper>>;
+
+        type ImageWrapper;
+        fn sessionId(self: &ImageWrapper) -> i32;
+        fn correlationId(self: &ImageWrapper) -> i64;
+        fn joinPosition(self: &ImageWrapper) -> i64;
+        fn sourceIdentity(self: &ImageWrapper) -> String;
+        fn position(self: &ImageWrapper) -> i64;
+        fn setPosition(self: Pin<&mut ImageWrapper>, new_position: i64);
+        fn isClosed(self: &ImageWrapper) -> bool;
+        fn isEndOfStream(self: &ImageWrapper) -> bool;
+        fn endOfStreamPosition(self: &ImageWrapper) -> i64;
+        fn poll(self: Pin<&mut ImageWrapper>, fragment_limit: i32, handler_id: usize) -> i32;
+        fn controlledPollAssembled(
+            self: Pin<&mut ImageWrapper>,
+            fragment_limit: i32,
+            handler_id: usize,
+        ) -> i32;
 
         fn maxCounterId(self: &CountersReaderWrapper) -> i32;
         fn getCounterValue(self: &CountersReaderWrapper, id: i32) -> i64;
@@ -402,6 +428,120 @@ impl Subscription {
 
     pub fn is_connected(&self) -> bool {
         self.inner.isConnected()
+    }
+
+    pub fn image_count(&self) -> i32 {
+        self.inner.imageCount()
+    }
+
+    pub fn image_by_index(&mut self, index: usize) -> Result<Image, Box<dyn std::error::Error>> {
+        let img = self.inner.pin_mut().imageByIndex(index)?;
+        Ok(Image { inner: img })
+    }
+
+    pub fn image_by_session_id(
+        &mut self,
+        session_id: i32,
+    ) -> Result<Image, Box<dyn std::error::Error>> {
+        let img = self.inner.pin_mut().imageBySessionId(session_id)?;
+        Ok(Image { inner: img })
+    }
+}
+
+pub struct Image {
+    inner: cxx::UniquePtr<ffi::ImageWrapper>,
+}
+
+impl Image {
+    pub fn session_id(&self) -> i32 {
+        self.inner.sessionId()
+    }
+
+    pub fn correlation_id(&self) -> i64 {
+        self.inner.correlationId()
+    }
+
+    pub fn join_position(&self) -> i64 {
+        self.inner.joinPosition()
+    }
+
+    pub fn source_identity(&self) -> String {
+        self.inner.sourceIdentity()
+    }
+
+    pub fn position(&self) -> i64 {
+        self.inner.position()
+    }
+
+    pub fn set_position(&mut self, new_position: i64) {
+        self.inner.pin_mut().setPosition(new_position);
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.inner.isClosed()
+    }
+
+    pub fn is_end_of_stream(&self) -> bool {
+        self.inner.isEndOfStream()
+    }
+
+    pub fn end_of_stream_position(&self) -> i64 {
+        self.inner.endOfStreamPosition()
+    }
+
+    pub fn poll<F>(&mut self, limit: i32, mut handler: F) -> i32
+    where
+        F: FnMut(&[u8]),
+    {
+        let handler_id = &handler as *const _ as usize;
+        let mut_ptr: *mut (dyn FnMut(&[u8]) + 'static) = unsafe {
+            std::mem::transmute::<*mut dyn FnMut(&[u8]), *mut (dyn FnMut(&[u8]) + 'static)>(
+                &mut handler as *mut dyn FnMut(&[u8]),
+            )
+        };
+
+        HANDLERS.with(|handlers| {
+            handlers.borrow_mut().insert(handler_id, mut_ptr);
+        });
+
+        let result = self.inner.pin_mut().poll(limit, handler_id);
+
+        HANDLERS.with(|handlers| {
+            handlers.borrow_mut().remove(&handler_id);
+        });
+
+        result
+    }
+
+    pub fn poll_assembled<R, F>(&mut self, limit: i32, mut handler: F) -> i32
+    where
+        R: PollAction,
+        F: FnMut(&[u8]) -> R,
+    {
+        let mut controlled = |data: &[u8]| -> ControlledAction { handler(data).into_action() };
+
+        let handler_id = &controlled as *const _ as usize;
+        let mut_ptr: *mut (dyn FnMut(&[u8]) -> ControlledAction + 'static) = unsafe {
+            std::mem::transmute::<
+                *mut dyn FnMut(&[u8]) -> ControlledAction,
+                *mut (dyn FnMut(&[u8]) -> ControlledAction + 'static),
+            >(&mut controlled as *mut dyn FnMut(&[u8]) -> ControlledAction)
+        };
+
+        CONTROLLED_HANDLERS.with(|handlers| {
+            handlers.borrow_mut().insert(handler_id, mut_ptr);
+        });
+
+        let result = self
+            .inner
+            .pin_mut()
+            .controlledPollAssembled(limit, handler_id);
+
+        CONTROLLED_HANDLERS.with(|handlers| {
+            handlers.borrow_mut().remove(&handler_id);
+        });
+
+        result
     }
 }
 
@@ -732,14 +872,36 @@ mod tests {
         assert!(!client.is_closed());
 
         // 3. Test Pub/Sub creation
-        let publ = client
+        let mut publ = client
             .add_publication("aeron:ipc", 10)
             .expect("add pub failed");
-        let _sub = client
+        let mut sub = client
             .add_subscription("aeron:ipc", 10)
             .expect("add sub failed");
 
-        assert!(publ.is_connected() || !publ.is_connected()); // Just testing boundary
+        // 4. Wait for connection then test Image API
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !sub.is_connected() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(sub.is_connected(), "subscription should connect");
+
+        // Publish a message so the image is active
+        while publ.offer(b"hello") < 0 {
+            std::thread::yield_now();
+        }
+
+        assert_eq!(sub.image_count(), 1);
+        let image = sub.image_by_index(0).expect("image_by_index failed");
+        assert!(image.session_id() != 0);
+        assert!(image.position() >= 0);
+        assert!(!image.is_closed());
+        assert!(!image.is_end_of_stream());
+
+        // Test image_by_session_id
+        let sid = image.session_id();
+        let image2 = sub.image_by_session_id(sid).expect("image_by_session_id failed");
+        assert_eq!(image2.session_id(), sid);
     }
 
     #[test]

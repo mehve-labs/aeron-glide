@@ -253,6 +253,87 @@ bool SubscriptionWrapper::isConnected() const {
     return sub->isConnected();
 }
 
+int SubscriptionWrapper::imageCount() const {
+    return static_cast<int>(sub->imageCount());
+}
+
+std::unique_ptr<ImageWrapper> SubscriptionWrapper::imageByIndex(size_t index) {
+    auto image = sub->imageByIndex(index);
+    if (!image) {
+        throw std::runtime_error("No image at index " + std::to_string(index));
+    }
+    return std::unique_ptr<ImageWrapper>(new ImageWrapper(image));
+}
+
+std::unique_ptr<ImageWrapper> SubscriptionWrapper::imageBySessionId(int32_t session_id) {
+    auto image = sub->imageBySessionId(session_id);
+    if (!image) {
+        throw std::runtime_error("No image for session_id " + std::to_string(session_id));
+    }
+    return std::unique_ptr<ImageWrapper>(new ImageWrapper(image));
+}
+
+// ImageWrapper
+
+ImageWrapper::ImageWrapper(std::shared_ptr<aeron::Image> image)
+    : image_(image),
+      controlled_assembler_([this](aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) -> aeron::ControlledPollAction {
+          rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
+          int32_t action = aeron_rs::handle_controlled_fragment(this->controlled_handler_id_, slice);
+          return static_cast<aeron::ControlledPollAction>(action);
+      }) {}
+
+ImageWrapper::~ImageWrapper() {}
+
+int32_t ImageWrapper::sessionId() const {
+    return image_->sessionId();
+}
+
+int64_t ImageWrapper::correlationId() const {
+    return image_->correlationId();
+}
+
+int64_t ImageWrapper::joinPosition() const {
+    return image_->joinPosition();
+}
+
+rust::String ImageWrapper::sourceIdentity() const {
+    return rust::String(image_->sourceIdentity());
+}
+
+int64_t ImageWrapper::position() const {
+    return image_->position();
+}
+
+void ImageWrapper::setPosition(int64_t new_position) {
+    image_->position(new_position);
+}
+
+bool ImageWrapper::isClosed() const {
+    return image_->isClosed();
+}
+
+bool ImageWrapper::isEndOfStream() const {
+    return image_->isEndOfStream();
+}
+
+int64_t ImageWrapper::endOfStreamPosition() const {
+    return image_->endOfStreamPosition();
+}
+
+int ImageWrapper::poll(int fragment_limit, size_t handler_id) {
+    auto fragment_handler = [&](const aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
+        rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
+        aeron_rs::handle_fragment(handler_id, slice);
+    };
+    return image_->poll(fragment_handler, fragment_limit);
+}
+
+int ImageWrapper::controlledPollAssembled(int fragment_limit, size_t handler_id) {
+    controlled_handler_id_ = handler_id;
+    return image_->controlledPoll(controlled_assembler_.handler(), fragment_limit);
+}
+
 CountersReaderWrapper::CountersReaderWrapper(std::shared_ptr<aeron::Aeron> aeron) : aeron(aeron) {}
 
 CountersReaderWrapper::~CountersReaderWrapper() {}

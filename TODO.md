@@ -57,8 +57,13 @@ The `aeron-rs` project currently demonstrates basic IPC Publication and Subscrip
   - Position: `get_recording_position`, `get_start_position`, `get_stop_position`, `get_max_recorded_position`.
   - Error polling: `poll_for_error_response`, `check_for_error_response`.
 
-- [ ] **Image Buffers**
-  - Bind `aeron::Image` to expose lower-level control of active streams.
+- [x] **Image Buffers**
+  - Bind `aeron::Image` to expose per-publisher stream access from a `Subscription`.
+  - Metadata: `session_id`, `correlation_id`, `join_position`, `source_identity`.
+  - Position tracking: `position`, `set_position`.
+  - State: `is_closed`, `is_end_of_stream`, `end_of_stream_position`.
+  - Polling: `poll` (raw fragments), `poll_assembled` (assembled + unified flow control via `PollAction` trait).
+  - `Subscription` accessors: `image_count`, `image_by_index`, `image_by_session_id`.
 
 - [ ] **Replay Merge**
   - Bind the Aeron Archive replay-merge functionality to seamlessly combine a recorded stream replay with a live stream for gap-fill scenarios.

@@ -49,6 +49,10 @@ name = "large_pong"
 path = "src/bin/large_pong.rs"
 
 [[bin]]
+name = "image_demo"
+path = "src/bin/image_demo.rs"
+
+[[bin]]
 name = "record"
 path = "src/bin/record.rs"
 required-features = ["archive"]
