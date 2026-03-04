@@ -65,9 +65,13 @@ The `aeron-rs` project currently demonstrates basic IPC Publication and Subscrip
   - Polling: `poll` (raw fragments), `poll_assembled` (assembled + unified flow control via `PollAction` trait).
   - `Subscription` accessors: `image_count`, `image_by_index`, `image_by_session_id`.
 
-- [ ] **Replay Merge**
-  - Bind the Aeron Archive replay-merge functionality to seamlessly combine a recorded stream replay with a live stream for gap-fill scenarios.
-  - Distinct from basic Archive replay — requires coordinating replay position with live subscription.
+- [x] **Replay Merge**
+  - Bind `aeron::archive::client::ReplayMerge` to seamlessly combine a recorded stream replay with a live stream for gap-fill scenarios.
+  - State machine: REPLAY → CATCHUP → ATTEMPT_LIVE_JOIN → MERGED. UDP only, requires `control-mode=manual` subscription.
+  - `ReplayMerge::new()` with subscription, archive, replay/live channels, recording ID, start position.
+  - `do_work()` drives the state machine, `poll()` for fragments, `image()` for the merged Image.
+  - State queries: `is_merged()`, `has_failed()`, `is_live_added()`.
+  - Demo binary: `replay_merge_demo` (requires archive feature + running archive daemon).
 
 - [ ] **Aeron Cluster (Consensus & State Machines)**
   - Implement bindings to the Aeron Cluster C++ client, which handles interactions with Raft-based consensus logging and distributed service interactions.

@@ -60,6 +60,7 @@ pub mod ffi {
         fn offer(self: Pin<&mut PublicationWrapper>, buffer: &[u8]) -> i64;
         fn tryClaim(self: Pin<&mut PublicationWrapper>, length: usize, handler_id: usize) -> i64;
         fn isConnected(self: &PublicationWrapper) -> bool;
+        fn sessionId(self: &PublicationWrapper) -> i32;
 
         fn offer(self: Pin<&mut ExclusivePublicationWrapper>, buffer: &[u8]) -> i64;
         fn tryClaim(
@@ -228,6 +229,10 @@ impl Publication {
     pub fn is_connected(&self) -> bool {
         self.inner.isConnected()
     }
+
+    pub fn session_id(&self) -> i32 {
+        self.inner.sessionId()
+    }
 }
 
 pub struct ExclusivePublication {
@@ -317,7 +322,7 @@ type ControlledHandlerMap = RefCell<HashMap<usize, *mut dyn FnMut(&[u8]) -> Cont
 // Thread-local registries for closures passed across the cxx boundary.
 // We use pointer-based handler IDs since cxx doesn't support passing trait objects directly.
 thread_local! {
-    static HANDLERS: FragmentHandlerMap = RefCell::new(HashMap::new());
+    pub(crate) static HANDLERS: FragmentHandlerMap = RefCell::new(HashMap::new());
     static CLAIM_HANDLERS: ClaimHandlerMap = RefCell::new(HashMap::new());
     static CONTROLLED_HANDLERS: ControlledHandlerMap = RefCell::new(HashMap::new());
 }
@@ -430,6 +435,11 @@ impl Subscription {
         self.inner.isConnected()
     }
 
+    #[cfg(feature = "archive")]
+    pub(crate) fn inner_pin_mut(&mut self) -> std::pin::Pin<&mut ffi::SubscriptionWrapper> {
+        self.inner.pin_mut()
+    }
+
     pub fn image_count(&self) -> i32 {
         self.inner.imageCount()
     }
@@ -453,6 +463,11 @@ pub struct Image {
 }
 
 impl Image {
+    #[cfg(feature = "archive")]
+    pub(crate) fn from_raw(inner: cxx::UniquePtr<ffi::ImageWrapper>) -> Self {
+        Self { inner }
+    }
+
     pub fn session_id(&self) -> i32 {
         self.inner.sessionId()
     }

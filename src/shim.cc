@@ -186,6 +186,10 @@ bool PublicationWrapper::isConnected() const {
     return pub->isConnected();
 }
 
+int32_t PublicationWrapper::sessionId() const {
+    return pub->sessionId();
+}
+
 ExclusivePublicationWrapper::ExclusivePublicationWrapper(std::shared_ptr<aeron::ExclusivePublication> pub) : pub(pub) {}
 
 ExclusivePublicationWrapper::~ExclusivePublicationWrapper() {}
@@ -567,6 +571,75 @@ std::unique_ptr<ArchiveWrapper> connect_archive(
     ctx.controlResponseStreamId(control_response_stream_id);
     auto archive = aeron::archive::client::AeronArchive::connect(ctx);
     return std::unique_ptr<ArchiveWrapper>(new ArchiveWrapper(archive));
+}
+
+// ReplayMergeWrapper
+
+ReplayMergeWrapper::ReplayMergeWrapper(
+    const std::shared_ptr<aeron::Subscription>& subscription,
+    const std::shared_ptr<aeron::archive::client::AeronArchive>& archive,
+    const std::string& replayChannel,
+    const std::string& replayDestination,
+    const std::string& liveDestination,
+    int64_t recordingId,
+    int64_t startPosition,
+    int64_t mergeProgressTimeoutMs)
+    : merge_(std::make_unique<aeron::archive::client::ReplayMerge>(
+          subscription, archive, replayChannel, replayDestination,
+          liveDestination, recordingId, startPosition,
+          aeron::currentTimeMillis, mergeProgressTimeoutMs)) {}
+
+ReplayMergeWrapper::~ReplayMergeWrapper() {}
+
+int ReplayMergeWrapper::doWork() {
+    return merge_->doWork();
+}
+
+int ReplayMergeWrapper::poll(int fragment_limit, size_t handler_id) {
+    auto handler = [&](const aeron::AtomicBuffer& buffer, aeron::util::index_t offset,
+                       aeron::util::index_t length, aeron::Header& header) {
+        rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
+        aeron_rs::handle_fragment(handler_id, slice);
+    };
+    return merge_->poll(handler, fragment_limit);
+}
+
+std::unique_ptr<ImageWrapper> ReplayMergeWrapper::image() {
+    auto img = merge_->image();
+    if (!img) {
+        throw std::runtime_error("ReplayMerge image not yet available");
+    }
+    return std::unique_ptr<ImageWrapper>(new ImageWrapper(img));
+}
+
+bool ReplayMergeWrapper::isMerged() const {
+    return merge_->isMerged();
+}
+
+bool ReplayMergeWrapper::hasFailed() const {
+    return merge_->hasFailed();
+}
+
+bool ReplayMergeWrapper::isLiveAdded() const {
+    return merge_->isLiveAdded();
+}
+
+std::unique_ptr<ReplayMergeWrapper> create_replay_merge(
+    SubscriptionWrapper& subscription,
+    ArchiveWrapper& archive,
+    ::rust::Str replay_channel,
+    ::rust::Str replay_destination,
+    ::rust::Str live_destination,
+    int64_t recording_id,
+    int64_t start_position,
+    int64_t merge_progress_timeout_ms) {
+    return std::make_unique<ReplayMergeWrapper>(
+        subscription.sharedSubscription(),
+        archive.sharedArchive(),
+        std::string(replay_channel.data(), replay_channel.size()),
+        std::string(replay_destination.data(), replay_destination.size()),
+        std::string(live_destination.data(), live_destination.size()),
+        recording_id, start_position, merge_progress_timeout_ms);
 }
 
 } // namespace aeron_rs

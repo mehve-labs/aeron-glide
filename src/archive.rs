@@ -1,7 +1,12 @@
+#[allow(clippy::too_many_arguments)]
 #[cxx::bridge(namespace = "aeron_rs")]
 pub mod ffi {
     unsafe extern "C++" {
         include!("shim.h");
+
+        // Cross-bridge type aliases (defined in lib.rs cxx bridge)
+        type SubscriptionWrapper = crate::ffi::SubscriptionWrapper;
+        type ImageWrapper = crate::ffi::ImageWrapper;
 
         type ArchiveWrapper;
 
@@ -88,6 +93,31 @@ pub mod ffi {
         // Info
         fn archiveId(self: &ArchiveWrapper) -> i64;
         fn controlSessionId(self: &ArchiveWrapper) -> i64;
+
+        // ReplayMerge
+        type ReplayMergeWrapper;
+
+        fn create_replay_merge(
+            subscription: Pin<&mut SubscriptionWrapper>,
+            archive: Pin<&mut ArchiveWrapper>,
+            replay_channel: &str,
+            replay_destination: &str,
+            live_destination: &str,
+            recording_id: i64,
+            start_position: i64,
+            merge_progress_timeout_ms: i64,
+        ) -> Result<UniquePtr<ReplayMergeWrapper>>;
+
+        fn doWork(self: Pin<&mut ReplayMergeWrapper>) -> Result<i32>;
+        fn poll(
+            self: Pin<&mut ReplayMergeWrapper>,
+            fragment_limit: i32,
+            handler_id: usize,
+        ) -> Result<i32>;
+        fn image(self: Pin<&mut ReplayMergeWrapper>) -> Result<UniquePtr<ImageWrapper>>;
+        fn isMerged(self: &ReplayMergeWrapper) -> bool;
+        fn hasFailed(self: &ReplayMergeWrapper) -> bool;
+        fn isLiveAdded(self: &ReplayMergeWrapper) -> bool;
     }
 
     extern "Rust" {
@@ -461,3 +491,107 @@ pub const NULL_POSITION: i64 = i64::MIN;
 
 /// Sentinel value for null length (replay entire recording).
 pub const NULL_LENGTH: i64 = i64::MIN;
+
+/// Default timeout for replay merge progress (10 seconds).
+pub const REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT_MS: i64 = 10_000;
+
+/// Seamlessly merges an archived replay with a live stream for gap-fill scenarios.
+///
+/// ReplayMerge coordinates a replay from the archive with a live subscription,
+/// transitioning through states: REPLAY → CATCHUP → ATTEMPT_LIVE_JOIN → MERGED.
+/// UDP only — does not work with IPC channels.
+///
+/// Requires a subscription created with `control-mode=manual`.
+pub struct ReplayMerge {
+    inner: cxx::UniquePtr<ffi::ReplayMergeWrapper>,
+}
+
+impl ReplayMerge {
+    /// Create a new ReplayMerge.
+    ///
+    /// - `subscription`: Must use `control-mode=manual` in its channel URI.
+    /// - `archive`: Connected archive client.
+    /// - `replay_channel`: Channel for the replay stream (e.g., `"aeron:udp?endpoint=localhost:6666"`).
+    /// - `replay_destination`: Destination for replay data on the subscription.
+    /// - `live_destination`: Destination for live data on the subscription.
+    /// - `recording_id`: The archive recording ID to replay from.
+    /// - `start_position`: Position within the recording to start replay.
+    pub fn new(
+        subscription: &mut crate::Subscription,
+        archive: &mut AeronArchive,
+        replay_channel: &str,
+        replay_destination: &str,
+        live_destination: &str,
+        recording_id: i64,
+        start_position: i64,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let inner = ffi::create_replay_merge(
+            subscription.inner_pin_mut(),
+            archive.inner.pin_mut(),
+            replay_channel,
+            replay_destination,
+            live_destination,
+            recording_id,
+            start_position,
+            REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT_MS,
+        )?;
+        Ok(Self { inner })
+    }
+
+    /// Drive the replay merge state machine. Call this regularly in your event loop.
+    /// Returns the number of work items processed.
+    pub fn do_work(&mut self) -> Result<i32, Box<dyn std::error::Error>> {
+        Ok(self.inner.pin_mut().doWork()?)
+    }
+
+    /// Poll for fragments from the replay/merged stream.
+    pub fn poll<F>(&mut self, fragment_limit: i32, mut handler: F) -> i32
+    where
+        F: FnMut(&[u8]),
+    {
+        let handler_id = &handler as *const _ as usize;
+        let mut_ptr: *mut (dyn FnMut(&[u8]) + 'static) = unsafe {
+            std::mem::transmute::<*mut dyn FnMut(&[u8]), *mut (dyn FnMut(&[u8]) + 'static)>(
+                &mut handler as *mut dyn FnMut(&[u8]),
+            )
+        };
+
+        crate::HANDLERS.with(|handlers| {
+            handlers.borrow_mut().insert(handler_id, mut_ptr);
+        });
+
+        let result = self
+            .inner
+            .pin_mut()
+            .poll(fragment_limit, handler_id)
+            .unwrap_or(0);
+
+        crate::HANDLERS.with(|handlers| {
+            handlers.borrow_mut().remove(&handler_id);
+        });
+
+        result
+    }
+
+    /// Get the merged Image. Available after `is_merged()` returns true.
+    /// Can also be used during the merge to access the current image.
+    pub fn image(&mut self) -> Result<crate::Image, Box<dyn std::error::Error>> {
+        let wrapper = self.inner.pin_mut().image()?;
+        Ok(crate::Image::from_raw(wrapper))
+    }
+
+    /// Returns true when the replay and live streams have been successfully merged.
+    pub fn is_merged(&self) -> bool {
+        self.inner.isMerged()
+    }
+
+    /// Returns true if the replay merge operation has failed.
+    pub fn has_failed(&self) -> bool {
+        self.inner.hasFailed()
+    }
+
+    /// Returns true if the live destination has been added to the subscription.
+    pub fn is_live_added(&self) -> bool {
+        self.inner.isLiveAdded()
+    }
+}

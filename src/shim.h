@@ -11,6 +11,7 @@
 #include <client/archive/AeronArchive.h>
 #include <client/archive/ArchiveContext.h>
 #include <client/archive/ReplayParams.h>
+#include <client/archive/ReplayMerge.h>
 #endif
 
 // Forward declarations for C driver types (defined in aeronmd.h)
@@ -81,6 +82,7 @@ public:
     int64_t offer(rust::Slice<const uint8_t> buffer);
     int64_t tryClaim(size_t length, size_t handler_id);
     bool isConnected() const;
+    int32_t sessionId() const;
 
 private:
     std::shared_ptr<aeron::Publication> pub;
@@ -115,6 +117,9 @@ public:
     int imageCount() const;
     std::unique_ptr<ImageWrapper> imageByIndex(size_t index);
     std::unique_ptr<ImageWrapper> imageBySessionId(int32_t session_id);
+
+    // Internal accessor for ReplayMerge (not exposed through cxx)
+    const std::shared_ptr<aeron::Subscription>& sharedSubscription() const { return sub; }
 
 private:
     std::shared_ptr<aeron::Subscription> sub;
@@ -229,13 +234,50 @@ public:
     int64_t archiveId() const;
     int64_t controlSessionId() const;
 
+    // Internal accessor for ReplayMerge (not exposed through cxx)
+    const std::shared_ptr<aeron::archive::client::AeronArchive>& sharedArchive() const { return archive_; }
+
 private:
     std::shared_ptr<aeron::archive::client::AeronArchive> archive_;
+};
+
+class ReplayMergeWrapper {
+public:
+    ReplayMergeWrapper(
+        const std::shared_ptr<aeron::Subscription>& subscription,
+        const std::shared_ptr<aeron::archive::client::AeronArchive>& archive,
+        const std::string& replayChannel,
+        const std::string& replayDestination,
+        const std::string& liveDestination,
+        int64_t recordingId,
+        int64_t startPosition,
+        int64_t mergeProgressTimeoutMs);
+    ~ReplayMergeWrapper();
+
+    int doWork();
+    int poll(int fragment_limit, size_t handler_id);
+    std::unique_ptr<ImageWrapper> image();
+    bool isMerged() const;
+    bool hasFailed() const;
+    bool isLiveAdded() const;
+
+private:
+    std::unique_ptr<aeron::archive::client::ReplayMerge> merge_;
 };
 
 std::unique_ptr<ArchiveWrapper> connect_archive(
     ::rust::Str control_request_channel, int32_t control_request_stream_id,
     ::rust::Str control_response_channel, int32_t control_response_stream_id);
+
+std::unique_ptr<ReplayMergeWrapper> create_replay_merge(
+    SubscriptionWrapper& subscription,
+    ArchiveWrapper& archive,
+    ::rust::Str replay_channel,
+    ::rust::Str replay_destination,
+    ::rust::Str live_destination,
+    int64_t recording_id,
+    int64_t start_position,
+    int64_t merge_progress_timeout_ms);
 #endif
 
 } // namespace aeron_rs
