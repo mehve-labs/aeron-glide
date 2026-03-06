@@ -1,5 +1,5 @@
-use aeron_rs::archive::AeronArchive;
-use aeron_rs::AeronClient;
+use aeron_glide::archive::AeronArchive;
+use aeron_glide::AeronClient;
 use std::thread;
 use std::time::Duration;
 
@@ -93,7 +93,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    println!("\nReplay complete. Received {} messages total.", total_received);
+    println!(
+        "\nReplay complete. Received {} messages total.",
+        total_received
+    );
 
     // Cleanup
     archive.stop_replay(replay_session)?;

@@ -1,7 +1,7 @@
 #include "shim.h"
 #include <iostream>
 #include <thread>
-#include "aeron-rs/src/lib.rs.h"
+#include "aeron-glide/src/lib.rs.h"
 
 extern "C" {
 #include <aeronmd.h>
@@ -427,7 +427,7 @@ std::unique_ptr<MediaDriverWrapper> create_media_driver() {
 } // namespace aeron_rs (close before archive include to avoid double namespace)
 
 #ifdef AERON_ARCHIVE
-#include "aeron-rs/src/archive.rs.h"
+#include "aeron-glide/src/archive.rs.h"
 
 namespace aeron_rs {
 

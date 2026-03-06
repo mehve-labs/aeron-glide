@@ -1,4 +1,4 @@
-use aeron_rs::{IdleStrategy, MediaDriver, ThreadingMode};
+use aeron_glide::{IdleStrategy, MediaDriver, ThreadingMode};
 use serde::Deserialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -32,7 +32,10 @@ fn parse_threading_mode(s: &str) -> Result<ThreadingMode, String> {
         "shared_network" => Ok(ThreadingMode::SharedNetwork),
         "shared" => Ok(ThreadingMode::Shared),
         "invoker" => Ok(ThreadingMode::Invoker),
-        _ => Err(format!("Unknown threading mode: '{}'. Expected: dedicated, shared_network, shared, invoker", s)),
+        _ => Err(format!(
+            "Unknown threading mode: '{}'. Expected: dedicated, shared_network, shared, invoker",
+            s
+        )),
     }
 }
 
@@ -43,7 +46,10 @@ fn parse_idle_strategy(s: &str) -> Result<IdleStrategy, String> {
         "yield" => Ok(IdleStrategy::Yield),
         "sleeping" => Ok(IdleStrategy::Sleeping),
         "noop" => Ok(IdleStrategy::Noop),
-        _ => Err(format!("Unknown idle strategy: '{}'. Expected: backoff, spin, yield, sleeping, noop", s)),
+        _ => Err(format!(
+            "Unknown idle strategy: '{}'. Expected: backoff, spin, yield, sleeping, noop",
+            s
+        )),
     }
 }
 

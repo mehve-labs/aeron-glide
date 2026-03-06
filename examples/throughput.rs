@@ -1,4 +1,4 @@
-use aeron_rs::AeronClient;
+use aeron_glide::AeronClient;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;

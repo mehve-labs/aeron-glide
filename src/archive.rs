@@ -33,16 +33,11 @@ pub mod ffi {
         ) -> Result<()>;
 
         // Position queries
-        fn getRecordingPosition(
-            self: Pin<&mut ArchiveWrapper>,
-            recording_id: i64,
-        ) -> Result<i64>;
+        fn getRecordingPosition(self: Pin<&mut ArchiveWrapper>, recording_id: i64) -> Result<i64>;
         fn getStartPosition(self: Pin<&mut ArchiveWrapper>, recording_id: i64) -> Result<i64>;
         fn getStopPosition(self: Pin<&mut ArchiveWrapper>, recording_id: i64) -> Result<i64>;
-        fn getMaxRecordedPosition(
-            self: Pin<&mut ArchiveWrapper>,
-            recording_id: i64,
-        ) -> Result<i64>;
+        fn getMaxRecordedPosition(self: Pin<&mut ArchiveWrapper>, recording_id: i64)
+            -> Result<i64>;
 
         // Listing
         fn listRecordings(
@@ -175,8 +170,7 @@ pub struct RecordingDescriptor {
     pub original_channel: String,
 }
 
-type RecordingDescriptorHandlerMap =
-    RefCell<HashMap<usize, *mut dyn FnMut(RecordingDescriptor)>>;
+type RecordingDescriptorHandlerMap = RefCell<HashMap<usize, *mut dyn FnMut(RecordingDescriptor)>>;
 
 thread_local! {
     static RECORDING_DESCRIPTOR_HANDLERS: RecordingDescriptorHandlerMap = RefCell::new(HashMap::new());
@@ -344,10 +338,10 @@ impl AeronArchive {
             handlers.borrow_mut().insert(handler_id, mut_ptr);
         });
 
-        let result = self
-            .inner
-            .pin_mut()
-            .listRecordings(from_recording_id, record_count, handler_id);
+        let result =
+            self.inner
+                .pin_mut()
+                .listRecordings(from_recording_id, record_count, handler_id);
 
         RECORDING_DESCRIPTOR_HANDLERS.with(|handlers| {
             handlers.borrow_mut().remove(&handler_id);

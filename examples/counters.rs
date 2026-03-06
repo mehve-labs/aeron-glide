@@ -1,4 +1,4 @@
-use aeron_rs::AeronClient;
+use aeron_glide::AeronClient;
 use std::thread;
 use std::time::Duration;
 

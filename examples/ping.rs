@@ -1,4 +1,4 @@
-use aeron_rs::{AeronClient, ExclusivePublication, Publication};
+use aeron_glide::{AeronClient, ExclusivePublication, Publication};
 use clap::Parser;
 use std::thread;
 use std::time::{Duration, Instant};

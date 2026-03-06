@@ -31,7 +31,10 @@ fn main() {
     let mut config = Config::new(&aeron_dir);
     config
         .define("BUILD_AERON_DRIVER", "ON")
-        .define("BUILD_AERON_ARCHIVE_API", if archive_enabled { "ON" } else { "OFF" })
+        .define(
+            "BUILD_AERON_ARCHIVE_API",
+            if archive_enabled { "ON" } else { "OFF" },
+        )
         .define("AERON_TESTS", "OFF")
         .define("AERON_BUILD_SAMPLES", "OFF")
         .define("AERON_BUILD_DOCUMENTATION", "OFF");

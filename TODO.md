@@ -45,7 +45,7 @@ The `aeron-rs` project currently demonstrates basic IPC Publication and Subscrip
   - 17 setter methods exposed through cxx: dir, dir_delete_on_start/shutdown, threading_mode, conductor/sender/receiver idle strategies, term/ipc_term buffer lengths, mtu/ipc_mtu lengths, socket so_rcvbuf/so_sndbuf, print_configuration, conductor/sender/receiver CPU affinity.
   - Rust enums: `ThreadingMode` (Dedicated, SharedNetwork, Shared, Invoker) and `IdleStrategy` (Backoff, Spin, Yield, Sleeping, Noop).
   - `MediaDriver::new()` and `start()` now return `Result`.
-  - Renamed `aeronmd` binary to `mediadriver`. Config via YAML file (`example_configs/mediadriver.yaml`) instead of CLI flags.
+  - Renamed `aeronmd` binary to `mediadriver`. Config via YAML file (`examples/mediadriver.yaml`) instead of CLI flags.
   
 - [x] **Aeron Archive**
   - Expose the Aeron Archive API (recording, replay, listing, position queries, truncation) via the C++ Archive wrapper.

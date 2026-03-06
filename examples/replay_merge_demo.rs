@@ -1,5 +1,5 @@
-use aeron_rs::archive::{AeronArchive, ReplayMerge, SourceLocation};
-use aeron_rs::AeronClient;
+use aeron_glide::archive::{AeronArchive, ReplayMerge, SourceLocation};
+use aeron_glide::AeronClient;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -56,7 +56,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "aeron:udp?session-id={}|control={}",
         pub_session_id, CONTROL_ENDPOINT
     );
-    let sub_id = archive.start_recording(&recording_channel, STREAM_ID, SourceLocation::Remote, true)?;
+    let sub_id =
+        archive.start_recording(&recording_channel, STREAM_ID, SourceLocation::Remote, true)?;
     println!("Recording started (subscription_id={})", sub_id);
 
     // Now wait for publisher to connect (the archive's recording subscription connects to it)
@@ -85,8 +86,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     archive.list_recordings_for_uri(0, 100, "udp", STREAM_ID, |desc| {
         println!(
             "  Found recording {}: start={} stop={} session={} channel={}",
-            desc.recording_id, desc.start_position, desc.stop_position,
-            desc.session_id, desc.stripped_channel
+            desc.recording_id,
+            desc.start_position,
+            desc.stop_position,
+            desc.session_id,
+            desc.stripped_channel
         );
         recording_id = Some(desc.recording_id);
         start_pos = desc.start_position;
@@ -193,8 +197,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let msg = std::str::from_utf8(data).unwrap_or("<binary>");
                 total_received += 1;
                 if total_received <= 5 || total_received % 10 == 0 {
-                println!("  [{}] {}", total_received, msg);
-            }
+                    println!("  [{}] {}", total_received, msg);
+                }
             });
             break;
         }

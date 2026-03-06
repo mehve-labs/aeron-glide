@@ -1,4 +1,4 @@
-use aeron_rs::{AeronClient, ControlledAction};
+use aeron_glide::{AeronClient, ControlledAction};
 use std::thread;
 use std::time::Duration;
 
@@ -140,7 +140,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
         println!(
             "  -> {} fragments delivered, position {} -> {} (remaining still queued)\n",
-            fragments, pos_before, image.position()
+            fragments,
+            pos_before,
+            image.position()
         );
     }
 

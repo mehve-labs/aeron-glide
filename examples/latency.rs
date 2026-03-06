@@ -1,4 +1,4 @@
-use aeron_rs::AeronClient;
+use aeron_glide::AeronClient;
 use hdrhistogram::Histogram;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -22,7 +22,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Ping-Pong Latency Test");
     println!("  message_length={}", MESSAGE_LENGTH);
-    println!("  warmup={} messages={}", WARMUP_MESSAGES, NUMBER_OF_MESSAGES);
+    println!(
+        "  warmup={} messages={}",
+        WARMUP_MESSAGES, NUMBER_OF_MESSAGES
+    );
     println!("  ping={} pong={}\n", channel, pong_channel);
 
     let running = Arc::new(AtomicBool::new(true));
@@ -167,8 +170,8 @@ fn run_ping(
 
 #[inline]
 fn record_rtt(
-    publication: &mut aeron_rs::Publication,
-    subscription: &mut aeron_rs::Subscription,
+    publication: &mut aeron_glide::Publication,
+    subscription: &mut aeron_glide::Subscription,
     buffer: &mut [u8],
     histogram: &mut Histogram<u64>,
 ) {

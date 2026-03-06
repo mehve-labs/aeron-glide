@@ -1,22 +1,35 @@
 [package]
-name = "aeron-rs"
+name = "aeron-glide"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.92"
 authors = ["Davide"]
-description = "Safe C++ bindings for Aeron via cxx"
-license = "Apache-2.0"
+description = "Safe, idiomatic Rust wrapper for the Aeron C++ API via cxx"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/davidebenato/aeron-glide"
+homepage = "https://github.com/davidebenato/aeron-glide"
+documentation = "https://docs.rs/aeron-glide"
+readme = "README.md"
+keywords = ["aeron", "messaging", "ipc", "low-latency", "pub-sub"]
+categories = ["network-programming", "concurrency"]
+exclude = ["scripts/", "aeron-archive/", ".claude/", ".github/", "TODO.md"]
+
+[package.metadata.docs.rs]
+features = ["archive"]
 
 [features]
 archive = []
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
 ctrlc = "3.5"
 cxx = "1.0"
-hdrhistogram = "7"
-once_cell = "1.19"
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
+
+[dev-dependencies]
+clap = { version = "4", features = ["derive"] }
+hdrhistogram = "7"
+once_cell = "1.19"
 
 [build-dependencies]
 cxx-build = "1.0"
@@ -26,52 +39,52 @@ tar = "0.4"
 flate2 = "1.0"
 
 [[bin]]
-name = "ping"
-path = "src/bin/ping.rs"
-
-[[bin]]
-name = "pong"
-path = "src/bin/pong.rs"
-
-[[bin]]
 name = "mediadriver"
 path = "src/bin/mediadriver.rs"
 
-[[bin]]
+[[example]]
+name = "ping"
+path = "examples/ping.rs"
+
+[[example]]
+name = "pong"
+path = "examples/pong.rs"
+
+[[example]]
 name = "counters"
-path = "src/bin/counters.rs"
+path = "examples/counters.rs"
 
-[[bin]]
+[[example]]
 name = "large_ping"
-path = "src/bin/large_ping.rs"
+path = "examples/large_ping.rs"
 
-[[bin]]
+[[example]]
 name = "large_pong"
-path = "src/bin/large_pong.rs"
+path = "examples/large_pong.rs"
 
-[[bin]]
+[[example]]
 name = "image_demo"
-path = "src/bin/image_demo.rs"
+path = "examples/image_demo.rs"
 
-[[bin]]
+[[example]]
 name = "throughput"
-path = "src/bin/throughput.rs"
+path = "examples/throughput.rs"
 
-[[bin]]
+[[example]]
 name = "latency"
-path = "src/bin/latency.rs"
+path = "examples/latency.rs"
 
-[[bin]]
+[[example]]
 name = "record"
-path = "src/bin/record.rs"
+path = "examples/record.rs"
 required-features = ["archive"]
 
-[[bin]]
+[[example]]
 name = "replay"
-path = "src/bin/replay.rs"
+path = "examples/replay.rs"
 required-features = ["archive"]
 
-[[bin]]
+[[example]]
 name = "replay_merge_demo"
-path = "src/bin/replay_merge_demo.rs"
+path = "examples/replay_merge_demo.rs"
 required-features = ["archive"]

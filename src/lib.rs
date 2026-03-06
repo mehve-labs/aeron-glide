@@ -1,4 +1,50 @@
+//! Safe, idiomatic Rust wrapper for the [Aeron](https://github.com/real-logic/aeron) C++ API.
+//!
+//! This crate binds directly to the Aeron C++ client using [`cxx`](https://cxx.rs/),
+//! providing zero-cost abstractions over publications, subscriptions, images, and the
+//! embedded media driver. Closures are passed cleanly across the FFI boundary via
+//! trampolines, so the API feels native to Rust.
+//!
+//! # Quick start
+//!
+//! ```no_run
+//! use aeron_glide::AeronClient;
+//!
+//! let mut client = AeronClient::new().unwrap();
+//! client.start();
+//!
+//! let mut pub1 = client.add_publication("aeron:ipc", 1001).unwrap();
+//! let mut sub1 = client.add_subscription("aeron:ipc", 1001).unwrap();
+//!
+//! // Publish
+//! while pub1.offer(b"hello aeron") < 0 {}
+//!
+//! // Subscribe
+//! sub1.poll(10, |data| {
+//!     println!("Received: {}", std::str::from_utf8(data).unwrap());
+//! });
+//! ```
+//!
+//! # Features
+//!
+//! - **IPC and UDP** transports via [`ChannelBuilder`]
+//! - **Publications** ([`Publication`]) and **exclusive publications** ([`ExclusivePublication`])
+//! - **Zero-copy publish** via [`Publication::try_claim`]
+//! - **Fragment reassembly** via [`Subscription::poll_assembled`] with [`ControlledAction`] flow control
+//! - **Image** access for per-session stream inspection
+//! - **Counters** reader for real-time driver statistics
+//! - **Embedded media driver** ([`MediaDriver`]) with full configuration
+//! - **Archive client** (behind the `archive` feature flag): recording, replay, listing, and `ReplayMerge`
+//!
+//! # Prerequisites
+//!
+//! - CMake and a C++14 compiler (Aeron C++ is built from source automatically)
+//! - A running Aeron media driver (use the included `mediadriver` binary or [`MediaDriver`])
+//! - Java 17+ only if building with `--features archive`
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 #[cfg(feature = "archive")]
+#[cfg_attr(docsrs, doc(cfg(feature = "archive")))]
 pub mod archive;
 
 #[cxx::bridge(namespace = "aeron_rs")]
@@ -132,11 +178,16 @@ pub mod ffi {
     }
 }
 
+/// Aeron client — the main entry point for creating publications and subscriptions.
+///
+/// Each client maintains its own connection to the media driver. You can create
+/// multiple clients in the same process (e.g., one per thread).
 pub struct AeronClient {
     inner: cxx::UniquePtr<ffi::AeronWrapper>,
 }
 
 impl AeronClient {
+    /// Create a new Aeron client connected to the media driver.
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let ctx = ffi::create_context();
         let aeron = ffi::create_aeron(ctx)?;
@@ -144,14 +195,18 @@ impl AeronClient {
         Ok(Self { inner: aeron })
     }
 
+    /// Start the client conductor thread.
     pub fn start(&mut self) {
         self.inner.pin_mut().start();
     }
 
+    /// Returns `true` if the client has been closed.
     pub fn is_closed(&self) -> bool {
         self.inner.isClosed()
     }
 
+    /// Add a concurrent publication on the given channel and stream ID.
+    /// Multiple publishers can share the same channel+stream.
     pub fn add_publication(
         &mut self,
         channel: &str,
@@ -161,6 +216,8 @@ impl AeronClient {
         Ok(Publication { inner: pub_inner })
     }
 
+    /// Add an exclusive publication on the given channel and stream ID.
+    /// Only one publisher is allowed per session — lower overhead than concurrent.
     pub fn add_exclusive_publication(
         &mut self,
         channel: &str,
@@ -173,6 +230,7 @@ impl AeronClient {
         Ok(ExclusivePublication { inner: pub_inner })
     }
 
+    /// Add a subscription on the given channel and stream ID.
     pub fn add_subscription(
         &mut self,
         channel: &str,
@@ -182,6 +240,7 @@ impl AeronClient {
         Ok(Subscription { inner: sub_inner })
     }
 
+    /// Get a reader for the media driver's CNC counters (bytes sent/received, errors, etc.).
     pub fn counters_reader(&self) -> CountersReader {
         CountersReader {
             inner: self.inner.countersReader(),
@@ -189,11 +248,16 @@ impl AeronClient {
     }
 }
 
+/// A concurrent publication for sending messages on a channel+stream.
+///
+/// Returns negative values from [`offer`](Publication::offer) on back-pressure or when closed.
 pub struct Publication {
     inner: cxx::UniquePtr<ffi::PublicationWrapper>,
 }
 
 impl Publication {
+    /// Publish a message. Returns the new stream position on success,
+    /// or a negative value on back-pressure / not connected / closed.
     pub fn offer(&mut self, buffer: &[u8]) -> i64 {
         self.inner.pin_mut().offer(buffer)
     }
@@ -226,20 +290,25 @@ impl Publication {
         result
     }
 
+    /// Returns `true` if there is at least one subscriber connected to this publication.
     pub fn is_connected(&self) -> bool {
         self.inner.isConnected()
     }
 
+    /// The session ID assigned by the media driver for this publication.
     pub fn session_id(&self) -> i32 {
         self.inner.sessionId()
     }
 }
 
+/// An exclusive publication — single-writer, lower overhead than [`Publication`].
 pub struct ExclusivePublication {
     inner: cxx::UniquePtr<ffi::ExclusivePublicationWrapper>,
 }
 
 impl ExclusivePublication {
+    /// Publish a message. Returns the new stream position on success,
+    /// or a negative value on back-pressure / not connected / closed.
     pub fn offer(&mut self, buffer: &[u8]) -> i64 {
         self.inner.pin_mut().offer(buffer)
     }
@@ -272,6 +341,7 @@ impl ExclusivePublication {
         result
     }
 
+    /// Returns `true` if there is at least one subscriber connected to this publication.
     pub fn is_connected(&self) -> bool {
         self.inner.isConnected()
     }
@@ -364,11 +434,14 @@ fn handle_claim(handler_id: usize, buffer: &mut [u8]) -> bool {
     })
 }
 
+/// A subscription for receiving messages on a channel+stream.
 pub struct Subscription {
     inner: cxx::UniquePtr<ffi::SubscriptionWrapper>,
 }
 
 impl Subscription {
+    /// Poll for new messages, calling `handler` for each fragment received.
+    /// Returns the number of fragments dispatched.
     pub fn poll<F>(&mut self, limit: i32, mut handler: F) -> i32
     where
         F: FnMut(&[u8]),
@@ -431,6 +504,7 @@ impl Subscription {
         result
     }
 
+    /// Returns `true` if there is at least one publisher connected to this subscription.
     pub fn is_connected(&self) -> bool {
         self.inner.isConnected()
     }
@@ -440,15 +514,18 @@ impl Subscription {
         self.inner.pin_mut()
     }
 
+    /// The number of active images (one per publisher session) on this subscription.
     pub fn image_count(&self) -> i32 {
         self.inner.imageCount()
     }
 
+    /// Get an image by its index (0-based). Images appear in the order they were connected.
     pub fn image_by_index(&mut self, index: usize) -> Result<Image, Box<dyn std::error::Error>> {
         let img = self.inner.pin_mut().imageByIndex(index)?;
         Ok(Image { inner: img })
     }
 
+    /// Get an image by the publisher's session ID.
     pub fn image_by_session_id(
         &mut self,
         session_id: i32,
@@ -458,6 +535,10 @@ impl Subscription {
     }
 }
 
+/// A single publisher session as seen by a subscriber.
+///
+/// Each publisher session creates one image on each matching subscription.
+/// Images track their own position and can be polled independently.
 pub struct Image {
     inner: cxx::UniquePtr<ffi::ImageWrapper>,
 }
@@ -468,42 +549,52 @@ impl Image {
         Self { inner }
     }
 
+    /// The session ID of the publisher that created this image.
     pub fn session_id(&self) -> i32 {
         self.inner.sessionId()
     }
 
+    /// The correlation ID assigned by the media driver when the image was created.
     pub fn correlation_id(&self) -> i64 {
         self.inner.correlationId()
     }
 
+    /// The position at which this image was joined.
     pub fn join_position(&self) -> i64 {
         self.inner.joinPosition()
     }
 
+    /// The source identity string (e.g., `"192.168.1.1:40123"`).
     pub fn source_identity(&self) -> String {
         self.inner.sourceIdentity()
     }
 
+    /// The current consumption position within the stream.
     pub fn position(&self) -> i64 {
         self.inner.position()
     }
 
+    /// Set the subscriber position (e.g., to skip ahead or rewind within the term buffer).
     pub fn set_position(&mut self, new_position: i64) {
         self.inner.pin_mut().setPosition(new_position);
     }
 
+    /// Returns `true` if the image has been closed (publisher disconnected or timed out).
     pub fn is_closed(&self) -> bool {
         self.inner.isClosed()
     }
 
+    /// Returns `true` if the publisher has signalled end-of-stream.
     pub fn is_end_of_stream(&self) -> bool {
         self.inner.isEndOfStream()
     }
 
+    /// The position at which the end-of-stream was signalled.
     pub fn end_of_stream_position(&self) -> i64 {
         self.inner.endOfStreamPosition()
     }
 
+    /// Poll this specific image for fragments. Returns the number of fragments dispatched.
     pub fn poll<F>(&mut self, limit: i32, mut handler: F) -> i32
     where
         F: FnMut(&[u8]),
@@ -560,6 +651,10 @@ impl Image {
     }
 }
 
+/// Reader for the media driver's CNC (Command and Control) counters.
+///
+/// Provides access to real-time statistics like bytes sent/received, NAKs,
+/// errors, and heartbeats.
 pub struct CountersReader {
     inner: cxx::UniquePtr<ffi::CountersReaderWrapper>,
 }
@@ -588,26 +683,32 @@ fn handle_counters_metadata(
 }
 
 impl CountersReader {
+    /// The highest counter ID currently allocated.
     pub fn max_counter_id(&self) -> i32 {
         self.inner.maxCounterId()
     }
 
+    /// Read the current value of a counter by ID.
     pub fn get_counter_value(&self, id: i32) -> i64 {
         self.inner.getCounterValue(id)
     }
 
+    /// Get the state of a counter (e.g., active, inactive).
     pub fn get_counter_state(&self, id: i32) -> i32 {
         self.inner.getCounterState(id)
     }
 
+    /// Get the type ID of a counter.
     pub fn get_counter_type_id(&self, id: i32) -> i32 {
         self.inner.getCounterTypeId(id)
     }
 
+    /// Get the human-readable label of a counter.
     pub fn get_counter_label(&self, id: i32) -> String {
         self.inner.getCounterLabel(id)
     }
 
+    /// Iterate over all counters, calling `handler(counter_id, type_id, key_bytes, label)` for each.
     pub fn for_each<F>(&self, mut handler: F)
     where
         F: FnMut(i32, i32, &[u8], &str),
@@ -639,21 +740,32 @@ impl Default for AeronClient {
     }
 }
 
+/// Threading model for the embedded media driver.
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThreadingMode {
+    /// Separate threads for conductor, sender, and receiver.
     Dedicated = 0,
+    /// Sender and receiver share a thread; conductor is separate.
     SharedNetwork = 1,
+    /// All three run on a single shared thread.
     Shared = 2,
+    /// Caller-driven — the application invokes the driver duty cycle.
     Invoker = 3,
 }
 
+/// Idle strategy for media driver threads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IdleStrategy {
+    /// Progressive back-off: spin → yield → park.
     Backoff,
+    /// Busy spin (lowest latency, highest CPU).
     Spin,
+    /// Thread yield.
     Yield,
+    /// Thread sleep.
     Sleeping,
+    /// No-op (do nothing between duty cycles).
     Noop,
 }
 
@@ -669,62 +781,97 @@ impl IdleStrategy {
     }
 }
 
+/// An embedded C media driver that manages shared memory buffers and handles
+/// publication/subscription matching.
 pub struct MediaDriver {
     inner: cxx::UniquePtr<ffi::MediaDriverWrapper>,
 }
 
 impl MediaDriver {
+    /// Create a new media driver with default settings.
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let inner = ffi::create_media_driver()?;
         Ok(Self { inner })
     }
 
+    /// Start the media driver. Must be called before any clients can connect.
     pub fn start(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.inner.pin_mut().start()?;
         Ok(())
     }
 
+    /// Set the Aeron directory for shared memory files.
     pub fn set_dir(&mut self, dir: &str) -> Result<(), Box<dyn std::error::Error>> {
         self.inner.pin_mut().setDir(dir)?;
         Ok(())
     }
 
-    pub fn set_dir_delete_on_start(&mut self, value: bool) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_dir_delete_on_start(
+        &mut self,
+        value: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         self.inner.pin_mut().setDirDeleteOnStart(value)?;
         Ok(())
     }
 
-    pub fn set_dir_delete_on_shutdown(&mut self, value: bool) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_dir_delete_on_shutdown(
+        &mut self,
+        value: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         self.inner.pin_mut().setDirDeleteOnShutdown(value)?;
         Ok(())
     }
 
-    pub fn set_threading_mode(&mut self, mode: ThreadingMode) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_threading_mode(
+        &mut self,
+        mode: ThreadingMode,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         self.inner.pin_mut().setThreadingMode(mode as i32)?;
         Ok(())
     }
 
-    pub fn set_conductor_idle_strategy(&mut self, strategy: IdleStrategy) -> Result<(), Box<dyn std::error::Error>> {
-        self.inner.pin_mut().setConductorIdleStrategy(strategy.as_str())?;
+    pub fn set_conductor_idle_strategy(
+        &mut self,
+        strategy: IdleStrategy,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.inner
+            .pin_mut()
+            .setConductorIdleStrategy(strategy.as_str())?;
         Ok(())
     }
 
-    pub fn set_sender_idle_strategy(&mut self, strategy: IdleStrategy) -> Result<(), Box<dyn std::error::Error>> {
-        self.inner.pin_mut().setSenderIdleStrategy(strategy.as_str())?;
+    pub fn set_sender_idle_strategy(
+        &mut self,
+        strategy: IdleStrategy,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.inner
+            .pin_mut()
+            .setSenderIdleStrategy(strategy.as_str())?;
         Ok(())
     }
 
-    pub fn set_receiver_idle_strategy(&mut self, strategy: IdleStrategy) -> Result<(), Box<dyn std::error::Error>> {
-        self.inner.pin_mut().setReceiverIdleStrategy(strategy.as_str())?;
+    pub fn set_receiver_idle_strategy(
+        &mut self,
+        strategy: IdleStrategy,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.inner
+            .pin_mut()
+            .setReceiverIdleStrategy(strategy.as_str())?;
         Ok(())
     }
 
-    pub fn set_term_buffer_length(&mut self, value: usize) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_term_buffer_length(
+        &mut self,
+        value: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         self.inner.pin_mut().setTermBufferLength(value)?;
         Ok(())
     }
 
-    pub fn set_ipc_term_buffer_length(&mut self, value: usize) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_ipc_term_buffer_length(
+        &mut self,
+        value: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         self.inner.pin_mut().setIpcTermBufferLength(value)?;
         Ok(())
     }
@@ -749,22 +896,34 @@ impl MediaDriver {
         Ok(())
     }
 
-    pub fn set_print_configuration(&mut self, value: bool) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_print_configuration(
+        &mut self,
+        value: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         self.inner.pin_mut().setPrintConfiguration(value)?;
         Ok(())
     }
 
-    pub fn set_conductor_cpu_affinity(&mut self, cpu_id: i32) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_conductor_cpu_affinity(
+        &mut self,
+        cpu_id: i32,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         self.inner.pin_mut().setConductorCpuAffinity(cpu_id)?;
         Ok(())
     }
 
-    pub fn set_sender_cpu_affinity(&mut self, cpu_id: i32) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_sender_cpu_affinity(
+        &mut self,
+        cpu_id: i32,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         self.inner.pin_mut().setSenderCpuAffinity(cpu_id)?;
         Ok(())
     }
 
-    pub fn set_receiver_cpu_affinity(&mut self, cpu_id: i32) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_receiver_cpu_affinity(
+        &mut self,
+        cpu_id: i32,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         self.inner.pin_mut().setReceiverCpuAffinity(cpu_id)?;
         Ok(())
     }
@@ -776,12 +935,29 @@ impl Default for MediaDriver {
     }
 }
 
+/// Builder for Aeron channel URIs (`aeron:ipc` or `aeron:udp?key=value|...`).
+///
+/// # Examples
+///
+/// ```
+/// use aeron_glide::ChannelBuilder;
+///
+/// let ipc = ChannelBuilder::ipc().build();
+/// assert_eq!(ipc, "aeron:ipc");
+///
+/// let udp = ChannelBuilder::udp()
+///     .endpoint("localhost:20121")
+///     .mtu(8192)
+///     .build();
+/// assert_eq!(udp, "aeron:udp?endpoint=localhost:20121|mtu=8192");
+/// ```
 pub struct ChannelBuilder {
     media: &'static str,
     params: Vec<(String, String)>,
 }
 
 impl ChannelBuilder {
+    /// Create an IPC (shared memory) channel builder.
     pub fn ipc() -> Self {
         Self {
             media: "ipc",
@@ -789,6 +965,7 @@ impl ChannelBuilder {
         }
     }
 
+    /// Create a UDP channel builder.
     pub fn udp() -> Self {
         Self {
             media: "udp",
@@ -796,6 +973,7 @@ impl ChannelBuilder {
         }
     }
 
+    /// Set the endpoint address (e.g., `"localhost:20121"` or `"224.0.1.1:40456"` for multicast).
     pub fn endpoint(self, value: &str) -> Self {
         self.param("endpoint", value)
     }
@@ -851,11 +1029,13 @@ impl ChannelBuilder {
         self.param("rcv-wnd", &bytes.to_string())
     }
 
+    /// Set an arbitrary channel parameter by key and value.
     pub fn param(mut self, key: &str, value: &str) -> Self {
         self.params.push((key.to_string(), value.to_string()));
         self
     }
 
+    /// Build the channel URI string.
     pub fn build(&self) -> String {
         let mut uri = format!("aeron:{}", self.media);
         for (i, (key, value)) in self.params.iter().enumerate() {
@@ -915,7 +1095,9 @@ mod tests {
 
         // Test image_by_session_id
         let sid = image.session_id();
-        let image2 = sub.image_by_session_id(sid).expect("image_by_session_id failed");
+        let image2 = sub
+            .image_by_session_id(sid)
+            .expect("image_by_session_id failed");
         assert_eq!(image2.session_id(), sid);
     }
 

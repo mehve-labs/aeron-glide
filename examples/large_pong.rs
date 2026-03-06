@@ -1,4 +1,4 @@
-use aeron_rs::{AeronClient, ControlledAction};
+use aeron_glide::{AeronClient, ControlledAction};
 use std::thread;
 use std::time::Duration;
 
