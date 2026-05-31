@@ -11,7 +11,7 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     // Configurable Aeron version
-    let aeron_version = env::var("AERON_VERSION").unwrap_or_else(|_| "1.50.2".to_string());
+    let aeron_version = env::var("AERON_VERSION").unwrap_or_else(|_| "1.51.0".to_string());
     println!("cargo:rerun-if-env-changed=AERON_VERSION");
 
     let aeron_dir = out_dir.join(format!("aeron-{}", aeron_version));
