@@ -8,6 +8,14 @@ fn main() {
     println!("cargo:rerun-if-changed=src/shim.cc");
     println!("cargo:rerun-if-changed=src/shim.h");
 
+    // docs.rs builds in a network-isolated sandbox and only runs `cargo doc`,
+    // which compiles the crate but never links. Skip the Aeron download, the
+    // CMake build, and the cxx C++ compilation entirely — the cxx bridge still
+    // expands to pure-Rust FFI declarations, so rustdoc succeeds without them.
+    if env::var("DOCS_RS").is_ok() {
+        return;
+    }
+
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     // Configurable Aeron version
