@@ -1,5 +1,5 @@
-use aeron_glide::archive::{AeronArchive, SourceLocation};
 use aeron_glide::AeronClient;
+use aeron_glide::archive::{AeronArchive, SourceLocation};
 use std::thread;
 use std::time::Duration;
 

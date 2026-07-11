@@ -117,7 +117,7 @@ pub mod ffi {
         fn isConnected(self: &ExclusivePublicationWrapper) -> bool;
 
         fn poll(self: Pin<&mut SubscriptionWrapper>, fragment_limit: i32, handler_id: usize)
-            -> i32;
+        -> i32;
         fn pollAssembled(
             self: Pin<&mut SubscriptionWrapper>,
             fragment_limit: i32,

@@ -37,7 +37,7 @@ pub mod ffi {
         fn getStartPosition(self: Pin<&mut ArchiveWrapper>, recording_id: i64) -> Result<i64>;
         fn getStopPosition(self: Pin<&mut ArchiveWrapper>, recording_id: i64) -> Result<i64>;
         fn getMaxRecordedPosition(self: Pin<&mut ArchiveWrapper>, recording_id: i64)
-            -> Result<i64>;
+        -> Result<i64>;
 
         // Listing
         fn listRecordings(
