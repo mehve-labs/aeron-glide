@@ -1,13 +1,13 @@
 [package]
 name = "aeron-glide"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.97"
 authors = ["Mehve Labs <554170+davidebenato@users.noreply.github.com>"]
 description = "Safe, idiomatic Rust wrapper for the Aeron C++ API via cxx"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/davidebenato/aeron-glide"
-homepage = "https://github.com/davidebenato/aeron-glide"
+repository = "https://github.com/mehve-labs/aeron-glide"
+homepage = "https://github.com/mehve-labs/aeron-glide"
 documentation = "https://docs.rs/aeron-glide"
 readme = "README.md"
 keywords = ["aeron", "messaging", "ipc", "low-latency", "pub-sub"]

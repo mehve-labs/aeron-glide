@@ -1,6 +1,6 @@
 # aeron-glide
 
-[![CI](https://github.com/davidebenato/aeron-glide/actions/workflows/ci.yml/badge.svg)](https://github.com/davidebenato/aeron-glide/actions/workflows/ci.yml)
+[![CI](https://github.com/mehve-labs/aeron-glide/actions/workflows/ci.yml/badge.svg)](https://github.com/mehve-labs/aeron-glide/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/aeron-glide.svg)](https://crates.io/crates/aeron-glide)
 [![docs.rs](https://docs.rs/aeron-glide/badge.svg)](https://docs.rs/aeron-glide)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
