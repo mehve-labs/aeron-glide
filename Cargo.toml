@@ -1,7 +1,7 @@
 [package]
 name = "aeron-glide"
 version = "0.1.2"
-edition = "2021"
+edition = "2024"
 rust-version = "1.97"
 authors = ["Mehve Labs <554170+davidebenato@users.noreply.github.com>"]
 description = "Safe, idiomatic Rust wrapper for the Aeron C++ API via cxx"
