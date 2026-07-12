@@ -2,38 +2,61 @@
 
 ## Overview
 
-aeron-glide is dual-licensed:
+aeron-glide is **dual-licensed**. You may use it under **either** of the
+following licenses — the choice is entirely yours:
 
-1. **Open Source** - GNU Affero General Public License v3.0 (AGPL-3.0) for open-source, personal, and educational use
-2. **Commercial** - A proprietary license for businesses that cannot comply with the AGPL-3.0 copyleft requirements
+1. **GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later)** —
+   free of charge, for anyone, for any purpose, including commercial use. See
+   [LICENSE](LICENSE) for the full text.
+2. **A commercial license** — a proprietary agreement for those who do not wish
+   to comply with the AGPL-3.0 copyleft obligations.
 
-## Who Needs a Commercial License?
+You only need one. There are no restrictions based on company size, headcount,
+or revenue: **anyone may use aeron-glide for free under the AGPL-3.0**, provided
+they meet its terms.
 
-A commercial license is **required** if your organization meets **either** of the following criteria:
+## When would I want a commercial license?
 
-- More than **10 employees**, or
-- Annual revenue exceeding **$20 million USD**
+The AGPL-3.0 is a strong "network copyleft" license. In particular, if you
+modify aeron-glide and either distribute it or make it available to users over
+a network (for example, as part of a hosted or SaaS product), the AGPL-3.0
+requires you to offer the **complete corresponding source code** of your work,
+under the AGPL-3.0, to those users.
 
-## Who Does NOT Need a Commercial License?
+A commercial license may be the better fit if you want to:
 
-You may use aeron-glide under the AGPL-3.0 at no cost if:
+- Use aeron-glide in a **proprietary or closed-source** product without the
+  AGPL-3.0 copyleft obligations;
+- Avoid the requirement to disclose the source code of your own application;
+- Obtain priority support or other terms not offered under the open-source
+  license (depending on the tier).
 
-- You are an individual using it for personal or educational purposes
-- Your organization has **10 or fewer employees** AND annual revenue of **$20 million USD or less**
-- You are using it in an open-source project that is itself distributed under the AGPL-3.0 or a compatible license
+If you are comfortable meeting the AGPL-3.0 obligations, you never need to
+purchase a commercial license.
 
-## What the Commercial License Provides
+## What the commercial license provides
 
-- Permission to use aeron-glide in proprietary, closed-source applications without the AGPL-3.0 copyleft obligations
-- Freedom from the requirement to disclose your source code
-- Priority support options (depending on the license tier)
+- Permission to use aeron-glide in proprietary, closed-source applications
+  without the AGPL-3.0 copyleft requirements;
+- Freedom from the requirement to disclose your source code;
+- Priority support options (depending on the license tier).
+
+## Third-party components
+
+aeron-glide builds on [Aeron](https://github.com/real-logic/aeron), which is
+licensed under the Apache License 2.0. The commercial license covers **only the
+aeron-glide code**; the Apache-2.0 terms continue to govern the Aeron
+components (they permit proprietary redistribution). See [NOTICE](NOTICE) for
+details.
 
 ## Contact
 
 For commercial licensing inquiries, please contact:
 
-**Email:** [TODO: Add contact email]
+**Email:** mehvelabs@gmail.com
 
 ## Disclaimer
 
-This document is a summary of the commercial licensing terms and is provided for informational purposes only. The actual commercial license agreement will be provided upon purchase.
+This document is a summary of the commercial licensing terms and is provided
+for informational purposes only. The actual commercial license agreement will
+be provided upon purchase.

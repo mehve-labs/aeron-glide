@@ -220,7 +220,11 @@ The MSRV is **1.92.0**.
 
 > **Disclaimer:** This project is not officially associated with or endorsed by Adaptive Financial Consulting Ltd. (Adaptive) or the Aeron project.
 
-This project is dual-licensed:
+This project is dual-licensed. You may use it under **either** license — your choice:
 
-- **Open Source**: [AGPL-3.0-or-later](LICENSE) -- free for personal use, education, and open-source projects
-- **Commercial**: A proprietary license is available for businesses that cannot comply with the AGPL copyleft requirements. See [LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md) for details.
+- **Open Source**: [AGPL-3.0-or-later](LICENSE) -- free for everyone, any purpose (including commercial), provided you meet the AGPL-3.0 copyleft terms.
+- **Commercial**: A proprietary license for those who prefer not to comply with the AGPL-3.0 copyleft obligations (e.g. building a closed-source or hosted product). See [LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md) for details.
+
+There are no restrictions based on company size or revenue: anyone may use aeron-glide for free under the AGPL-3.0.
+
+Contributions are accepted under a lightweight [Contributor License Agreement](CONTRIBUTING.md), which lets the project maintain its dual-licensing model.

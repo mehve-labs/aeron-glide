@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-07-12
+
+### Changed
+
+- Clarify dual-licensing: aeron-glide is offered under **either** AGPL-3.0-or-later
+  **or** a commercial license, at the user's choice.
+
+### Added
+
+- `CONTRIBUTING.md` with a lightweight Contributor License Agreement so
+  contributions can be offered under both the open-source and commercial licenses.
+
 ## [0.1.2] - 2026-07-11
 
 ### Changed
