@@ -3,7 +3,7 @@
 [![CI](https://github.com/mehve-labs/aeron-glide/actions/workflows/ci.yml/badge.svg)](https://github.com/mehve-labs/aeron-glide/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/aeron-glide.svg)](https://crates.io/crates/aeron-glide)
 [![docs.rs](https://docs.rs/aeron-glide/badge.svg)](https://docs.rs/aeron-glide)
-[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 
 A safe, idiomatic Rust wrapper for the [Aeron](https://github.com/real-logic/aeron) C++ API, built using [`cxx`](https://cxx.rs/).
@@ -220,11 +220,6 @@ The MSRV is **1.92.0**.
 
 > **Disclaimer:** This project is not officially associated with or endorsed by Adaptive Financial Consulting Ltd. (Adaptive) or the Aeron project.
 
-This project is dual-licensed. You may use it under **either** license — your choice:
+This project is licensed under the [Apache License 2.0](LICENSE) — free for everyone, any purpose (including proprietary and closed-source use), subject only to the attribution and notice terms of the license. See [NOTICE](NOTICE) for attribution details.
 
-- **Open Source**: [AGPL-3.0-or-later](LICENSE) -- free for everyone, any purpose (including commercial), provided you meet the AGPL-3.0 copyleft terms.
-- **Commercial**: A proprietary license for those who prefer not to comply with the AGPL-3.0 copyleft obligations (e.g. building a closed-source or hosted product). See [LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md) for details.
-
-There are no restrictions based on company size or revenue: anyone may use aeron-glide for free under the AGPL-3.0.
-
-Contributions are accepted under a lightweight [Contributor License Agreement](CONTRIBUTING.md), which lets the project maintain its dual-licensing model.
+Unless you explicitly state otherwise, any contribution you submit for inclusion in aeron-glide shall be licensed under the Apache License 2.0, without any additional terms or conditions. See [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-08-01
+
+### Changed
+
+- **Relicensed to the Apache License 2.0.** aeron-glide is no longer
+  dual-licensed under AGPL-3.0-or-later plus a commercial license; it is now
+  offered solely under the permissive Apache-2.0 license, which permits
+  proprietary and closed-source use subject only to attribution and notice
+  terms. Contributions are now accepted under the standard Apache "inbound =
+  outbound" model.
+
+### Removed
+
+- `LICENSE-COMMERCIAL.md` — the commercial license option is obsolete under
+  the permissive Apache-2.0 license.
+
 ## [0.1.3] - 2026-07-12
 
 ### Changed
