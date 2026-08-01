@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bump bundled Aeron to 1.52.2 (from 1.52.0).
 - **Relicensed to the Apache License 2.0.** aeron-glide is no longer
   dual-licensed under AGPL-3.0-or-later plus a commercial license; it is now
   offered solely under the permissive Apache-2.0 license, which permits
