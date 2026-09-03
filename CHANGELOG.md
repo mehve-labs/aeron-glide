@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-09-03
+
+### Changed
+
+- Bump bundled Aeron to 1.53.0 (from 1.52.2).
+
+### Removed
+
+- **Breaking:** `Image::set_position`. Aeron 1.53.0 removed the underlying
+  `aeron_image_set_position` / `aeron::Image::position(int64_t)` APIs with no
+  replacement, so the subscriber position can no longer be moved manually.
+  `Image::position()` (the getter) is unaffected.
+
 ## [0.2.0] - 2026-08-01
 
 ### Changed

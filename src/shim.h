@@ -142,7 +142,6 @@ public:
 
     // Position
     int64_t position() const;
-    void setPosition(int64_t new_position);
 
     // State
     bool isClosed() const;

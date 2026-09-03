@@ -145,7 +145,6 @@ pub mod ffi {
         fn joinPosition(self: &ImageWrapper) -> i64;
         fn sourceIdentity(self: &ImageWrapper) -> String;
         fn position(self: &ImageWrapper) -> i64;
-        fn setPosition(self: Pin<&mut ImageWrapper>, new_position: i64);
         fn isClosed(self: &ImageWrapper) -> bool;
         fn isEndOfStream(self: &ImageWrapper) -> bool;
         fn endOfStreamPosition(self: &ImageWrapper) -> i64;
@@ -572,11 +571,6 @@ impl Image {
     /// The current consumption position within the stream.
     pub fn position(&self) -> i64 {
         self.inner.position()
-    }
-
-    /// Set the subscriber position (e.g., to skip ahead or rewind within the term buffer).
-    pub fn set_position(&mut self, new_position: i64) {
-        self.inner.pin_mut().setPosition(new_position);
     }
 
     /// Returns `true` if the image has been closed (publisher disconnected or timed out).

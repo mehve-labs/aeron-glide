@@ -309,10 +309,6 @@ int64_t ImageWrapper::position() const {
     return image_->position();
 }
 
-void ImageWrapper::setPosition(int64_t new_position) {
-    image_->position(new_position);
-}
-
 bool ImageWrapper::isClosed() const {
     return image_->isClosed();
 }
