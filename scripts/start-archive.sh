@@ -1,11 +1,21 @@
 #!/bin/bash
 set -e
 
-# Find the aeron-all jar built by cargo build --features archive
-JAR=$(find target -name "aeron-all-*.jar" -print -quit 2>/dev/null)
+# The Archive must match the Aeron version the client was built against, and
+# target/ accumulates jars from every version ever built. Pin the lookup to the
+# version in build.rs (overridable the same way the build is).
+AERON_VERSION="${AERON_VERSION:-$(sed -n 's/.*AERON_VERSION").unwrap_or_else(|_| "\([0-9.]*\)".*/\1/p' build.rs)}"
+
+if [ -z "$AERON_VERSION" ]; then
+    echo "ERROR: could not determine the Aeron version from build.rs."
+    echo "Set AERON_VERSION explicitly, e.g. AERON_VERSION=1.53.0 $0"
+    exit 1
+fi
+
+JAR=$(find target -name "aeron-all-${AERON_VERSION}.jar" -print -quit 2>/dev/null)
 
 if [ -z "$JAR" ]; then
-    echo "ERROR: aeron-all jar not found."
+    echo "ERROR: aeron-all-${AERON_VERSION}.jar not found."
     echo "Run 'JAVA_HOME=/path/to/jdk17+ cargo build --features archive' first."
     exit 1
 fi
