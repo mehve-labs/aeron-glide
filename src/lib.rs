@@ -78,8 +78,10 @@
 pub mod archive;
 
 mod callback;
+mod context;
 mod error;
 use callback::Callback;
+pub use context::Context;
 pub use error::{Error, ErrorKind, OfferError, Result};
 use std::marker::PhantomData;
 
@@ -97,6 +99,18 @@ pub mod ffi {
         type CountersReaderWrapper;
 
         fn create_context() -> Result<UniquePtr<ContextWrapper>>;
+        fn setAeronDir(self: Pin<&mut ContextWrapper>, dir: &str) -> Result<()>;
+        fn setClientName(self: Pin<&mut ContextWrapper>, name: &str) -> Result<()>;
+        fn setDriverTimeoutMs(self: Pin<&mut ContextWrapper>, value: i64) -> Result<()>;
+        fn setResourceLingerTimeoutMs(self: Pin<&mut ContextWrapper>, value: i64) -> Result<()>;
+        fn setIdleSleepDurationMs(self: Pin<&mut ContextWrapper>, value: i64) -> Result<()>;
+        fn setPreTouchMappedMemory(self: Pin<&mut ContextWrapper>, value: bool) -> Result<()>;
+        fn setErrorHandler(
+            self: Pin<&mut ContextWrapper>,
+            handler: fn(usize, &[u8]),
+            release: fn(usize),
+            ctx: usize,
+        );
         fn create_aeron(context: UniquePtr<ContextWrapper>) -> Result<UniquePtr<AeronWrapper>>;
         fn create_media_driver() -> Result<UniquePtr<MediaDriverWrapper>>;
 
@@ -228,12 +242,16 @@ unsafe impl Send for AeronClient {}
 unsafe impl Sync for AeronClient {}
 
 impl AeronClient {
-    /// Create a new Aeron client connected to the media driver.
+    /// Create a new Aeron client connected to the media driver, with default settings.
+    ///
+    /// Equivalent to `AeronClient::connect(Context::new())`.
     pub fn new() -> Result<Self> {
-        let ctx = ffi::create_context()?;
-        let aeron = ffi::create_aeron(ctx)?;
+        Self::connect(Context::new())
+    }
 
-        Ok(Self { inner: aeron })
+    /// Create a new Aeron client connected to the media driver, configured by `context`.
+    pub fn connect(context: Context) -> Result<Self> {
+        context.connect()
     }
 
     /// Start the client conductor thread.
@@ -1164,6 +1182,50 @@ mod tests {
         send_sync::<CountersReader>();
         send::<ExclusivePublication>();
         send::<Subscription>();
+    }
+
+    #[test]
+    fn context_dir_and_error_handler() {
+        let dir = std::env::temp_dir().join(format!("aeron-glide-ctx-{}", std::process::id()));
+        let dir = dir.to_str().unwrap().to_string();
+        let mut driver = MediaDriver::new().unwrap();
+        driver.set_dir(&dir).unwrap();
+        driver.set_dir_delete_on_start(true).unwrap();
+        driver.start().unwrap();
+
+        let errors = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = errors.clone();
+        let client = AeronClient::connect(
+            Context::new()
+                .aeron_dir(&dir)
+                .client_name("context-test")
+                .driver_timeout(std::time::Duration::from_millis(500))
+                .error_handler(move |e| sink.lock().unwrap().push(e.clone())),
+        )
+        .expect("client connects to the driver in a custom directory");
+        assert!(!client.is_closed());
+
+        // Losing the driver is reported to the handler; the process keeps running.
+        drop(driver);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while errors.lock().unwrap().is_empty() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let first = errors
+            .lock()
+            .unwrap()
+            .first()
+            .cloned()
+            .expect("error reported");
+        assert_eq!(first.kind(), ErrorKind::DriverTimeout, "{first}");
+        assert!(first.is_fatal());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !client.is_closed() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(client.is_closed(), "client closes after a fatal error");
+        drop(client);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

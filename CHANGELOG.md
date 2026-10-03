@@ -51,6 +51,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The client no longer calls `exit(-1)` on asynchronous errors such as a media
+  driver timeout or shutdown (the Aeron C++ default error handler). Errors go
+  to `Context::error_handler`, or are printed to stderr, and the client closes.
+- Client errors reported with positive Aeron client error codes (e.g. "MediaDriver
+  has been shutdown") are classified as `DriverTimeout` / `ClientTimeout` /
+  `ConductorServiceTimeout` instead of the generic `Aeron` kind.
 - `try_claim` truncated lengths above `i32::MAX` to 32 bits (e.g. a claim of
   4 GiB + 16 bytes committed a 16-byte message); such lengths are now rejected
   with `ErrorKind::IllegalArgument`.
@@ -61,6 +67,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Context` client configuration (`aeron_dir`, `client_name`, `driver_timeout`,
+  `resource_linger_timeout`, `idle_sleep_duration`, `pre_touch_mapped_memory`,
+  `error_handler`) and `AeronClient::connect(context)`. The client now honours
+  `AERON_DIR`, so it can reach a `MediaDriver` started with a custom directory.
 - Thread-safety markers matching Aeron: `AeronClient`, `Publication` and
   `CountersReader` are `Send + Sync`; `ExclusivePublication` and `Subscription`
   are `Send`. Share one client per process instead of one per thread.

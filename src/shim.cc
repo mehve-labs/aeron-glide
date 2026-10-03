@@ -143,9 +143,67 @@ void MediaDriverWrapper::setReceiverCpuAffinity(int32_t cpu_id) {
     }
 }
 
-ContextWrapper::ContextWrapper() : ctx(std::make_shared<aeron::Context>()) {}
+namespace {
+
+// Owns a Rust error handler; shared by every copy of the std::function.
+class RustErrorHandler {
+public:
+    RustErrorHandler(ErrorFn handler, ReleaseFn release, size_t ctx)
+        : handler_(handler), release_(release), ctx_(ctx) {}
+    RustErrorHandler(const RustErrorHandler &) = delete;
+    RustErrorHandler &operator=(const RustErrorHandler &) = delete;
+    ~RustErrorHandler() { release_(ctx_); }
+
+    void operator()(const std::exception &e) const {
+        std::string encoded = detail::encode_exception(e);
+        handler_(ctx_, rust::Slice<const uint8_t>(reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
+    }
+
+private:
+    ErrorFn handler_;
+    ReleaseFn release_;
+    size_t ctx_;
+};
+
+} // namespace
+
+// The C++ wrapper's default error handler calls ::exit(-1); report instead.
+ContextWrapper::ContextWrapper() : ctx(std::make_shared<aeron::Context>()) {
+    ctx->errorHandler([](const std::exception &e) {
+        std::cerr << "aeron-glide: Aeron client error: " << e.what() << std::endl;
+    });
+}
 
 ContextWrapper::~ContextWrapper() {}
+
+void ContextWrapper::setAeronDir(rust::Str dir) {
+    ctx->aeronDir(std::string(dir.data(), dir.size()));
+}
+
+void ContextWrapper::setClientName(rust::Str name) {
+    ctx->clientName(std::string(name.data(), name.size()));
+}
+
+void ContextWrapper::setDriverTimeoutMs(int64_t value) {
+    ctx->mediaDriverTimeout(static_cast<long>(value));
+}
+
+void ContextWrapper::setResourceLingerTimeoutMs(int64_t value) {
+    ctx->resourceLingerTimeout(static_cast<long>(value));
+}
+
+void ContextWrapper::setIdleSleepDurationMs(int64_t value) {
+    ctx->idleSleepDuration(static_cast<long>(value));
+}
+
+void ContextWrapper::setPreTouchMappedMemory(bool value) {
+    ctx->preTouchMappedMemory(value);
+}
+
+void ContextWrapper::setErrorHandler(ErrorFn handler, ReleaseFn release, size_t context) {
+    auto owner = std::make_shared<RustErrorHandler>(handler, release, context);
+    ctx->errorHandler([owner](const std::exception &e) { (*owner)(e); });
+}
 
 AeronWrapper::AeronWrapper(std::shared_ptr<ContextWrapper> context) 
     : aeron(aeron::Aeron::connect(*context->ctx)) {}

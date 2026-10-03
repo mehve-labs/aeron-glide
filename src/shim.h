@@ -1,4 +1,5 @@
 #pragma once
+#include <cstring>
 #include <exception>
 #include <memory>
 #include <string>
@@ -45,6 +46,19 @@ inline std::string encode_exception(const std::exception &e) {
         else if (dynamic_cast<const ArchiveException *>(&e)) kind = "archive";
 #endif
         else kind = "aeron";
+        // The C++ wrapper maps only the negated client error codes; the conductor's
+        // error handler reports them positive (e.g. "MediaDriver has been shutdown"
+        // arrives as a plain AeronException with code 1000). Classify by code too.
+        if (std::strcmp(kind, "aeron") == 0) {
+            switch (code < 0 ? -code : code) {
+                case AERON_CLIENT_ERROR_DRIVER_TIMEOUT: kind = "driver_timeout"; break;
+                case AERON_CLIENT_ERROR_CLIENT_TIMEOUT: kind = "client_timeout"; break;
+                case AERON_CLIENT_ERROR_CONDUCTOR_SERVICE_TIMEOUT: kind = "conductor_service_timeout"; break;
+                case AERON_CLIENT_ERROR_BUFFER_FULL:
+                case AERON_CLIENT_ERROR_DRIVER_BUFFER_FULL: kind = "illegal_state"; break;
+                default: break;
+            }
+        }
     } else if (dynamic_cast<const std::out_of_range *>(&e)) {
         kind = "out_of_bounds";
     } else if (dynamic_cast<const std::invalid_argument *>(&e)) {
@@ -92,13 +106,26 @@ using FragmentFn = rust::Fn<void(size_t, rust::Slice<const uint8_t>)>;
 using ControlledFragmentFn = rust::Fn<int32_t(size_t, rust::Slice<const uint8_t>)>;
 using ClaimFn = rust::Fn<bool(size_t, rust::Slice<uint8_t>)>;
 using CounterFn = rust::Fn<void(size_t, int32_t, int32_t, rust::Slice<const uint8_t>, rust::Slice<const uint8_t>)>;
+// Long-lived handler: (ctx, encoded exception). The release function frees ctx.
+using ErrorFn = rust::Fn<void(size_t, rust::Slice<const uint8_t>)>;
+using ReleaseFn = rust::Fn<void(size_t)>;
 
-// We wrap the aeron::Context because it's required to initialize Aeron
+// Client configuration, applied to aeron::Context before connecting.
 class ContextWrapper {
 public:
     ContextWrapper();
     ~ContextWrapper();
-    
+
+    void setAeronDir(rust::Str dir);
+    void setClientName(rust::Str name);
+    void setDriverTimeoutMs(int64_t value);
+    void setResourceLingerTimeoutMs(int64_t value);
+    void setIdleSleepDurationMs(int64_t value);
+    void setPreTouchMappedMemory(bool value);
+    // Takes ownership of `ctx`: `release(ctx)` runs when the last copy of the
+    // handler is destroyed, i.e. when the C++ client is destroyed.
+    void setErrorHandler(ErrorFn handler, ReleaseFn release, size_t ctx);
+
     std::shared_ptr<aeron::Context> ctx;
 };
 

@@ -41,7 +41,7 @@ pub enum ErrorKind {
     Parse,
     /// A requested element does not exist. Not currently produced.
     ElementNotFound,
-    /// The media driver did not respond in time. Fatal for the client.
+    /// The media driver did not respond in time, or shut down. Fatal for the client.
     DriverTimeout,
     /// The client conductor service was not invoked in time. Fatal for the client.
     ConductorServiceTimeout,
@@ -147,6 +147,11 @@ impl Error {
                 | ErrorKind::ClientTimeout
                 | ErrorKind::ConductorServiceTimeout
         )
+    }
+
+    /// Decode a message encoded by the C++ shim (see `encode_exception` in shim.h).
+    pub(crate) fn from_encoded(what: &str) -> Self {
+        Self::decode(what)
     }
 
     fn decode(what: &str) -> Self {
