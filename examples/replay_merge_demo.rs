@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- Setup ---
     println!("Connecting to Aeron Archive...");
-    let archive = archive::Context::new()
+    let mut archive = archive::Context::new()
         .control_request_channel("aeron:udp?endpoint=localhost:8010")
         .control_request_stream_id(10)
         .control_response_channel("aeron:udp?endpoint=localhost:0")
@@ -133,7 +133,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut merge = ReplayMerge::new(
         &mut sub,
-        &archive,
+        &mut archive,
         &replay_channel,
         &replay_destination,
         &live_destination,
@@ -228,7 +228,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Cleanup
+    // Cleanup: the merge borrows the archive client until it is dropped.
+    drop(merge);
     archive.stop_recording(sub_id)?;
     println!("\nRecording stopped. Done!");
 

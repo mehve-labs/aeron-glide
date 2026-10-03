@@ -163,6 +163,7 @@ public:
     explicit ConductorLock(bool enabled) : enabled_(enabled) {}
     ConductorLock(const ConductorLock &) = delete;
     ConductorLock &operator=(const ConductorLock &) = delete;
+    bool enabled() const { return enabled_; }
 
     // Holds the lock for one operation. If this thread already holds it (a handler
     // running inside invoke()), operations throw ReentrantException; destructors

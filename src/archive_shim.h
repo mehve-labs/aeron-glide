@@ -2,8 +2,12 @@
 // archive client (aeron::archive::client), bridged in src/archive/mod.rs.
 #pragma once
 #include "shim.h"
+#include <AeronCounters.h>
 #include <client/archive/PersistentSubscription.h>
 #include <client/archive/RecordingPos.h>
+extern "C" {
+#include <client/aeron_archive_async_connect.h>
+}
 
 namespace aeron_rs {
 
@@ -183,6 +187,8 @@ public:
 
     // For ReplayMerge (not bridged).
     const std::shared_ptr<arc::AeronArchive> &sharedArchive() const { return archive_; }
+    const std::shared_ptr<IdleStrategy> &sharedIdle() const { return idle_; }
+    const std::shared_ptr<ConductorLock> &conductorLock() const { return lock_; }
 
 private:
     std::shared_ptr<arc::AeronArchive> archive_;
@@ -224,7 +230,8 @@ class ReplayMergeWrapper {
 public:
     ReplayMergeWrapper(const std::shared_ptr<aeron::Subscription> &subscription,
                        std::shared_ptr<AssemblerState> assembly,
-                       const std::shared_ptr<arc::AeronArchive> &archive, const std::string &replayChannel,
+                       const std::shared_ptr<arc::AeronArchive> &archive, std::shared_ptr<IdleStrategy> idle,
+                       const std::string &replayChannel,
                        const std::string &replayDestination, const std::string &liveDestination,
                        int64_t recordingId, int64_t startPosition, int64_t mergeProgressTimeoutMs);
     ~ReplayMergeWrapper();
@@ -239,6 +246,9 @@ public:
 private:
     std::shared_ptr<aeron::Subscription> subscription_;
     std::shared_ptr<AssemblerState> assembly_;
+    // The archive's idle strategy: the merge calls it, and keeps the archive
+    // alive, past the ArchiveWrapper.
+    std::shared_ptr<IdleStrategy> idle_;
     std::unique_ptr<arc::ReplayMerge> merge_;
 };
 
@@ -272,7 +282,11 @@ public:
     std::unique_ptr<ArchiveContextWrapper> archive;
     std::shared_ptr<ConductorLock> lock;
     bool hasClient = false;
+    std::shared_ptr<aeron::Aeron> client;
     std::string aeronDir;
+    // The counters handed over: the C context closes them, so their C++
+    // handles must not close them again.
+    std::vector<std::shared_ptr<aeron::Counter>> counters;
     // What the counters' handles keep alive (see CounterWrapper).
     std::vector<std::shared_ptr<const void>> keepalive;
 };

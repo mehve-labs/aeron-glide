@@ -100,6 +100,24 @@ template struct PrivateMember<CContextTag, &arc::Context::m_aeron_archive_ctx_t>
 
 aeron_archive_context_t *cContext(const arc::Context &context) { return context.*member(CContextTag()); }
 
+struct CArchiveTag {
+    using type = aeron_archive_t *arc::AeronArchive::*;
+    friend type member(CArchiveTag);
+};
+template struct PrivateMember<CArchiveTag, &arc::AeronArchive::m_aeron_archive_t>;
+
+struct CAsyncConnectTag {
+    using type = aeron_archive_async_connect_t *arc::AeronArchive::AsyncConnect::*;
+    friend type member(CAsyncConnectTag);
+};
+template struct PrivateMember<CAsyncConnectTag, &arc::AeronArchive::AsyncConnect::m_async>;
+
+struct CCounterTag {
+    using type = aeron_counter_t *aeron::concurrent::AtomicCounter::*;
+    friend type member(CCounterTag);
+};
+template struct PrivateMember<CCounterTag, &aeron::concurrent::AtomicCounter::m_counter>;
+
 rust::String lossyOrEmpty(const char *s) { return s ? rust::String::lossy(s) : rust::String(); }
 
 std::string aeronDirectoryName(const arc::Context &context) {
@@ -225,17 +243,32 @@ ArchiveAsyncConnectWrapper::ArchiveAsyncConnectWrapper(std::unique_ptr<ArchiveCo
     async_ = arc::AeronArchive::asyncConnect(*context_->ctx);
 }
 
-// Upstream (1.53.3): AsyncConnect has no destructor and the C API has no way to
-// abandon a pending connect, so an abandoned connect leaks its C state (its
-// publication and subscription stay open until the client closes).
+// Upstream (1.53.3): AsyncConnect has no destructor, so a pending connect would
+// leak; release it with the C function its failure path uses.
 ArchiveAsyncConnectWrapper::~ArchiveAsyncConnectWrapper() {
     ConductorLock::Guard guard(context_->lock, true);
+    aeron_archive_async_connect_t *&pending = (*async_).*member(CAsyncConnectTag());
+    if (pending != nullptr) {
+        aeron_archive_async_connect_delete(pending);
+        pending = nullptr;
+    }
     async_.reset();
 }
 
 std::unique_ptr<ArchiveWrapper> ArchiveAsyncConnectWrapper::poll() {
     ConductorLock::Guard guard(context_->lock);
-    auto archive = async_->poll();
+    aeron_archive_async_connect_t *&pending = (*async_).*member(CAsyncConnectTag());
+    if (pending == nullptr) {
+        throw aeron::util::IllegalStateException("the archive connection already completed", SOURCEINFO, EPERM);
+    }
+    std::shared_ptr<arc::AeronArchive> archive;
+    try {
+        archive = async_->poll();
+    } catch (...) {
+        // A failed poll freed the C connection (upstream keeps the pointer).
+        pending = nullptr;
+        throw;
+    }
     return archive ? wrapArchive(std::move(archive), *context_) : nullptr;
 }
 
@@ -281,9 +314,17 @@ int32_t ArchiveWrapper::pollForRecordingSignals() const {
     return archive_->pollForRecordingSignals();
 }
 
+// Through the C function with a local buffer: the C++ method reads its shared
+// buffer after the archive's lock is released (racing concurrent callers), and
+// overreads a zero-length one.
 rust::String ArchiveWrapper::pollForErrorResponse() const {
     ConductorLock::Guard guard(lock_);
-    return rust::String::lossy(archive_->pollForErrorResponse());
+    std::vector<char> buffer(std::max<std::uint32_t>(archive_->context().maxErrorMessageLength(), 1) + 1, '\0');
+    if (aeron_archive_poll_for_error_response((*archive_).*member(CArchiveTag()), buffer.data(), buffer.size() - 1) < 0) {
+        using namespace aeron::util;
+        ARCHIVE_MAP_ERRNO_TO_SOURCED_EXCEPTION_AND_THROW;
+    }
+    return rust::String::lossy(std::string(buffer.data(), strnlen(buffer.data(), buffer.size())));
 }
 
 void ArchiveWrapper::checkForErrorResponse() const {
@@ -573,8 +614,30 @@ int64_t recordingPosGetRecordingId(const CountersReaderWrapper &reader, int32_t 
     return arc::RecordingPos::getRecordingId(reader.reader(), counter_id);
 }
 
-rust::String recordingPosGetSourceIdentity(const CountersReaderWrapper &reader, int32_t counter_id) {
-    return rust::String::lossy(arc::RecordingPos::getSourceIdentity(reader.reader(), counter_id));
+// Read here: the C function trusts the source identity length in the counter's
+// key (shared memory), and a negative one overflows its stack buffer.
+rust::String recordingPosGetSourceIdentity(const CountersReaderWrapper &wrapper, int32_t counter_id) {
+    aeron::CountersReader &reader = wrapper.reader();
+    if (counter_id < 0 || counter_id > reader.maxCounterId()) {
+        throw aeron::util::IllegalArgumentException(
+            "counter id " + std::to_string(counter_id) + " out of range: maxCounterId=" +
+                std::to_string(reader.maxCounterId()),
+            SOURCEINFO, EINVAL);
+    }
+    if (reader.getCounterState(counter_id) != aeron::CountersReader::RECORD_ALLOCATED ||
+        reader.getCounterTypeId(counter_id) != aeron::AeronCounters::ARCHIVE_RECORDING_POSITION_TYPE_ID) {
+        return rust::String();
+    }
+    aeron::AtomicBuffer metadata = reader.metaDataBuffer();
+    // Key: recording id (8), session id (4), source identity length (4), source identity.
+    const auto key = aeron::CountersReader::metadataOffset(counter_id) + aeron::CountersReader::KEY_OFFSET;
+    const std::int32_t maxLength = aeron::CountersReader::MAX_KEY_LENGTH - 16;
+    const std::int32_t length = std::min(std::max(metadata.getInt32(key + 12), 0), maxLength);
+    std::string identity(length, '\0');
+    for (std::int32_t i = 0; i < length; i++) {
+        identity[i] = static_cast<char>(metadata.getUInt8(key + 16 + i));
+    }
+    return rust::String::lossy(identity);
 }
 
 bool recordingPosIsActive(const CountersReaderWrapper &reader, int32_t counter_id, int64_t recording_id) {
@@ -585,10 +648,10 @@ bool recordingPosIsActive(const CountersReaderWrapper &reader, int32_t counter_i
 
 ReplayMergeWrapper::ReplayMergeWrapper(
     const std::shared_ptr<aeron::Subscription> &subscription, std::shared_ptr<AssemblerState> assembly,
-    const std::shared_ptr<arc::AeronArchive> &archive, const std::string &replayChannel,
-    const std::string &replayDestination, const std::string &liveDestination, int64_t recordingId,
-    int64_t startPosition, int64_t mergeProgressTimeoutMs)
-    : subscription_(subscription), assembly_(std::move(assembly)) {
+    const std::shared_ptr<arc::AeronArchive> &archive, std::shared_ptr<IdleStrategy> idle,
+    const std::string &replayChannel, const std::string &replayDestination, const std::string &liveDestination,
+    int64_t recordingId, int64_t startPosition, int64_t mergeProgressTimeoutMs)
+    : subscription_(subscription), assembly_(std::move(assembly)), idle_(std::move(idle)) {
     ConductorLock::Guard guard(assembly_->conductorLock);
     merge_ = std::make_unique<arc::ReplayMerge>(subscription, archive, replayChannel, replayDestination,
                                                 liveDestination, recordingId, startPosition, aeron::currentTimeMillis,
@@ -634,9 +697,19 @@ std::unique_ptr<ReplayMergeWrapper> create_replay_merge(
     SubscriptionWrapper &subscription, const ArchiveWrapper &archive, rust::Str replay_channel,
     rust::Str replay_destination, rust::Str live_destination, int64_t recording_id, int64_t start_position,
     int64_t merge_progress_timeout_ms) {
+    // The merge runs archive requests and adds destinations to the subscription
+    // under the subscription's conductor lock: in agent invoker mode both must
+    // belong to the same client.
+    const auto &subscriptionLock = subscription.sharedAssembly()->conductorLock;
+    const auto &archiveLock = archive.conductorLock();
+    if (archiveLock && archiveLock != subscriptionLock &&
+        (archiveLock->enabled() || (subscriptionLock && subscriptionLock->enabled()))) {
+        throw aeron::util::IllegalArgumentException(
+            "in agent invoker mode the subscription must belong to the archive's client", SOURCEINFO, EINVAL);
+    }
     return std::make_unique<ReplayMergeWrapper>(
         subscription.sharedSubscription(), subscription.sharedAssembly(), archive.sharedArchive(),
-        str(replay_channel), str(replay_destination), str(live_destination), recording_id, start_position,
+        archive.sharedIdle(), str(replay_channel), str(replay_destination), str(live_destination), recording_id, start_position,
         merge_progress_timeout_ms);
 }
 
@@ -649,9 +722,10 @@ void PersistentSubscriptionContextWrapper::setArchiveContext(std::unique_ptr<Arc
     ctx.archiveContext(archive->ctx);
 }
 
-void PersistentSubscriptionContextWrapper::setAeron(const AeronWrapper &client) {
-    ctx.aeron(client.sharedAeron());
-    lock = client.conductorLock();
+void PersistentSubscriptionContextWrapper::setAeron(const AeronWrapper &aeronClient) {
+    ctx.aeron(aeronClient.sharedAeron());
+    lock = aeronClient.conductorLock();
+    client = aeronClient.sharedAeron();
     hasClient = true;
 }
 
@@ -667,6 +741,11 @@ void PersistentSubscriptionContextWrapper::setReplayChannel(rust::Str channel) {
 void PersistentSubscriptionContextWrapper::setReplayStreamId(int32_t stream_id) { ctx.replayStreamId(stream_id); }
 
 void PersistentSubscriptionContextWrapper::setCounter(int32_t which, const CounterWrapper &counter) {
+    if (counter.sharedCounter()->c_counter() == nullptr) {
+        throw aeron::util::IllegalArgumentException(
+            "a counter handle from a CountersReader cannot be used, only an added counter", SOURCEINFO, EINVAL);
+    }
+    counters.push_back(counter.sharedCounter());
     switch (which) {
         case 0: ctx.stateCounter(counter.sharedCounter()); break;
         case 1: ctx.joinDifferenceCounter(counter.sharedCounter()); break;
@@ -706,6 +785,7 @@ std::unique_ptr<PersistentSubscriptionWrapper> create_persistent_subscription(
         if (context->archive->ctx->aeron()) {
             context->ctx.aeron(context->archive->ctx->aeron());
             context->lock = context->archive->lock;
+            context->client = context->archive->ctx->aeron();
         } else {
             // As the C client would (an agent invoker client, driven by poll), but
             // with a non-exiting error handler instead of Aeron's default.
@@ -716,12 +796,35 @@ std::unique_ptr<PersistentSubscriptionWrapper> create_persistent_subscription(
             });
             clientContext.aeronDir(
                 context->aeronDir.empty() ? aeronDirectoryName(*context->archive->ctx) : context->aeronDir);
-            context->ctx.aeron(aeron::Aeron::connect(clientContext));
+            context->client = aeron::Aeron::connect(clientContext);
+            context->ctx.aeron(context->client);
         }
         context->hasClient = true;
     }
+    // The C context closes the counters with their client's conductor, under this
+    // client's lock: they must belong to it.
+    for (std::size_t i = 0; i < context->counters.size(); i++) {
+        if (context->keepalive[i].get() != context->client.get()) {
+            throw aeron::util::IllegalArgumentException(
+                "the counters must belong to the persistent subscription's client", SOURCEINFO, EINVAL);
+        }
+    }
     ConductorLock::Guard guard(context->lock);
-    auto subscription = arc::PersistentSubscription::create(context->ctx);
+    // The C context takes the counters over (it closes them when it is closed,
+    // also if creating fails): stop their C++ handles from closing them again.
+    auto handOver = [&] {
+        for (auto &counter : context->counters) {
+            (*counter).*member(CCounterTag()) = nullptr;
+        }
+    };
+    std::shared_ptr<arc::PersistentSubscription> subscription;
+    try {
+        subscription = arc::PersistentSubscription::create(context->ctx);
+    } catch (...) {
+        handOver();
+        throw;
+    }
+    handOver();
     return std::unique_ptr<PersistentSubscriptionWrapper>(
         new PersistentSubscriptionWrapper(std::move(subscription), std::move(context)));
 }

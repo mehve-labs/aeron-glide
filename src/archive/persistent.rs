@@ -193,23 +193,28 @@ impl PersistentSubscriptionBuilder {
 
     /// A counter to keep the subscription's state in (one is allocated
     /// otherwise).
-    pub fn state_counter(self, counter: &Counter) -> Self {
+    ///
+    /// The counters given to the builder must be added by the subscription's
+    /// client ([`aeron`](Self::aeron)), not handles from a
+    /// [`CountersReader`](crate::CountersReader). The subscription takes them
+    /// over and closes them when it is dropped (or if `create` fails).
+    pub fn state_counter(self, counter: Counter) -> Self {
         self.set(|ctx| Ok(ctx.setCounter(0, &counter.inner)?))
     }
 
     /// A counter to keep the difference between the replay and live positions
     /// in, while joining.
-    pub fn join_difference_counter(self, counter: &Counter) -> Self {
+    pub fn join_difference_counter(self, counter: Counter) -> Self {
         self.set(|ctx| Ok(ctx.setCounter(1, &counter.inner)?))
     }
 
     /// A counter of how many times it left the live stream.
-    pub fn live_left_counter(self, counter: &Counter) -> Self {
+    pub fn live_left_counter(self, counter: Counter) -> Self {
         self.set(|ctx| Ok(ctx.setCounter(2, &counter.inner)?))
     }
 
     /// A counter of how many times it joined the live stream.
-    pub fn live_joined_counter(self, counter: &Counter) -> Self {
+    pub fn live_joined_counter(self, counter: Counter) -> Self {
         self.set(|ctx| Ok(ctx.setCounter(3, &counter.inner)?))
     }
 

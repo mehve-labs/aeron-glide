@@ -15,21 +15,33 @@ pub const REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT_MS: i64 = 5_000;
 /// the live stream without a gap. UDP only.
 ///
 /// The subscription must use `control-mode=manual`: the merge adds the replay
-/// and live destinations to it. It mutably borrows the subscription for its
-/// whole life, as it polls it internally.
+/// and live destinations to it. The merge mutably borrows the subscription and
+/// the archive client for its whole life: it polls the subscription, and uses
+/// the archive client's connection without its lock. In agent invoker mode the
+/// subscription must belong to the archive client's client.
 ///
 /// ```compile_fail,E0505
 /// # use aeron_glide::{AeronClient, archive::{AeronArchive, ReplayMerge}};
 /// # let client = AeronClient::new().unwrap();
-/// # let archive = AeronArchive::connect_default().unwrap();
+/// # let mut archive = AeronArchive::connect_default().unwrap();
 /// let mut sub = client.add_subscription("aeron:udp?control-mode=manual", 1).unwrap();
-/// let mut merge = ReplayMerge::new(&mut sub, &archive, "", "", "", 0, 0).unwrap();
+/// let mut merge = ReplayMerge::new(&mut sub, &mut archive, "", "", "", 0, 0).unwrap();
 /// std::thread::spawn(move || sub.poll(10, |_, _| {})); // error: `sub` is borrowed
+/// merge.do_work().unwrap();
+/// ```
+///
+/// ```compile_fail,E0505
+/// # use aeron_glide::{AeronClient, archive::{AeronArchive, ReplayMerge}};
+/// # let client = AeronClient::new().unwrap();
+/// # let mut archive = AeronArchive::connect_default().unwrap();
+/// # let mut sub = client.add_subscription("aeron:udp?control-mode=manual", 1).unwrap();
+/// let mut merge = ReplayMerge::new(&mut sub, &mut archive, "", "", "", 0, 0).unwrap();
+/// drop(archive); // error: `archive` is borrowed
 /// merge.do_work().unwrap();
 /// ```
 pub struct ReplayMerge<'a> {
     inner: cxx::UniquePtr<ffi::ReplayMergeWrapper>,
-    _subscription: PhantomData<&'a mut crate::Subscription>,
+    _borrows: PhantomData<(&'a mut crate::Subscription, &'a mut AeronArchive)>,
 }
 
 impl Drop for ReplayMerge<'_> {
@@ -57,12 +69,12 @@ impl<'a> ReplayMerge<'a> {
     /// - `replay_channel`: the channel the archive replays to, e.g.
     ///   `aeron:udp?endpoint=localhost:0`.
     /// - `replay_destination`: the destination added to `subscription` for the
-    ///   replay, e.g. `aeron:udp?endpoint=localhost:0`.
+    ///   replay: a UDP channel with an endpoint, e.g. `aeron:udp?endpoint=localhost:0`.
     /// - `live_destination`: the destination added for the live stream.
     /// - `recording_id` and `start_position`: what to replay from.
     pub fn new(
         subscription: &'a mut crate::Subscription,
-        archive: &AeronArchive,
+        archive: &'a mut AeronArchive,
         replay_channel: &str,
         replay_destination: &str,
         live_destination: &str,
@@ -86,7 +98,7 @@ impl<'a> ReplayMerge<'a> {
     #[allow(clippy::too_many_arguments)]
     pub fn with_progress_timeout(
         subscription: &'a mut crate::Subscription,
-        archive: &AeronArchive,
+        archive: &'a mut AeronArchive,
         replay_channel: &str,
         replay_destination: &str,
         live_destination: &str,
@@ -94,6 +106,21 @@ impl<'a> ReplayMerge<'a> {
         start_position: i64,
         merge_progress_timeout: std::time::Duration,
     ) -> Result<Self> {
+        crate::callback::ensure_not_in_conductor_callback("starting a replay merge")?;
+        // The C merge dereferences the replay destination's endpoint unchecked.
+        let destination = crate::ChannelUri::parse(replay_destination)?;
+        if destination.media() != crate::channel::UDP_MEDIA
+            || destination
+                .get(crate::channel::ENDPOINT_PARAM_NAME)
+                .is_none_or(|endpoint| endpoint.len() < 2)
+        {
+            return Err(crate::Error::new(
+                crate::ErrorKind::IllegalArgument,
+                format!(
+                    "the replay destination must be a UDP channel with an endpoint: {replay_destination}"
+                ),
+            ));
+        }
         let inner = ffi::create_replay_merge(
             subscription.inner_pin_mut(),
             archive.wrapper(),
@@ -106,7 +133,7 @@ impl<'a> ReplayMerge<'a> {
         )?;
         Ok(Self {
             inner,
-            _subscription: PhantomData,
+            _borrows: PhantomData,
         })
     }
 

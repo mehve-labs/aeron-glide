@@ -18,7 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `AeronArchive` methods take `&self` (it is `Send + Sync`). `start_replay`
   takes `&ReplayParams` instead of a position and a length.
   `RecordingDescriptor` gains `source_identity` and is `#[non_exhaustive]`.
-  `ReplayMerge::new` borrows the archive immutably.
+  `ReplayMerge::new` borrows the archive client mutably for the merge's life
+  (the C merge uses its connection without the archive's lock), and rejects a
+  replay destination without a UDP endpoint (the C merge dereferences it).
 - **Breaking:** `ChannelBuilder` covers every C++ `ChannelUriStringBuilder`
   option and validates like it: `build()` returns `Result<String>`, failing
   with the first invalid setting (e.g. an MTU that is not a multiple of 32, a
@@ -103,6 +105,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `archive::NULL_POSITION` / `NULL_LENGTH` were `i64::MIN`; Aeron's null value
   is -1, so replays "from the start" or "to the end" used invalid values.
 - `ReplayMerge`'s default progress timeout is the C++ 5 seconds (was 10).
+- Archive requests from inside a client or archive handler fail with
+  `Reentrant` instead of hanging. Dropping a pending `AsyncConnect` releases it
+  (upstream leaks it), and polling it after a failure is an error (upstream
+  uses freed memory). Counters given to a `PersistentSubscriptionBuilder` are
+  taken over (upstream closes them with the subscription, which freed them
+  twice). `recording_pos::get_source_identity` bounds the length it reads from
+  the counter (upstream overflows its stack buffer on a negative one), and
+  `poll_for_error_response` no longer races concurrent callers on a shared
+  buffer.
 - Works around upstream archive client bugs: reading the context's recording
   events channel when unset crashed, replicating without credentials read
   uninitialised memory, a custom idle strategy was dropped after connecting,

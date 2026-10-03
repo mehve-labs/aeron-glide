@@ -612,7 +612,7 @@ fn recording_position_counters() {
 fn replay_merge_joins_the_live_stream() {
     let driver = archive_or_skip!();
     let client = driver.client();
-    let archive = driver.connect(&client);
+    let mut archive = driver.connect(&client);
     let control = format!("localhost:{}", free_udp_port());
     let publication = client
         .add_publication(
@@ -643,7 +643,7 @@ fn replay_merge_joins_the_live_stream() {
         .unwrap();
     let mut merge = ReplayMerge::new(
         &mut sub,
-        &archive,
+        &mut archive,
         &format!("aeron:udp?session-id={session_id}"),
         "aeron:udp?endpoint=localhost:0",
         &format!(
@@ -780,4 +780,140 @@ fn AeronClient_invoker(driver: &common::archive::ArchiveDriver) -> aeron_glide::
             .use_conductor_agent_invoker(true),
     )
     .unwrap()
+}
+
+#[test]
+fn replay_merge_validates_the_replay_destination() {
+    let driver = archive_or_skip!();
+    let client = driver.client();
+    let mut archive = driver.connect(&client);
+    let mut sub = client
+        .add_subscription("aeron:udp?control-mode=manual", 20)
+        .unwrap();
+    for destination in [
+        "",
+        "aeron:ipc",
+        "aeron:udp?control=localhost:1",
+        "aeron:udp?endpoint=x",
+    ] {
+        let err = ReplayMerge::new(
+            &mut sub,
+            &mut archive,
+            "aeron:udp?endpoint=localhost:0",
+            destination,
+            "aeron:udp?endpoint=localhost:0",
+            0,
+            0,
+        )
+        .expect_err(destination);
+        assert!(
+            matches!(
+                err.kind(),
+                ErrorKind::IllegalArgument | ErrorKind::IllegalState
+            ),
+            "{destination}: {err}"
+        );
+    }
+}
+
+#[test]
+fn persistent_subscription_counters_are_handed_over() {
+    // No archive needed: create fails, and the C context closes the counters it
+    // was given, which must not be closed (freed) again.
+    let driver = common::TestDriver::start();
+    let client = driver.client();
+    let counter = client.add_counter(1001, &[], "ps state").unwrap();
+    let result = PersistentSubscriptionBuilder::new()
+        .archive_context(archive::Context::new().aeron(&client))
+        .aeron(&client)
+        .state_counter(counter)
+        .live_channel("aeron:ipc")
+        .replay_channel("aeron:ipc")
+        .create();
+    assert!(result.is_err());
+
+    // A counter of another client, or a handle from a reader, is refused.
+    let other = driver.client();
+    let foreign = other.add_counter(1001, &[], "foreign").unwrap();
+    assert!(
+        PersistentSubscriptionBuilder::new()
+            .archive_context(archive::Context::new().aeron(&client))
+            .aeron(&client)
+            .state_counter(foreign)
+            .live_channel("aeron:ipc")
+            .replay_channel("aeron:ipc")
+            .recording_id(1)
+            .create()
+            .is_err()
+    );
+    let reader = client.counters_reader();
+    let owned = client.add_counter(1001, &[], "viewed").unwrap();
+    // SAFETY: the view is only handed to the builder, which refuses it.
+    let view = unsafe { reader.counter(owned.registration_id(), owned.id()) }.unwrap();
+    let err = PersistentSubscriptionBuilder::new()
+        .live_joined_counter(view)
+        .create()
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::IllegalArgument, "{err}");
+}
+
+#[test]
+fn recording_source_identity_is_bounded() {
+    // A counter posing as a recording position with a bogus identity length.
+    let driver = common::TestDriver::start();
+    let client = driver.client();
+    let mut key = Vec::new();
+    key.extend_from_slice(&7i64.to_le_bytes());
+    key.extend_from_slice(&1i32.to_le_bytes());
+    key.extend_from_slice(&(-1i32).to_le_bytes());
+    let negative = client.add_counter(100, &key, "fake recording").unwrap();
+    let reader = client.counters_reader();
+    assert_eq!(
+        recording_pos::get_source_identity(&reader, negative.id()).unwrap(),
+        ""
+    );
+    key.truncate(12);
+    key.extend_from_slice(&i32::MAX.to_le_bytes());
+    key.extend_from_slice(b"abc");
+    let huge = client.add_counter(100, &key, "fake recording").unwrap();
+    let identity = recording_pos::get_source_identity(&reader, huge.id()).unwrap();
+    assert!(
+        identity.starts_with("abc") && identity.len() == 96,
+        "{identity:?}"
+    );
+}
+
+#[test]
+fn error_responses_with_tiny_buffers_and_handler_requests() {
+    let driver = archive_or_skip!();
+    let client = driver.client();
+    let archive = driver
+        .context(&client)
+        .max_error_message_length(0)
+        .connect()
+        .unwrap();
+    assert_eq!(archive.poll_for_error_response().unwrap(), "");
+
+    // Archive requests from a client handler fail instead of hanging.
+    let shared = Arc::new(archive);
+    let in_handler = shared.clone();
+    let result = Arc::new(Mutex::new(None));
+    let sink = result.clone();
+    let id = client
+        .add_available_counter_handler(move |_| {
+            let mut sink = sink.lock().unwrap();
+            if sink.is_none() {
+                *sink = Some(
+                    in_handler
+                        .add_recorded_publication("aeron:ipc", 21)
+                        .map(drop),
+                );
+            }
+        })
+        .unwrap();
+    let _counter = client.add_counter(1001, &[], "trigger").unwrap();
+    wait_until("the handler", || result.lock().unwrap().is_some());
+    client.remove_available_counter_handler(id).unwrap();
+    let err = result.lock().unwrap().take().unwrap().unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Reentrant, "{err}");
 }
