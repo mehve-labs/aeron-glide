@@ -177,37 +177,105 @@ fn counter_handles_from_a_reader() {
     let counter = client.add_counter(TYPE_ID, &[], "viewed").unwrap();
     let reader = driver.client().counters_reader();
 
-    // SAFETY: a counter of our own type.
-    let view = unsafe { reader.counter(counter.registration_id(), counter.id()) }.unwrap();
-    assert_eq!(view.id(), counter.id());
-    assert_eq!(view.registration_id(), counter.registration_id());
-    assert_eq!(view.label(), "viewed");
-    view.get_and_add(3);
+    let handle = reader
+        .counter(counter.registration_id(), counter.id())
+        .unwrap();
+    assert_eq!(handle.id(), counter.id());
+    assert_eq!(handle.registration_id(), counter.registration_id());
+    assert_eq!(handle.label(), "viewed");
+    assert!(handle.is_valid());
+    handle.get_and_add(3);
     assert_eq!(counter.get(), 3);
 
-    // A view does not own the counter.
-    drop(view);
+    // A handle does not own the counter.
+    drop(handle);
     std::thread::sleep(std::time::Duration::from_millis(50));
     assert_eq!(
         state(&reader, counter.id()),
         CountersReader::RECORD_ALLOCATED
     );
-    // SAFETY (here and below): only our own counter is written.
-    assert!(
-        !unsafe { reader.counter(0, counter.id()) }
-            .unwrap()
-            .is_closed()
-    );
 
+    // Refused: out of range, wrong registration ID, Aeron's own counters, free records.
     for id in [-1, reader.max_counter_id() + 1, i32::MAX] {
-        let err = unsafe { reader.counter(0, id) }.expect_err("out of range");
+        let err = reader.counter(0, id).expect_err("out of range");
         assert_eq!(err.kind(), ErrorKind::IllegalArgument, "{err}");
     }
-    // The view outlives the reader and the client it came from.
-    let view = unsafe { reader.counter(0, counter.id()) }.unwrap();
+    let err = reader
+        .counter(counter.registration_id() + 1, counter.id())
+        .expect_err("registration id");
+    assert_eq!(err.kind(), ErrorKind::IllegalArgument, "{err}");
+    let err = reader
+        .counter(reader.get_counter_registration_id(0).unwrap(), 0)
+        .expect_err("a system counter");
+    assert_eq!(err.kind(), ErrorKind::IllegalArgument, "{err}");
+    let err = reader
+        .counter(0, reader.max_counter_id())
+        .expect_err("unused");
+    assert_eq!(err.kind(), ErrorKind::IllegalArgument, "{err}");
+
+    // ... unless unchecked (writing a system statistic is harmless).
+    // SAFETY: counter 0 ("Bytes sent") is only a statistic.
+    let system = unsafe { reader.counter_unchecked(0, 0) }.unwrap();
+    assert!(system.is_valid());
+
+    // The handle outlives the reader and the client it came from.
+    let handle = reader
+        .counter(counter.registration_id(), counter.id())
+        .unwrap();
     drop(reader);
-    view.increment();
+    handle.increment();
     assert_eq!(counter.get(), 4);
+}
+
+#[test]
+fn writes_stop_once_the_record_is_reused() {
+    let driver = TestDriver::start_with(|b| b.counters_free_to_reuse_timeout_ns(0));
+    let client = driver.client();
+    let reader = client.counters_reader();
+    let first = client.add_counter(TYPE_ID, &[], "first").unwrap();
+    let id = first.id();
+    let handle = reader.counter(first.registration_id(), id).unwrap();
+    let view = reader.counter_view(id).unwrap();
+    assert!(handle.is_valid() && view.is_valid());
+    drop(first);
+    wait_until("the counter to be freed", || !handle.is_valid());
+    assert!(!view.is_valid());
+
+    // The driver reuses the record for the next counter.
+    let mut second = client.add_counter(TYPE_ID, &[], "second").unwrap();
+    for _ in 0..50 {
+        if second.id() == id {
+            break;
+        }
+        second = client.add_counter(TYPE_ID, &[], "second").unwrap();
+    }
+    assert_eq!(second.id(), id, "the record was not reused");
+    second.set(7);
+    // The stale handle no longer writes, and reads the new value.
+    handle.set(100);
+    handle.increment();
+    assert_eq!(handle.get_and_add(5), 7);
+    assert!(!handle.compare_and_set(7, 8));
+    assert_eq!(second.get(), 7);
+    assert!(!view.is_valid());
+    assert_eq!(view.get(), 7);
+}
+
+#[test]
+fn counter_views_read_any_counter() {
+    let driver = TestDriver::start();
+    let client = driver.client();
+    let reader = client.counters_reader();
+    let view = reader.counter_view(0).unwrap();
+    assert_eq!(view.label(), "Bytes sent");
+    assert_eq!(view.state(), CountersReader::RECORD_ALLOCATED);
+    assert!(view.is_valid());
+    let cnc = aeron_glide::CncFile::map_existing(&driver.dir).unwrap();
+    let from_file = cnc.counters_reader().counter_view(0).unwrap();
+    assert_eq!(from_file.label(), "Bytes sent");
+    drop(cnc);
+    let _ = from_file.get();
+    assert!(reader.counter_view(-1).is_err());
 }
 
 #[test]

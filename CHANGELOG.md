@@ -262,10 +262,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `get_and_add_ordered`, `get_and_set`, `compare_and_set`); it is
   `Send + Sync`; its weak and ordered operations use relaxed/release atomics
   instead of the C++ plain accesses, so sharing it between threads is not a
-  data race. `CountersReader::counter` (`unsafe`: writing a counter the client
+  data race. Writes check that the counter's record still holds the counter
+  (`Counter::is_valid`), so a freed record the driver reuses is never written.
+  `CountersReader::counter` gives a writable handle on an existing user counter
+  (type ID 1000 or more, with the given registration ID);
+  `CountersReader::counter_unchecked` (`unsafe`: writing a counter the client
   relies on, such as a subscriber position, can make it read out of bounds)
-  gives a writable handle on an existing counter. Keys and labels longer than `CountersReader::MAX_KEY_LENGTH` /
-  `MAX_LABEL_LENGTH` are rejected. Works around an upstream C++ bug: a counter
+  on any counter; and `CountersReader::counter_view` a read-only
+  `CounterView` of any counter, also from a `CncFile`. Keys and labels longer
+  than `CountersReader::MAX_KEY_LENGTH` / `MAX_LABEL_LENGTH` are rejected. Works around an upstream C++ bug: a counter
   holding the last reference to its client was closed after the client had
   freed it.
 - `CountersReader` lookups: `find_by_registration_id` and

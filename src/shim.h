@@ -594,6 +594,32 @@ public:
         keepalive_.reset();
     }
 
+    // Check, before each write, that the counter's record still holds this
+    // counter (allocated, with the type and registration ID it has now): a
+    // freed record can be reused by the driver for a counter Aeron relies on.
+    void checkWrites(aeron::CountersReader &reader) {
+        reader_ = reader.countersReader();
+        const int32_t counterId = id();
+        aeron_counters_reader_counter_type_id(reader_, counterId, &typeId_);
+        aeron_counters_reader_counter_registration_id(reader_, counterId, &registrationId_);
+    }
+
+    // Whether the record still holds this counter (always for an unchecked one).
+    bool isValid() const {
+        if (reader_ == nullptr) {
+            return true;
+        }
+        const int32_t counterId = id();
+        int32_t state = 0;
+        int32_t typeId = 0;
+        int64_t registrationId = 0;
+        return aeron_counters_reader_counter_state(reader_, counterId, &state) == 0 &&
+               state == AERON_COUNTER_RECORD_ALLOCATED &&
+               aeron_counters_reader_counter_type_id(reader_, counterId, &typeId) == 0 && typeId == typeId_ &&
+               aeron_counters_reader_counter_registration_id(reader_, counterId, &registrationId) == 0 &&
+               registrationId == registrationId_;
+    }
+
     int32_t id() const { return counter_->id(); }
     int64_t registrationId() const { return counter_->registrationId(); }
     int32_t state() const { return counter_->state(); }
@@ -602,20 +628,38 @@ public:
 
     int64_t get() const { return counter_->get(); }
     int64_t getWeak() const { return detail::loadRelaxed(addr_); }
-    void set(int64_t value) const { counter_->set(value); }
-    void setOrdered(int64_t value) const { detail::storeRelease(addr_, value); }
-    void setWeak(int64_t value) const { detail::storeRelaxed(addr_, value); }
-    void increment() const { counter_->increment(); }
+    // Writes do nothing once the record no longer holds this counter; those
+    // returning the previous value then return the current one.
+    void set(int64_t value) const {
+        if (isValid()) counter_->set(value);
+    }
+    void setOrdered(int64_t value) const {
+        if (isValid()) detail::storeRelease(addr_, value);
+    }
+    void setWeak(int64_t value) const {
+        if (isValid()) detail::storeRelaxed(addr_, value);
+    }
+    void increment() const {
+        if (isValid()) counter_->increment();
+    }
     // Single-writer read-modify-write, as in AtomicCounter (not atomic as a whole).
-    void incrementOrdered() const { detail::storeRelease(addr_, detail::loadRelaxed(addr_) + 1); }
-    int64_t getAndAdd(int64_t value) const { return counter_->getAndAdd(value); }
+    void incrementOrdered() const {
+        if (isValid()) detail::storeRelease(addr_, detail::loadRelaxed(addr_) + 1);
+    }
+    int64_t getAndAdd(int64_t value) const { return isValid() ? counter_->getAndAdd(value) : get(); }
     int64_t getAndAddOrdered(int64_t value) const {
+        if (!isValid()) {
+            return get();
+        }
         int64_t current = detail::loadRelaxed(addr_);
         detail::storeRelease(addr_, current + value);
         return current;
     }
-    int64_t getAndSet(int64_t value) const { return counter_->getAndSet(value); }
+    int64_t getAndSet(int64_t value) const { return isValid() ? counter_->getAndSet(value) : get(); }
     bool compareAndSet(int64_t expected, int64_t update) const {
+        if (!isValid()) {
+            return false;
+        }
 #if defined(__GNUC__) || defined(__clang__)
         // Upstream bug (1.53.3, Atomic64_gcc_cpp11.h, used on ARM): a failed
         // cmpxchg returns a fresh read, so compareAndSet can report success
@@ -635,6 +679,9 @@ private:
     int64_t *addr_;
     std::shared_ptr<const void> keepalive_;
     std::shared_ptr<ConductorLock> lock_;
+    aeron_counters_reader_t *reader_ = nullptr; // checked writes (kept alive by keepalive_ / counter_)
+    int32_t typeId_ = 0;
+    int64_t registrationId_ = 0;
 };
 
 class CountersReaderWrapper {
@@ -662,8 +709,12 @@ public:
     int64_t getFreeForReuseDeadline(int32_t id) const { return reader_->getFreeForReuseDeadline(id); }
     // The key region of a counter's metadata record (MAX_KEY_LENGTH bytes).
     rust::Vec<uint8_t> getCounterKey(int32_t id) const;
-    // A view of a counter (see CounterWrapper). Throws for an out-of-range id.
-    std::unique_ptr<CounterWrapper> counter(int64_t registration_id, int32_t counter_id) const;
+    // A handle on a counter (see CounterWrapper). Throws for an out-of-range id.
+    // `checked`: only a user counter (type id >= 1000) with this registration ID,
+    // and writes are checked; otherwise any counter, unchecked.
+    std::unique_ptr<CounterWrapper> counter(int64_t registration_id, int32_t counter_id, bool checked) const;
+    // A handle only read from: any counter, also from a CnC file.
+    std::unique_ptr<CounterWrapper> counterView(int32_t counter_id) const;
 
     // HeartbeatTimestamp (C3). isActive is false for an out-of-range id, which
     // the C++ function does not check.

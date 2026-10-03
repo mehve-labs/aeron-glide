@@ -95,7 +95,7 @@ pub use channel::{ChannelBuilder, ChannelUri, ControlMode};
 pub use client::{AeronClient, PendingAdd};
 pub use context::Context;
 pub use counters::{
-    CncConstants, CncFile, Counter, CountersReader, ErrorLogEntry, heartbeat_timestamp,
+    CncConstants, CncFile, Counter, CounterView, CountersReader, ErrorLogEntry, heartbeat_timestamp,
 };
 pub use driver::{IdleStrategy, MediaDriver, MediaDriverBuilder, ThreadingMode};
 pub use driver_gen::{InferableBoolean, ThreadNaming};
@@ -588,7 +588,13 @@ pub(crate) mod ffi {
             self: &CountersReaderWrapper,
             registration_id: i64,
             counter_id: i32,
+            checked: bool,
         ) -> Result<UniquePtr<CounterWrapper>>;
+        fn counterView(
+            self: &CountersReaderWrapper,
+            counter_id: i32,
+        ) -> Result<UniquePtr<CounterWrapper>>;
+        fn isValid(self: &CounterWrapper) -> bool;
 
         fn id(self: &CounterWrapper) -> i32;
         fn registrationId(self: &CounterWrapper) -> i64;
@@ -630,6 +636,7 @@ mod tests {
         send_sync::<Publication>();
         send_sync::<CountersReader>();
         send_sync::<Counter>();
+        send_sync::<CounterView>();
         send_sync::<CncFile>();
         send_sync::<MediaDriver>();
         send::<ExclusivePublication>();
@@ -659,6 +666,7 @@ mod tests {
         debug::<Image<'static>>();
         debug::<Header>();
         debug::<Counter>();
+        debug::<CounterView>();
         debug::<CountersReader>();
         debug::<CncFile>();
         debug::<MediaDriver>();

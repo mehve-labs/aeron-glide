@@ -130,15 +130,33 @@ impl CountersReader {
         Ok(self.inner.getCounterKey(id)?)
     }
 
-    /// A writable [`Counter`] handle on the counter `counter_id`, e.g. to update
-    /// a counter another client allocated (C++ `Counter(CountersReader&,
-    /// registrationId, counterId)`). `registration_id` is only reported back by
-    /// [`Counter::registration_id`]. The handle does not own the counter: dropping
-    /// it does not free it, and [`Counter::is_closed`] is always `false`.
+    /// A writable [`Counter`] handle on a counter another client (or another
+    /// part of your program) allocated, e.g. to update a shared statistic (C++
+    /// `Counter(CountersReader&, registrationId, counterId)`).
     ///
-    /// Fails if `counter_id` is out of range, and with
+    /// Only for your own counters: the counter must be allocated, have a type ID
+    /// of 1000 or more (lower ones are Aeron's, see
+    /// [`counter_types`](crate::counter_types)) and the given registration ID;
+    /// otherwise this fails with [`ErrorKind::IllegalArgument`]. Writes through
+    /// the handle do nothing once the counter is freed (see
+    /// [`Counter::is_valid`]). The handle does not own the counter: dropping it
+    /// does not free it, and [`Counter::is_closed`] is always `false`.
+    ///
+    /// Also fails if `counter_id` is out of range, and with
     /// [`ErrorKind::UnsupportedOperation`] for a reader from a [`CncFile`], which
     /// maps the counters read-only.
+    pub fn counter(&self, registration_id: i64, counter_id: i32) -> Result<Counter> {
+        Ok(Counter {
+            inner: self.inner.counter(registration_id, counter_id, true)?,
+        })
+    }
+
+    /// A writable [`Counter`] handle on any counter, Aeron's included, without
+    /// [`counter`](Self::counter)'s checks; writes are never refused.
+    /// `registration_id` is only reported back by [`Counter::registration_id`].
+    ///
+    /// Fails if `counter_id` is out of range, and with
+    /// [`ErrorKind::UnsupportedOperation`] for a reader from a [`CncFile`].
     ///
     /// # Safety
     ///
@@ -146,12 +164,22 @@ impl CountersReader {
     /// allocates for them: an invalid value written to a subscriber position or
     /// publisher limit counter (e.g. a negative position) makes them read out of
     /// bounds. The counter must not be one of those, now or while the handle
-    /// writes to it: write only to counters whose type you control (not Aeron's
-    /// [`counter_types`](crate::counter_types)), and stop once the counter has
-    /// been freed, since its record can be reused.
-    pub unsafe fn counter(&self, registration_id: i64, counter_id: i32) -> Result<Counter> {
+    /// writes to it (a freed record can be reused for one).
+    pub unsafe fn counter_unchecked(
+        &self,
+        registration_id: i64,
+        counter_id: i32,
+    ) -> Result<Counter> {
         Ok(Counter {
-            inner: self.inner.counter(registration_id, counter_id)?,
+            inner: self.inner.counter(registration_id, counter_id, false)?,
+        })
+    }
+
+    /// A read-only [`CounterView`] of any counter, also from a [`CncFile`].
+    /// Fails if `counter_id` is out of range.
+    pub fn counter_view(&self, counter_id: i32) -> Result<CounterView> {
+        Ok(CounterView {
+            inner: self.inner.counterView(counter_id)?,
         })
     }
 
@@ -179,9 +207,15 @@ fn found(id: i32) -> Option<i32> {
 /// never freed). The `Counter` keeps its client open until then, even if the
 /// [`AeronClient`] is dropped. If the client is closed by the driver (e.g. a
 /// driver timeout), its counters are freed and [`is_closed`](Self::is_closed)
-/// returns `true`: stop writing then, as the driver may reuse the record.
-/// Other processes see the counter through their counters reader, e.g. with
-/// `AeronStat`.
+/// returns `true`. Writes do nothing once the counter's record no longer holds
+/// it (see [`is_valid`](Self::is_valid)), so a freed record the driver reuses
+/// for another counter is never written. Other processes see the counter
+/// through their counters reader, e.g. with `AeronStat`.
+///
+/// Each write checks the record first (a few loads from the counter's metadata).
+/// The check and the write are separate accesses: in theory the record could be
+/// freed and reused between them, which needs the driver's reuse timeout
+/// (about a second) to pass within one call.
 ///
 /// `Send + Sync`. Every operation is a single atomic access except
 /// [`increment_ordered`](Self::increment_ordered) and
@@ -236,6 +270,15 @@ impl Counter {
     /// The counter's label. Invalid UTF-8 is replaced with `U+FFFD`.
     pub fn label(&self) -> String {
         self.inner.label()
+    }
+
+    /// Returns `true` while the counter's record still holds this counter
+    /// (allocated, with the same type and registration ID). Once it is freed,
+    /// e.g. dropped by its owner or after its client closed, writes through this
+    /// handle do nothing. Always `true` for a handle from
+    /// [`CountersReader::counter_unchecked`].
+    pub fn is_valid(&self) -> bool {
+        self.inner.isValid()
     }
 
     /// Returns `true` once the counter has been closed by its client, e.g. after
@@ -510,5 +553,69 @@ pub mod heartbeat_timestamp {
             .inner
             .isHeartbeatActive(counter_id, counter_type_id, registration_id)
             .unwrap_or(false)
+    }
+}
+
+/// A read-only handle on any counter, from [`CountersReader::counter_view`]:
+/// its identity, label and value. `Send + Sync`.
+pub struct CounterView {
+    inner: cxx::UniquePtr<ffi::CounterWrapper>,
+}
+
+impl Drop for CounterView {
+    fn drop(&mut self) {
+        callback::drop_outside_conductor(&mut self.inner);
+    }
+}
+
+// SAFETY: as for Counter; a view only reads.
+unsafe impl Send for CounterView {}
+unsafe impl Sync for CounterView {}
+
+impl std::fmt::Debug for CounterView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CounterView")
+            .field("id", &self.id())
+            .field("registration_id", &self.registration_id())
+            .field("value", &self.get())
+            .finish()
+    }
+}
+
+impl CounterView {
+    /// The counter's ID.
+    pub fn id(&self) -> i32 {
+        self.inner.id()
+    }
+
+    /// The counter's registration ID when the view was created.
+    pub fn registration_id(&self) -> i64 {
+        self.inner.registrationId()
+    }
+
+    /// The counter's record state, e.g. [`CountersReader::RECORD_ALLOCATED`].
+    pub fn state(&self) -> i32 {
+        self.inner.state()
+    }
+
+    /// The counter's label. Invalid UTF-8 is replaced with `U+FFFD`.
+    pub fn label(&self) -> String {
+        self.inner.label()
+    }
+
+    /// Returns `true` while the record still holds the counter the view was
+    /// created for (once it is freed and reused, the view reads another one).
+    pub fn is_valid(&self) -> bool {
+        self.inner.isValid()
+    }
+
+    /// The current value (volatile read).
+    pub fn get(&self) -> i64 {
+        self.inner.get()
+    }
+
+    /// The current value, without ordering guarantees (relaxed read).
+    pub fn get_weak(&self) -> i64 {
+        self.inner.getWeak()
     }
 }

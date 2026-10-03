@@ -650,16 +650,46 @@ rust::Vec<uint8_t> CountersReaderWrapper::getCounterKey(int32_t id) const {
     return key;
 }
 
-std::unique_ptr<CounterWrapper> CountersReaderWrapper::counter(int64_t registration_id, int32_t counter_id) const {
+std::unique_ptr<CounterWrapper> CountersReaderWrapper::counter(
+    int64_t registration_id, int32_t counter_id, bool checked) const {
     validateCounterId(counter_id); // the C++ constructor does not check it
     if (!writable_) {
         // Writing through the counter would fault on the read-only mapping.
         throw aeron::util::UnsupportedOperationException(
             "counters read from a CnC file are read-only", SOURCEINFO, EPERM);
     }
+    if (checked) {
+        if (reader_->getCounterState(counter_id) != aeron::CountersReader::RECORD_ALLOCATED) {
+            throw aeron::util::IllegalArgumentException(
+                "counter " + std::to_string(counter_id) + " is not allocated", SOURCEINFO, EINVAL);
+        }
+        if (reader_->getCounterTypeId(counter_id) < 1000) {
+            throw aeron::util::IllegalArgumentException(
+                "counter " + std::to_string(counter_id) + " has an Aeron type id (below 1000)", SOURCEINFO, EINVAL);
+        }
+        if (reader_->getCounterRegistrationId(counter_id) != registration_id) {
+            throw aeron::util::IllegalArgumentException(
+                "counter " + std::to_string(counter_id) + " does not have registration id " +
+                    std::to_string(registration_id),
+                SOURCEINFO, EINVAL);
+        }
+    }
     auto view = std::make_shared<aeron::Counter>(*reader_, registration_id, counter_id);
     int64_t *addr = reader_->getCounterAddress(counter_id);
-    return std::unique_ptr<CounterWrapper>(new CounterWrapper(std::move(view), addr, reader_, lock_));
+    std::unique_ptr<CounterWrapper> wrapper(new CounterWrapper(std::move(view), addr, reader_, lock_));
+    if (checked) {
+        wrapper->checkWrites(*reader_);
+    }
+    return wrapper;
+}
+
+std::unique_ptr<CounterWrapper> CountersReaderWrapper::counterView(int32_t counter_id) const {
+    validateCounterId(counter_id);
+    auto view = std::make_shared<aeron::Counter>(*reader_, reader_->getCounterRegistrationId(counter_id), counter_id);
+    int64_t *addr = reader_->getCounterAddress(counter_id);
+    std::unique_ptr<CounterWrapper> wrapper(new CounterWrapper(std::move(view), addr, reader_, lock_));
+    wrapper->checkWrites(*reader_); // for isValid; a view is never written
+    return wrapper;
 }
 
 int32_t CountersReaderWrapper::maxCounterId() const {
@@ -831,7 +861,9 @@ std::unique_ptr<CounterWrapper> AeronWrapper::findCounter(int64_t registration_i
         return nullptr;
     }
     int64_t *addr = aeron_counter_addr(counter->c_counter());
-    return std::unique_ptr<CounterWrapper>(new CounterWrapper(std::move(counter), addr, aeron, lock_));
+    std::unique_ptr<CounterWrapper> wrapper(new CounterWrapper(std::move(counter), addr, aeron, lock_));
+    wrapper->checkWrites(aeron->countersReader());
+    return wrapper;
 }
 
 std::unique_ptr<CountersReaderWrapper> AeronWrapper::countersReader() const {

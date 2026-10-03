@@ -848,8 +848,7 @@ fn persistent_subscription_counters_are_handed_over() {
     );
     let reader = client.counters_reader();
     let owned = client.add_counter(1001, &[], "viewed").unwrap();
-    // SAFETY: the view is only handed to the builder, which refuses it.
-    let view = unsafe { reader.counter(owned.registration_id(), owned.id()) }.unwrap();
+    let view = reader.counter(owned.registration_id(), owned.id()).unwrap();
     let err = PersistentSubscriptionBuilder::new()
         .live_joined_counter(view)
         .create()

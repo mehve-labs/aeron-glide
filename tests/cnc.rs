@@ -28,9 +28,9 @@ fn counters_through_the_cnc_file() {
     );
 
     // The mapping is read-only: no writable counter handles.
-    // SAFETY: refused before any write.
-    let err =
-        unsafe { reader.counter(counter.registration_id(), counter.id()) }.expect_err("read-only");
+    let err = reader
+        .counter(counter.registration_id(), counter.id())
+        .expect_err("read-only");
     assert_eq!(err.kind(), ErrorKind::UnsupportedOperation, "{err}");
 
     // The reader keeps the file mapped.
