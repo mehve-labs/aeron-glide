@@ -39,7 +39,7 @@ aeron-glide = "0.3"
 ```rust
 use aeron_glide::AeronClient;
 
-let mut client = AeronClient::new()?;
+let client = AeronClient::new()?;
 client.start();
 
 let pub1 = client.add_publication("aeron:ipc", 1001)?;

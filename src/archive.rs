@@ -509,6 +509,11 @@ impl<'a> ReplayMerge<'a> {
     }
 
     /// Poll for fragments from the replay/merged stream.
+    ///
+    /// # Panics
+    ///
+    /// If `handler` panics, the panic is resumed once Aeron returns from the poll;
+    /// the remaining fragments of this poll are consumed without being delivered.
     pub fn poll<F>(&mut self, fragment_limit: i32, handler: F) -> Result<i32>
     where
         F: FnMut(&[u8]),

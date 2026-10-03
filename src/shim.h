@@ -254,7 +254,7 @@ public:
     AeronWrapper(std::shared_ptr<ContextWrapper> context);
     ~AeronWrapper();
     
-    void start();
+    void start() const;
     bool isClosed() const;
     
     // const: aeron::Aeron is thread-safe for adding resources.

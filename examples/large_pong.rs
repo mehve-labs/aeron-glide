@@ -9,7 +9,7 @@ const PONG_STREAM_ID: i32 = 21;
 fn main() {
     println!("Starting large_pong (controlled flow + fragment assembler)...");
 
-    let mut client = AeronClient::new().expect("Failed to start Aeron");
+    let client = AeronClient::new().expect("Failed to start Aeron");
     client.start();
 
     let mut sub = client.add_subscription(CHANNEL, PING_STREAM_ID).unwrap();

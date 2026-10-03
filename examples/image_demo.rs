@@ -12,7 +12,7 @@ fn pick_stream_id() -> i32 {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stream_id = pick_stream_id();
-    let mut client = AeronClient::new()?;
+    let client = AeronClient::new()?;
     client.start();
 
     // Exclusive publications each get their own session — this is what creates

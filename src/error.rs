@@ -16,22 +16,30 @@ const MAGIC: &str = "aeron-glide";
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// The category of an [`Error`], mirroring the Aeron C++ exception hierarchy.
+///
+/// With Aeron 1.53 the C++ wrapper maps C client errors only to
+/// [`IllegalArgument`](Self::IllegalArgument), [`IllegalState`](Self::IllegalState),
+/// [`Io`](Self::Io), the three fatal timeouts, [`Archive`](Self::Archive) and
+/// [`Aeron`](Self::Aeron) (the default). The remaining kinds exist in the
+/// hierarchy but are not currently produced by the APIs this crate wraps; match
+/// on [`Error::code`] for finer detail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ErrorKind {
-    /// An argument was rejected, e.g. a message longer than the max payload.
+    /// An argument was rejected, e.g. a message longer than the maximum message
+    /// length or an out-of-range counter id.
     IllegalArgument,
     /// The operation is not valid in the current state, e.g. a closed resource.
     IllegalState,
     /// An I/O error, e.g. a missing or unreadable Aeron directory.
     Io,
-    /// Malformed data.
+    /// Malformed data. Not currently produced.
     Format,
-    /// An index or id outside the valid range, e.g. a bad counter id.
+    /// A buffer bound was exceeded, e.g. offering a buffer of 2 GiB or more.
     OutOfBounds,
-    /// A channel URI or other input could not be parsed.
+    /// Input could not be parsed.
     Parse,
-    /// A requested element does not exist.
+    /// A requested element does not exist. Not currently produced.
     ElementNotFound,
     /// The media driver did not respond in time. Fatal for the client.
     DriverTimeout,
@@ -39,21 +47,25 @@ pub enum ErrorKind {
     ConductorServiceTimeout,
     /// The media driver timed this client out. Fatal for the client.
     ClientTimeout,
-    /// A generic timeout, e.g. an archive request without a response.
+    /// A generic timeout. Not currently produced: archive timeouts are reported
+    /// as [`Archive`](Self::Archive).
     Timeout,
-    /// A channel endpoint failed, e.g. a UDP port already in use.
+    /// A channel endpoint failed. Not currently produced.
     ChannelEndpoint,
-    /// The media driver rejected a registration (publication, subscription, ...).
+    /// The media driver rejected a registration. Not currently produced: driver
+    /// rejections (invalid channel, unknown host, bad term length, ...) are
+    /// reported as [`Aeron`](Self::Aeron) with a negative [`Error::code`].
     Registration,
-    /// A subscription is unknown to the media driver.
+    /// A subscription is unknown to the media driver. Not currently produced.
     UnknownSubscription,
-    /// A callback re-entered the client in an unsupported way.
+    /// A callback re-entered the client in an unsupported way. Not currently produced.
     Reentrant,
-    /// The operation is not supported.
+    /// The operation is not supported. Not currently produced.
     UnsupportedOperation,
-    /// An Archive error response.
+    /// An Archive error, including archive connect and request timeouts.
     Archive,
-    /// A general Aeron error without a more specific category.
+    /// A general Aeron error without a more specific category, including
+    /// registrations rejected by the media driver.
     Aeron,
     /// Any other error, e.g. a non-Aeron C++ exception.
     Other,
@@ -113,6 +125,10 @@ impl Error {
 
     /// The Aeron error code (`aeron_errcode()` / `SourcedException::errorCode()`),
     /// or `0` if none was reported.
+    ///
+    /// Positive values are `errno` codes (e.g. `22`, `EINVAL`); negative values are
+    /// Aeron error codes (`AERON_ERROR_CODE_*` / `AERON_CLIENT_ERROR_*` in Aeron's
+    /// C headers), e.g. for a registration rejected by the media driver.
     pub fn code(&self) -> i32 {
         self.code
     }

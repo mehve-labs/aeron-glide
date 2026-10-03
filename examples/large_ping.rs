@@ -16,7 +16,7 @@ fn main() {
         MESSAGE_SIZE
     );
 
-    let mut client = AeronClient::new().expect("Failed to start Aeron");
+    let client = AeronClient::new().expect("Failed to start Aeron");
     client.start();
 
     let publ = client.add_publication(CHANNEL, PING_STREAM_ID).unwrap();

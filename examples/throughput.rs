@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let running_pub = Arc::clone(&running);
     let pub_channel = channel.to_string();
     let pub_thread = thread::spawn(move || {
-        let mut client = AeronClient::new().expect("Failed to create publisher client");
+        let client = AeronClient::new().expect("Failed to create publisher client");
         client.start();
         let mut publication = client
             .add_exclusive_publication(&pub_channel, STREAM_ID)
@@ -66,7 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // --- Subscriber (main thread, own client) ---
-    let mut client = AeronClient::new()?;
+    let client = AeronClient::new()?;
     client.start();
     let mut subscription = client.add_subscription(channel, STREAM_ID)?;
 

@@ -152,7 +152,7 @@ AeronWrapper::AeronWrapper(std::shared_ptr<ContextWrapper> context)
 
 AeronWrapper::~AeronWrapper() {}
 
-void AeronWrapper::start() {
+void AeronWrapper::start() const {
     // connect handles starting under the hood in C++
 }
 

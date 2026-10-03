@@ -27,7 +27,7 @@ impl<F> Callback<F> {
 
     /// The opaque context handed to C++ alongside the trampoline.
     pub(crate) fn ctx(&mut self) -> usize {
-        self as *mut Self as usize
+        (self as *mut Self).expose_provenance()
     }
 
     /// Resume a panic raised by the closure, otherwise return `result`.
@@ -43,7 +43,7 @@ impl<F> Callback<F> {
     /// `ctx` must come from [`Callback::ctx`] on a `Callback<F>` that is still alive
     /// and not otherwise borrowed.
     pub(crate) unsafe fn from_ctx<'a>(ctx: usize) -> &'a mut Self {
-        unsafe { &mut *(ctx as *mut Self) }
+        unsafe { &mut *std::ptr::with_exposed_provenance_mut::<Self>(ctx) }
     }
 
     /// Invoke the closure, or return `fallback` if it panicked now or earlier.

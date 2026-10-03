@@ -37,8 +37,8 @@ See [README.md](README.md) for build and test instructions.
 
 - **Exceptions.** cxx aborts the process if a C++ exception escapes a bridged
   function that is not declared `-> Result<..>`. Declare every bridged function
-  that can throw (directly, via the Aeron C++ wrapper, or by constructing a
-  `rust::String`) as `-> Result<..>` and map it to `aeron_glide::Result` on the
+  that can throw (directly, via the Aeron C++ wrapper, or via the checked
+  `rust::String` constructor) as `-> Result<..>` and map it to `aeron_glide::Result` on the
   Rust side. Only functions that cannot throw may be bridged without `Result`;
   when a lookup's only failure means "not found", catch in `shim.cc` and return
   `nullptr` (surfaced as `Option`).

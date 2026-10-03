@@ -17,7 +17,9 @@
 //! let mut sub1 = client.add_subscription("aeron:ipc", 1001).unwrap();
 //!
 //! // Publish
-//! while pub1.offer(b"hello aeron").is_err() {}
+//! while let Err(e) = pub1.offer(b"hello aeron") {
+//!     assert!(e.is_retryable(), "offer failed: {e}");
+//! }
 //!
 //! // Subscribe
 //! sub1.poll(10, |data| {
@@ -98,7 +100,7 @@ pub mod ffi {
         fn create_aeron(context: UniquePtr<ContextWrapper>) -> Result<UniquePtr<AeronWrapper>>;
         fn create_media_driver() -> Result<UniquePtr<MediaDriverWrapper>>;
 
-        fn start(self: Pin<&mut AeronWrapper>);
+        fn start(self: &AeronWrapper);
         fn isClosed(self: &AeronWrapper) -> bool;
         fn addPublication(
             self: &AeronWrapper,
@@ -235,8 +237,8 @@ impl AeronClient {
     }
 
     /// Start the client conductor thread.
-    pub fn start(&mut self) {
-        self.inner.pin_mut().start();
+    pub fn start(&self) {
+        self.inner.start();
     }
 
     /// Returns `true` if the client has been closed.
@@ -306,6 +308,7 @@ impl Publication {
     where
         F: FnMut(&mut [u8]) -> bool,
     {
+        let length = claim_length(length)?;
         let mut cb = Callback::new(handler);
         let result = self.inner.tryClaim(length, callback::claim::<F>, cb.ctx());
         error::offer_result(cb.finish(result)?)
@@ -354,6 +357,7 @@ impl ExclusivePublication {
     where
         F: FnMut(&mut [u8]) -> bool,
     {
+        let length = claim_length(length)?;
         let mut cb = Callback::new(handler);
         let result = self
             .inner
@@ -366,6 +370,17 @@ impl ExclusivePublication {
     pub fn is_connected(&self) -> bool {
         self.inner.isConnected()
     }
+}
+
+/// Aeron claim lengths are `int32`; reject longer ones instead of truncating them.
+fn claim_length(length: usize) -> std::result::Result<usize, OfferError> {
+    if length > i32::MAX as usize {
+        return Err(OfferError::Error(Error::new(
+            ErrorKind::IllegalArgument,
+            format!("claim length {length} exceeds the maximum of {}", i32::MAX),
+        )));
+    }
+    Ok(length)
 }
 
 /// Flow-control actions for `poll_assembled` when the handler returns a `ControlledAction`.
@@ -422,6 +437,11 @@ unsafe impl Send for Subscription {}
 impl Subscription {
     /// Poll for new messages, calling `handler` for each fragment received.
     /// Returns the number of fragments dispatched.
+    ///
+    /// # Panics
+    ///
+    /// If `handler` panics, the panic is resumed once Aeron returns from the poll;
+    /// the remaining fragments of this poll are consumed without being delivered.
     pub fn poll<F>(&mut self, limit: i32, handler: F) -> Result<i32>
     where
         F: FnMut(&[u8]),
@@ -440,6 +460,11 @@ impl Subscription {
     ///
     /// The handler can return `()` (maps to Continue) or a `ControlledAction` for
     /// flow-control (Abort to retry, Break to stop, Commit to checkpoint, Continue to proceed).
+    ///
+    /// # Panics
+    ///
+    /// If `handler` panics, the panic is resumed once Aeron returns from the poll;
+    /// the fragment being handled is aborted and delivered again by the next poll.
     pub fn poll_assembled<R, F>(&mut self, limit: i32, handler: F) -> Result<i32>
     where
         R: PollAction,
@@ -483,7 +508,8 @@ impl Subscription {
     /// Images appear in the order they were connected.
     ///
     /// The image borrows this subscription, so the subscription cannot be polled
-    /// (or dropped) while the image is alive.
+    /// (or dropped) while the image is alive. Each call returns a new handle with
+    /// its own reassembly state (see [`Image::poll_assembled`]).
     pub fn image_by_index(&self, index: usize) -> Option<Image<'_>> {
         Image::from_raw(self.inner.imageByIndex(index))
     }
@@ -569,6 +595,11 @@ impl Image<'_> {
     }
 
     /// Poll this specific image for fragments. Returns the number of fragments dispatched.
+    ///
+    /// # Panics
+    ///
+    /// If `handler` panics, the panic is resumed once Aeron returns from the poll;
+    /// the remaining fragments of this poll are consumed without being delivered.
     pub fn poll<F>(&mut self, limit: i32, handler: F) -> Result<i32>
     where
         F: FnMut(&[u8]),
@@ -581,6 +612,18 @@ impl Image<'_> {
         Ok(cb.finish(result)?)
     }
 
+    /// Poll this image with automatic fragment reassembly, like
+    /// [`Subscription::poll_assembled`].
+    ///
+    /// Reassembly state belongs to this `Image` handle: if a message's fragments
+    /// are split across `poll_assembled` calls on different handles for the same
+    /// session (e.g. after fetching the image again), the partial message is lost.
+    /// Keep one `Image` for as long as you reassemble from it.
+    ///
+    /// # Panics
+    ///
+    /// If `handler` panics, the panic is resumed once Aeron returns from the poll;
+    /// the fragment being handled is aborted and delivered again by the next poll.
     pub fn poll_assembled<R, F>(&mut self, limit: i32, handler: F) -> Result<i32>
     where
         R: PollAction,
@@ -940,7 +983,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(100));
 
         // 2. Connect client
-        let mut client = AeronClient::new().expect("Failed to connect to media driver");
+        let client = AeronClient::new().expect("Failed to connect to media driver");
         client.start();
         assert!(!client.is_closed());
 
@@ -1069,6 +1112,11 @@ mod tests {
             Err(OfferError::Error(e)) => assert_eq!(e.kind(), ErrorKind::IllegalArgument),
             other => panic!("expected IllegalArgument, got {other:?}"),
         }
+        // Lengths beyond int32 are rejected rather than truncated.
+        match publ.try_claim((1 << 32) + 16, |_| panic!("must not be called")) {
+            Err(OfferError::Error(e)) => assert_eq!(e.kind(), ErrorKind::IllegalArgument),
+            other => panic!("expected IllegalArgument, got {other:?}"),
+        }
 
         // A shared client and a shared concurrent publication work from several threads.
         let client = std::sync::Arc::new(client);
@@ -1097,8 +1145,9 @@ mod tests {
         assert_eq!(got, [100; 4]);
         let client = std::sync::Arc::try_unwrap(client).ok().expect("sole owner");
 
-        // An image stays usable after the client that created it is dropped:
-        // the subscription it borrows keeps the client alive.
+        // An image stays usable after its `AeronClient` handle is dropped: the
+        // subscription it borrows keeps the C++ client alive. (An image outliving
+        // its subscription is rejected at compile time; see the `Image` doctest.)
         while publ.offer(b"last").is_err() {}
         let image = sub.image_by_index(0).expect("image");
         drop(client);

@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `CountersReader::for_each` returns `Result<()>`.
 - **Breaking:** `AeronClient::add_publication`, `add_exclusive_publication` and
   `add_subscription`, and `Publication::offer` / `try_claim`, take `&self`.
+  `AeronClient::start` takes `&self` too.
 - **Breaking:** `ReplayMerge` is now `ReplayMerge<'a>` and keeps the
   `&mut Subscription` passed to `ReplayMerge::new` borrowed while it is alive.
 - **Breaking:** `Image` is now `Image<'a>`, borrowing its `Subscription` /
@@ -50,6 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `try_claim` truncated lengths above `i32::MAX` to 32 bits (e.g. a claim of
+  4 GiB + 16 bytes committed a 16-byte message); such lengths are now rejected
+  with `ErrorKind::IllegalArgument`.
 - Use-after-free: an `Image` could outlive its subscription and client, and
   then crash on `position()`, `poll()` or drop. The C++ image wrapper now keeps
   its subscription (and through it the client) alive, and `Image` borrows the

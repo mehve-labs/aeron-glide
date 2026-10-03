@@ -56,7 +56,7 @@ fn main() {
     let args = Args::parse();
 
     println!("Starting Aeron Client (channel: {})...", args.channel);
-    let mut client = AeronClient::new().expect("Failed to start Aeron");
+    let client = AeronClient::new().expect("Failed to start Aeron");
     client.start();
 
     let mut publ = if args.exclusive {

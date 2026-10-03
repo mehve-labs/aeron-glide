@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         archive.control_session_id()
     );
 
-    let mut client = AeronClient::new()?;
+    let client = AeronClient::new()?;
     client.start();
 
     // --- Phase 1: Create publication, then record ---
