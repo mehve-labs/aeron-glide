@@ -29,7 +29,7 @@
 //!
 //! # Features
 //!
-//! - **IPC and UDP** transports via [`ChannelBuilder`]
+//! - **IPC and UDP** channels: build URIs with [`ChannelBuilder`], parse them with [`ChannelUri`]
 //! - **Publications** ([`Publication`]) and **exclusive publications** ([`ExclusivePublication`])
 //! - **Zero-copy publish** via [`Publication::try_claim`]
 //! - **Fragment reassembly** via [`Subscription::poll_assembled`] with [`ControlledAction`] flow control
@@ -77,7 +77,7 @@
 pub mod archive;
 
 mod callback;
-mod channel;
+pub mod channel;
 mod client;
 mod context;
 pub mod counter_types;
@@ -91,7 +91,7 @@ mod image;
 mod publication;
 mod subscription;
 use callback::Callback;
-pub use channel::ChannelBuilder;
+pub use channel::{ChannelBuilder, ChannelUri, ControlMode};
 pub use client::{AeronClient, PendingAdd};
 pub use context::Context;
 pub use counters::{CncFile, Counter, CountersReader, heartbeat_timestamp};
@@ -642,61 +642,5 @@ mod tests {
             debug::<archive::AeronArchive>();
             debug::<archive::ReplayMerge<'static>>();
         }
-    }
-
-    #[test]
-    fn test_channel_builder_ipc() {
-        assert_eq!(ChannelBuilder::ipc().build(), "aeron:ipc");
-    }
-
-    #[test]
-    fn test_channel_builder_udp() {
-        let uri = ChannelBuilder::udp().endpoint("localhost:20121").build();
-        assert_eq!(uri, "aeron:udp?endpoint=localhost:20121");
-    }
-
-    #[test]
-    fn test_channel_builder_multiple_params() {
-        let uri = ChannelBuilder::udp()
-            .endpoint("localhost:20121")
-            .mtu(8192)
-            .term_length(65536)
-            .reliable(true)
-            .build();
-        assert_eq!(
-            uri,
-            "aeron:udp?endpoint=localhost:20121|mtu=8192|term-length=65536|reliable=true"
-        );
-    }
-
-    #[test]
-    fn test_channel_builder_multicast() {
-        let uri = ChannelBuilder::udp()
-            .endpoint("224.0.1.1:40456")
-            .interface("localhost")
-            .ttl(4)
-            .build();
-        assert_eq!(
-            uri,
-            "aeron:udp?endpoint=224.0.1.1:40456|interface=localhost|ttl=4"
-        );
-    }
-
-    #[test]
-    fn test_channel_builder_mdc() {
-        let uri = ChannelBuilder::udp()
-            .control("localhost:40456")
-            .control_mode("dynamic")
-            .build();
-        assert_eq!(
-            uri,
-            "aeron:udp?control=localhost:40456|control-mode=dynamic"
-        );
-    }
-
-    #[test]
-    fn test_channel_builder_custom_param() {
-        let uri = ChannelBuilder::ipc().param("alias", "my-channel").build();
-        assert_eq!(uri, "aeron:ipc?alias=my-channel");
     }
 }

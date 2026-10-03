@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** `ChannelBuilder` covers every C++ `ChannelUriStringBuilder`
+  option and validates like it: `build()` returns `Result<String>`, failing
+  with the first invalid setting (e.g. an MTU that is not a multiple of 32, a
+  term length that is not a power of two). Parameters are written in the C++
+  order, then custom ones; setting one again replaces it. Renamed to the C++
+  names: `interface` → `network_interface`, `control` → `control_endpoint`,
+  `socket_sndbuf` → `socket_sndbuf_length`, `socket_rcvbuf` →
+  `socket_rcvbuf_length`, `receiver_window` → `receiver_window_length`.
+  `control_mode` takes a `ControlMode`, `linger` a `Duration`, `mtu` and
+  `term_length` a `u32`.
 - The C++ shim is compiled as C++17 (was C++14): building needs a C++17
   compiler (GCC 7+, Clang 5+, MSVC 2017+).
 - **Breaking:** `AeronClient::start` is removed. It did nothing: the client
@@ -214,6 +224,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `find_by_type_id_and_registration_id` (returning `Option<i32>`),
   `get_counter_registration_id`, `get_counter_owner_id`,
   `get_free_for_reuse_deadline` and `get_counter_key`.
+- `ChannelBuilder` options: `prefix`, `media`, `tags`, `alias`, `group_tag`,
+  `initial_term_id`, `term_id`, `term_offset`, `initial_position`,
+  `session_id_tagged`, `eos`, `group`, `spies_simulate_connection`,
+  `media_receive_timestamp_offset`, `channel_receive_timestamp_offset`,
+  `channel_send_timestamp_offset`, `response_correlation_id`, `nak_delay`,
+  `untethered_window_limit_timeout`, `untethered_resting_timeout`,
+  `max_resend`, plus `remove` and `clear`.
+- `ChannelUri` (C++ `ChannelUri`): `parse` / `FromStr`, `prefix`, `media`,
+  `scheme`, `get`, `put`, `remove`, `contains_key`, `params`,
+  `has_control_mode_response`, `Display`, and `add_session_id` /
+  `add_alias_if_absent`. Parameters keep their order.
+- The `channel` module with the C++ URI parameter name constants
+  (`ENDPOINT_PARAM_NAME`, ...).
 - `Debug` for every public type (clients, publications, subscriptions, images,
   counters, contexts, the media driver and archive types); `ChannelBuilder`
   is also `Clone`, `PartialEq` and `Eq`.

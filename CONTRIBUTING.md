@@ -57,7 +57,9 @@ wait with `common::wait_until` (it has a deadline) rather than open-ended loops.
 - **C++ API only.** Bind what the official Aeron C++ wrapper exposes. Functions
   only the C API exposes are not bound unless a concrete use case needs them
   (see the C extras list in the roadmap); the media driver, which has no C++
-  API, is the exception.
+  API, is the exception. Header-only C++ value types with no client state
+  (the channel URI builder and parser) are ported to Rust instead of bound,
+  keeping their output and validation, with Aeron's own test cases ported.
 - **Generated code.** `src/driver_gen.rs` and `src/driver_gen.h` (media driver
   settings) are generated from Aeron's `aeronmd.h` by
   `scripts/gen_driver_context.py`, and `src/counter_types.rs` and
