@@ -8,7 +8,7 @@ AERON_VERSION="${AERON_VERSION:-$(sed -n 's/.*AERON_VERSION").unwrap_or_else(|_|
 
 if [ -z "$AERON_VERSION" ]; then
     echo "ERROR: could not determine the Aeron version from build.rs."
-    echo "Set AERON_VERSION explicitly, e.g. AERON_VERSION=1.53.0 $0"
+    echo "Set AERON_VERSION explicitly, e.g. AERON_VERSION=1.53.3 $0"
     exit 1
 fi
 

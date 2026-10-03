@@ -129,6 +129,7 @@ pub mod ffi {
             handler_id: usize,
         ) -> i32;
         fn isConnected(self: &SubscriptionWrapper) -> bool;
+        fn deleteSessionBuffer(self: Pin<&mut SubscriptionWrapper>, session_id: i32) -> bool;
         fn imageCount(self: &SubscriptionWrapper) -> i32;
         fn imageByIndex(
             self: Pin<&mut SubscriptionWrapper>,
@@ -506,6 +507,16 @@ impl Subscription {
     /// Returns `true` if there is at least one publisher connected to this subscription.
     pub fn is_connected(&self) -> bool {
         self.inner.isConnected()
+    }
+
+    /// Free the reassembly buffer held for a publisher session to reduce memory
+    /// pressure, e.g. once its image goes inactive or no more large messages are
+    /// expected from it. The buffer is recreated on demand if the session later
+    /// sends another fragmented message.
+    ///
+    /// Returns `true` if a buffer was freed.
+    pub fn delete_session_buffer(&mut self, session_id: i32) -> bool {
+        self.inner.pin_mut().deleteSessionBuffer(session_id)
     }
 
     #[cfg(feature = "archive")]
@@ -1093,6 +1104,25 @@ mod tests {
             .image_by_session_id(sid)
             .expect("image_by_session_id failed");
         assert_eq!(image2.session_id(), sid);
+
+        // A message larger than the MTU is fragmented, so reassembling it
+        // allocates a session buffer that delete_session_buffer can free.
+        let mut received = 0;
+        let large = vec![7u8; 16 * 1024];
+        while publ.offer(&large) < 0 {
+            std::thread::yield_now();
+        }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while received == 0 && std::time::Instant::now() < deadline {
+            sub.poll_assembled(10, |data: &[u8]| {
+                if data.len() == large.len() {
+                    received += 1;
+                }
+            });
+        }
+        assert_eq!(received, 1, "large message should be reassembled");
+        assert!(sub.delete_session_buffer(sid));
+        assert!(!sub.delete_session_buffer(sid));
     }
 
     #[test]

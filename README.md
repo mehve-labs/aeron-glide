@@ -28,11 +28,11 @@ aeron-glide = "0.1"
 ## Prerequisites
 
 - **CMake** (for building the Aeron C++ Driver from source)
-- **Rust 1.92+** (Cargo)
+- **Rust 1.97+** (Cargo)
 - **C++14+ compiler**
 - **Java JDK 17+** (only required when building with `--features archive`)
 
-*(Note: The `build.rs` script will automatically fetch and compile Aeron `v1.50.2` for you during the initial `cargo build`.)*
+*(Note: The `build.rs` script will automatically fetch and compile Aeron `v1.53.3` for you during the initial `cargo build`.)*
 
 ## Quick Start
 
@@ -214,7 +214,7 @@ Full API documentation is available on [docs.rs](https://docs.rs/aeron-glide).
 
 ## Minimum Supported Rust Version
 
-The MSRV is **1.92.0**.
+The MSRV is **1.97.0**. CI also tests against the latest stable Rust.
 
 ## License
 

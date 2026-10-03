@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `Subscription::delete_session_buffer` to free the reassembly buffer held for
+  a publisher session. Backed by `deleteSessionBuffer`, which was a no-op in
+  the Aeron C++ wrapper before 1.53.3.
+
+### Changed
+
+- Bump bundled Aeron to 1.53.3 (from 1.53.0).
+- CI now also builds and tests on the MSRV (Rust 1.97) alongside latest stable.
+
 ## [0.3.0] - 2026-09-03
 
 ### Changed

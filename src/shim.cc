@@ -257,6 +257,13 @@ bool SubscriptionWrapper::isConnected() const {
     return sub->isConnected();
 }
 
+bool SubscriptionWrapper::deleteSessionBuffer(int32_t session_id) {
+    // Both assemblers may hold a buffer for the session; free each one.
+    bool freed = assembler_.deleteSessionBuffer(session_id);
+    freed = controlled_assembler_.deleteSessionBuffer(session_id) || freed;
+    return freed;
+}
+
 int SubscriptionWrapper::imageCount() const {
     return static_cast<int>(sub->imageCount());
 }

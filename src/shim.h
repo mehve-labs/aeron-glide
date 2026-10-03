@@ -112,6 +112,7 @@ public:
     int pollAssembled(int fragment_limit, size_t handler_id);
     int controlledPollAssembled(int fragment_limit, size_t handler_id);
     bool isConnected() const;
+    bool deleteSessionBuffer(int32_t session_id);
 
     // Image accessors
     int imageCount() const;
