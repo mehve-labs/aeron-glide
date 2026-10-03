@@ -1,7 +1,7 @@
 //! An Aeron Archive for tests: the Java `ArchivingMediaDriver` from the
 //! `aeron-all` jar built with the `archive` feature, in its own directory.
 //!
-//! Without Java or the jar, `ArchiveDriver::start` returns `None` and the test
+//! The jar is found under `target/` (or set `AERON_ALL_JAR`). Without Java or the jar, `ArchiveDriver::start` returns `None` and the test
 //! is skipped, unless `AERON_GLIDE_REQUIRE_ARCHIVE` is set.
 
 use super::{TIMEOUT, free_udp_port};
@@ -25,6 +25,9 @@ pub struct ArchiveDriver {
 }
 
 fn jar() -> Option<PathBuf> {
+    if let Some(jar) = std::env::var_os("AERON_ALL_JAR") {
+        return Some(PathBuf::from(jar));
+    }
     let version = std::env::var("AERON_VERSION").unwrap_or_else(|_| "1.53.3".to_string());
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let pattern = format!(
