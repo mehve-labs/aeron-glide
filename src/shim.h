@@ -135,6 +135,7 @@ public:
     ~MediaDriverWrapper();
 
     void start();
+    rust::String dir() const;
 
     // Directory
     void setDir(rust::Str dir);
@@ -166,6 +167,8 @@ public:
     void setReceiverCpuAffinity(int32_t cpu_id);
 
 private:
+    void ensureNotStarted() const;
+
     aeron_driver_context_t* context_;
     aeron_driver_t* driver_;
 };

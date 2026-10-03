@@ -134,6 +134,7 @@ pub mod ffi {
         fn countersReader(self: &AeronWrapper) -> UniquePtr<CountersReaderWrapper>;
 
         fn start(self: Pin<&mut MediaDriverWrapper>) -> Result<()>;
+        fn dir(self: &MediaDriverWrapper) -> String;
 
         fn setDir(self: Pin<&mut MediaDriverWrapper>, dir: &str) -> Result<()>;
         fn setDirDeleteOnStart(self: Pin<&mut MediaDriverWrapper>, value: bool) -> Result<()>;
@@ -726,6 +727,7 @@ pub enum ThreadingMode {
     /// All three run on a single shared thread.
     Shared = 2,
     /// Caller-driven — the application invokes the driver duty cycle.
+    /// Not supported yet by [`MediaDriverBuilder::start`].
     Invoker = 3,
 }
 
@@ -758,119 +760,187 @@ impl IdleStrategy {
 
 /// An embedded C media driver that manages shared memory buffers and handles
 /// publication/subscription matching.
+///
+/// Configure it with [`MediaDriver::builder`]; once started it can no longer be
+/// reconfigured. The driver shuts down when dropped.
+///
+/// ```no_run
+/// use aeron_glide::{MediaDriver, ThreadingMode};
+///
+/// let driver = MediaDriver::builder()
+///     .dir("/dev/shm/my-app")
+///     .dir_delete_on_start(true)
+///     .threading_mode(ThreadingMode::Shared)
+///     .start()?;
+/// println!("driver running in {}", driver.dir());
+/// # Ok::<(), aeron_glide::Error>(())
+/// ```
 pub struct MediaDriver {
     inner: cxx::UniquePtr<ffi::MediaDriverWrapper>,
 }
 
+// SAFETY: a started driver runs on its own threads; the Rust handle only reads
+// the immutable directory name and closes the driver on drop, which the C driver
+// allows from any thread.
+unsafe impl Send for MediaDriver {}
+unsafe impl Sync for MediaDriver {}
+
 impl MediaDriver {
-    /// Create a new media driver with default settings.
-    pub fn new() -> Result<Self> {
-        let inner = ffi::create_media_driver()?;
-        Ok(Self { inner })
+    /// Configure a new media driver.
+    pub fn builder() -> MediaDriverBuilder {
+        MediaDriverBuilder::new()
     }
 
-    /// Start the media driver. Must be called before any clients can connect.
-    pub fn start(&mut self) -> Result<()> {
-        self.inner.pin_mut().start()?;
-        Ok(())
+    /// Start a media driver with default settings.
+    pub fn launch() -> Result<Self> {
+        Self::builder().start()
     }
 
-    /// Set the Aeron directory for shared memory files.
-    pub fn set_dir(&mut self, dir: &str) -> Result<()> {
-        self.inner.pin_mut().setDir(dir)?;
-        Ok(())
-    }
-
-    pub fn set_dir_delete_on_start(&mut self, value: bool) -> Result<()> {
-        self.inner.pin_mut().setDirDeleteOnStart(value)?;
-        Ok(())
-    }
-
-    pub fn set_dir_delete_on_shutdown(&mut self, value: bool) -> Result<()> {
-        self.inner.pin_mut().setDirDeleteOnShutdown(value)?;
-        Ok(())
-    }
-
-    pub fn set_threading_mode(&mut self, mode: ThreadingMode) -> Result<()> {
-        self.inner.pin_mut().setThreadingMode(mode as i32)?;
-        Ok(())
-    }
-
-    pub fn set_conductor_idle_strategy(&mut self, strategy: IdleStrategy) -> Result<()> {
-        self.inner
-            .pin_mut()
-            .setConductorIdleStrategy(strategy.as_str())?;
-        Ok(())
-    }
-
-    pub fn set_sender_idle_strategy(&mut self, strategy: IdleStrategy) -> Result<()> {
-        self.inner
-            .pin_mut()
-            .setSenderIdleStrategy(strategy.as_str())?;
-        Ok(())
-    }
-
-    pub fn set_receiver_idle_strategy(&mut self, strategy: IdleStrategy) -> Result<()> {
-        self.inner
-            .pin_mut()
-            .setReceiverIdleStrategy(strategy.as_str())?;
-        Ok(())
-    }
-
-    pub fn set_term_buffer_length(&mut self, value: usize) -> Result<()> {
-        self.inner.pin_mut().setTermBufferLength(value)?;
-        Ok(())
-    }
-
-    pub fn set_ipc_term_buffer_length(&mut self, value: usize) -> Result<()> {
-        self.inner.pin_mut().setIpcTermBufferLength(value)?;
-        Ok(())
-    }
-
-    pub fn set_mtu_length(&mut self, value: usize) -> Result<()> {
-        self.inner.pin_mut().setMtuLength(value)?;
-        Ok(())
-    }
-
-    pub fn set_ipc_mtu_length(&mut self, value: usize) -> Result<()> {
-        self.inner.pin_mut().setIpcMtuLength(value)?;
-        Ok(())
-    }
-
-    pub fn set_socket_so_rcvbuf(&mut self, value: usize) -> Result<()> {
-        self.inner.pin_mut().setSocketSoRcvbuf(value)?;
-        Ok(())
-    }
-
-    pub fn set_socket_so_sndbuf(&mut self, value: usize) -> Result<()> {
-        self.inner.pin_mut().setSocketSoSndbuf(value)?;
-        Ok(())
-    }
-
-    pub fn set_print_configuration(&mut self, value: bool) -> Result<()> {
-        self.inner.pin_mut().setPrintConfiguration(value)?;
-        Ok(())
-    }
-
-    pub fn set_conductor_cpu_affinity(&mut self, cpu_id: i32) -> Result<()> {
-        self.inner.pin_mut().setConductorCpuAffinity(cpu_id)?;
-        Ok(())
-    }
-
-    pub fn set_sender_cpu_affinity(&mut self, cpu_id: i32) -> Result<()> {
-        self.inner.pin_mut().setSenderCpuAffinity(cpu_id)?;
-        Ok(())
-    }
-
-    pub fn set_receiver_cpu_affinity(&mut self, cpu_id: i32) -> Result<()> {
-        self.inner.pin_mut().setReceiverCpuAffinity(cpu_id)?;
-        Ok(())
+    /// The Aeron directory the driver runs in, to pass to [`Context::aeron_dir`].
+    pub fn dir(&self) -> String {
+        self.inner.dir()
     }
 }
 
-impl Default for MediaDriver {
+/// Configuration for a [`MediaDriver`], created by [`MediaDriver::builder`].
+///
+/// Setters can be chained; the first invalid setting is reported by
+/// [`start`](Self::start).
+pub struct MediaDriverBuilder {
+    inner: Result<cxx::UniquePtr<ffi::MediaDriverWrapper>>,
+    threading_mode: ThreadingMode,
+}
+
+impl Default for MediaDriverBuilder {
     fn default() -> Self {
-        Self::new().expect("Failed to create MediaDriver")
+        Self::new()
+    }
+}
+
+impl MediaDriverBuilder {
+    /// A builder with Aeron's defaults (including `AERON_*` environment variables).
+    pub fn new() -> Self {
+        Self {
+            inner: ffi::create_media_driver().map_err(Error::from),
+            threading_mode: ThreadingMode::Dedicated,
+        }
+    }
+
+    /// Apply a setting unless an earlier one already failed.
+    fn apply(
+        mut self,
+        set: impl FnOnce(
+            std::pin::Pin<&mut ffi::MediaDriverWrapper>,
+        ) -> std::result::Result<(), cxx::Exception>,
+    ) -> Self {
+        if let Ok(inner) = &mut self.inner
+            && let Err(e) = set(inner.pin_mut())
+        {
+            self.inner = Err(e.into());
+        }
+        self
+    }
+
+    /// Start the media driver. Fails with the first invalid setting, if any.
+    ///
+    /// [`ThreadingMode::Invoker`] is not supported yet: it needs an API to run
+    /// the driver's duty cycle, which this crate does not expose.
+    pub fn start(self) -> Result<MediaDriver> {
+        if self.threading_mode == ThreadingMode::Invoker {
+            return Err(Error::new(
+                ErrorKind::UnsupportedOperation,
+                "ThreadingMode::Invoker is not supported yet",
+            ));
+        }
+        let mut inner = self.inner?;
+        inner.pin_mut().start()?;
+        Ok(MediaDriver { inner })
+    }
+
+    /// Threading model of the driver's conductor, sender and receiver.
+    pub fn threading_mode(mut self, mode: ThreadingMode) -> Self {
+        self.threading_mode = mode;
+        self.apply(|w| w.setThreadingMode(mode as i32))
+    }
+
+    /// The Aeron directory for shared memory files. Defaults to `AERON_DIR` or Aeron's platform default.
+    pub fn dir(self, dir: &str) -> Self {
+        self.apply(|w| w.setDir(dir))
+    }
+
+    /// Delete an existing Aeron directory on start, e.g. one left behind by a crashed driver.
+    pub fn dir_delete_on_start(self, value: bool) -> Self {
+        self.apply(|w| w.setDirDeleteOnStart(value))
+    }
+
+    /// Delete the Aeron directory when the driver shuts down.
+    pub fn dir_delete_on_shutdown(self, value: bool) -> Self {
+        self.apply(|w| w.setDirDeleteOnShutdown(value))
+    }
+
+    /// Idle strategy of the conductor thread.
+    pub fn conductor_idle_strategy(self, strategy: IdleStrategy) -> Self {
+        self.apply(|w| w.setConductorIdleStrategy(strategy.as_str()))
+    }
+
+    /// Idle strategy of the sender thread.
+    pub fn sender_idle_strategy(self, strategy: IdleStrategy) -> Self {
+        self.apply(|w| w.setSenderIdleStrategy(strategy.as_str()))
+    }
+
+    /// Idle strategy of the receiver thread.
+    pub fn receiver_idle_strategy(self, strategy: IdleStrategy) -> Self {
+        self.apply(|w| w.setReceiverIdleStrategy(strategy.as_str()))
+    }
+
+    /// Default term buffer length for network publications.
+    pub fn term_buffer_length(self, value: usize) -> Self {
+        self.apply(|w| w.setTermBufferLength(value))
+    }
+
+    /// Default term buffer length for IPC publications.
+    pub fn ipc_term_buffer_length(self, value: usize) -> Self {
+        self.apply(|w| w.setIpcTermBufferLength(value))
+    }
+
+    /// Default MTU length for network publications.
+    pub fn mtu_length(self, value: usize) -> Self {
+        self.apply(|w| w.setMtuLength(value))
+    }
+
+    /// Default MTU length for IPC publications.
+    pub fn ipc_mtu_length(self, value: usize) -> Self {
+        self.apply(|w| w.setIpcMtuLength(value))
+    }
+
+    /// `SO_RCVBUF` for UDP sockets.
+    pub fn socket_so_rcvbuf(self, value: usize) -> Self {
+        self.apply(|w| w.setSocketSoRcvbuf(value))
+    }
+
+    /// `SO_SNDBUF` for UDP sockets.
+    pub fn socket_so_sndbuf(self, value: usize) -> Self {
+        self.apply(|w| w.setSocketSoSndbuf(value))
+    }
+
+    /// Print the driver configuration on start.
+    pub fn print_configuration(self, value: bool) -> Self {
+        self.apply(|w| w.setPrintConfiguration(value))
+    }
+
+    /// Pin the conductor thread to a CPU.
+    pub fn conductor_cpu_affinity(self, cpu_id: i32) -> Self {
+        self.apply(|w| w.setConductorCpuAffinity(cpu_id))
+    }
+
+    /// Pin the sender thread to a CPU.
+    pub fn sender_cpu_affinity(self, cpu_id: i32) -> Self {
+        self.apply(|w| w.setSenderCpuAffinity(cpu_id))
+    }
+
+    /// Pin the receiver thread to a CPU.
+    pub fn receiver_cpu_affinity(self, cpu_id: i32) -> Self {
+        self.apply(|w| w.setReceiverCpuAffinity(cpu_id))
     }
 }
 
@@ -994,8 +1064,7 @@ mod tests {
     #[test]
     fn test_aeron_creation_with_driver() {
         // 1. Start embedded driver
-        let mut driver = MediaDriver::new().expect("Failed to create MediaDriver");
-        driver.start().expect("Failed to start MediaDriver");
+        let _driver = MediaDriver::launch().expect("Failed to start MediaDriver");
 
         // Wait a tiny bit for the driver to spin up its files in /dev/shm
         std::thread::sleep(std::time::Duration::from_millis(100));
@@ -1174,12 +1243,23 @@ mod tests {
     }
 
     #[test]
+    fn driver_builder_reports_first_error() {
+        let err = MediaDriver::builder()
+            .threading_mode(ThreadingMode::Invoker)
+            .start()
+            .err()
+            .expect("invoker mode is rejected");
+        assert_eq!(err.kind(), ErrorKind::UnsupportedOperation);
+    }
+
+    #[test]
     fn thread_safety_markers() {
         fn send_sync<T: Send + Sync>() {}
         fn send<T: Send>() {}
         send_sync::<AeronClient>();
         send_sync::<Publication>();
         send_sync::<CountersReader>();
+        send_sync::<MediaDriver>();
         send::<ExclusivePublication>();
         send::<Subscription>();
     }
@@ -1188,10 +1268,12 @@ mod tests {
     fn context_dir_and_error_handler() {
         let dir = std::env::temp_dir().join(format!("aeron-glide-ctx-{}", std::process::id()));
         let dir = dir.to_str().unwrap().to_string();
-        let mut driver = MediaDriver::new().unwrap();
-        driver.set_dir(&dir).unwrap();
-        driver.set_dir_delete_on_start(true).unwrap();
-        driver.start().unwrap();
+        let driver = MediaDriver::builder()
+            .dir(&dir)
+            .dir_delete_on_start(true)
+            .start()
+            .unwrap();
+        assert_eq!(driver.dir(), dir);
 
         let errors = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let sink = errors.clone();
@@ -1230,9 +1312,11 @@ mod tests {
 
     #[test]
     fn driver_errors_are_classified() {
-        let mut driver = MediaDriver::new().unwrap();
-        driver.set_dir("/dev/null/aeron-glide").unwrap();
-        let err = driver.start().unwrap_err();
+        let err = MediaDriver::builder()
+            .dir("/dev/null/aeron-glide")
+            .start()
+            .err()
+            .expect("start fails");
         assert_ne!(err.kind(), ErrorKind::Other, "{err}");
         assert_ne!(err.code(), 0, "{err}");
         assert!(err.message().starts_with("Failed to init driver"), "{err}");

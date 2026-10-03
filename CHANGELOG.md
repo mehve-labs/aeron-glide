@@ -40,6 +40,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `AeronClient::add_publication`, `add_exclusive_publication` and
   `add_subscription`, and `Publication::offer` / `try_claim`, take `&self`.
   `AeronClient::start` takes `&self` too.
+- **Breaking:** the media driver is configured with `MediaDriver::builder()`
+  (chainable setters without the `set_` prefix; the first invalid setting is
+  reported by `start()`), or started with defaults via `MediaDriver::launch()`.
+  A started `MediaDriver` cannot be reconfigured or started again; previously
+  setters after `start()` raced with the driver's threads and a second
+  `start()` leaked the first driver. `MediaDriver::new` and its `Default` impl
+  are removed. `ThreadingMode::Invoker` is rejected by `start()` until the
+  driver duty cycle is exposed. `MediaDriver` is `Send + Sync` and has `dir()`.
 - **Breaking:** `ReplayMerge` is now `ReplayMerge<'a>` and keeps the
   `&mut Subscription` passed to `ReplayMerge::new` borrowed while it is alive.
 - **Breaking:** `Image` is now `Image<'a>`, borrowing its `Subscription` /

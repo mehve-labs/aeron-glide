@@ -70,62 +70,63 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Starting Aeron Media Driver...");
 
-    let mut driver = MediaDriver::new()?;
+    let mut builder = MediaDriver::builder();
 
     // Apply configuration
     if let Some(ref dir) = config.dir {
-        driver.set_dir(dir)?;
+        builder = builder.dir(dir);
     }
     if let Some(v) = config.dir_delete_on_start {
-        driver.set_dir_delete_on_start(v)?;
+        builder = builder.dir_delete_on_start(v);
     }
     if let Some(v) = config.dir_delete_on_shutdown {
-        driver.set_dir_delete_on_shutdown(v)?;
+        builder = builder.dir_delete_on_shutdown(v);
     }
     if let Some(ref mode) = config.threading_mode {
-        driver.set_threading_mode(parse_threading_mode(mode)?)?;
+        builder = builder.threading_mode(parse_threading_mode(mode)?);
     }
     if let Some(ref s) = config.conductor_idle_strategy {
-        driver.set_conductor_idle_strategy(parse_idle_strategy(s)?)?;
+        builder = builder.conductor_idle_strategy(parse_idle_strategy(s)?);
     }
     if let Some(ref s) = config.sender_idle_strategy {
-        driver.set_sender_idle_strategy(parse_idle_strategy(s)?)?;
+        builder = builder.sender_idle_strategy(parse_idle_strategy(s)?);
     }
     if let Some(ref s) = config.receiver_idle_strategy {
-        driver.set_receiver_idle_strategy(parse_idle_strategy(s)?)?;
+        builder = builder.receiver_idle_strategy(parse_idle_strategy(s)?);
     }
     if let Some(v) = config.term_buffer_length {
-        driver.set_term_buffer_length(v)?;
+        builder = builder.term_buffer_length(v);
     }
     if let Some(v) = config.ipc_term_buffer_length {
-        driver.set_ipc_term_buffer_length(v)?;
+        builder = builder.ipc_term_buffer_length(v);
     }
     if let Some(v) = config.mtu_length {
-        driver.set_mtu_length(v)?;
+        builder = builder.mtu_length(v);
     }
     if let Some(v) = config.ipc_mtu_length {
-        driver.set_ipc_mtu_length(v)?;
+        builder = builder.ipc_mtu_length(v);
     }
     if let Some(v) = config.socket_so_rcvbuf {
-        driver.set_socket_so_rcvbuf(v)?;
+        builder = builder.socket_so_rcvbuf(v);
     }
     if let Some(v) = config.socket_so_sndbuf {
-        driver.set_socket_so_sndbuf(v)?;
+        builder = builder.socket_so_sndbuf(v);
     }
     if let Some(v) = config.print_configuration {
-        driver.set_print_configuration(v)?;
+        builder = builder.print_configuration(v);
     }
     if let Some(v) = config.conductor_cpu_affinity {
-        driver.set_conductor_cpu_affinity(v)?;
+        builder = builder.conductor_cpu_affinity(v);
     }
     if let Some(v) = config.sender_cpu_affinity {
-        driver.set_sender_cpu_affinity(v)?;
+        builder = builder.sender_cpu_affinity(v);
     }
     if let Some(v) = config.receiver_cpu_affinity {
-        driver.set_receiver_cpu_affinity(v)?;
+        builder = builder.receiver_cpu_affinity(v);
     }
 
-    driver.start()?;
+    let driver = builder.start()?;
+    println!("Media Driver started in {}", driver.dir());
     println!("Media Driver started successfully.");
     println!("Press Ctrl+C to shut down...");
 
