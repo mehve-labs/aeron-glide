@@ -282,3 +282,153 @@ fn buffer_claim_flags_and_header_type() {
     claim.buffer_mut().copy_from_slice(b"flag");
     claim.commit();
 }
+
+/// A data frame as Aeron writes one (`aeron_data_header_t`, unfragmented),
+/// padded to the 32-byte frame alignment.
+fn data_frame(
+    term_offset: i32,
+    session_id: i32,
+    stream_id: i32,
+    term_id: i32,
+    payload: &[u8],
+) -> Vec<u8> {
+    let mut frame = Vec::new();
+    frame.extend_from_slice(&(32 + payload.len() as i32).to_le_bytes()); // frame length
+    frame.extend_from_slice(&[0, 0xC0]); // version, flags: begin and end
+    frame.extend_from_slice(&1i16.to_le_bytes()); // type: data
+    for value in [term_offset, session_id, stream_id, term_id] {
+        frame.extend_from_slice(&value.to_le_bytes());
+    }
+    frame.extend_from_slice(&0i64.to_le_bytes()); // reserved value
+    frame.extend_from_slice(payload);
+    frame.resize(frame.len().next_multiple_of(32), 0);
+    frame
+}
+
+/// Frames for `messages`, starting at `publication`'s current position.
+fn block_at_position(
+    publication: &aeron_glide::ExclusivePublication,
+    messages: &[&[u8]],
+) -> Vec<u8> {
+    let position = publication.position().unwrap();
+    let term_length = publication.term_buffer_length() as i64;
+    let term_id = publication.initial_term_id() + (position >> term_length.trailing_zeros()) as i32;
+    let mut term_offset = (position & (term_length - 1)) as i32;
+    let mut block = Vec::new();
+    for message in messages {
+        let frame = data_frame(
+            term_offset,
+            publication.session_id(),
+            publication.stream_id(),
+            term_id,
+            message,
+        );
+        term_offset += frame.len() as i32;
+        block.extend(frame);
+    }
+    block
+}
+
+fn rejected(result: Result<i64, aeron_glide::OfferError>) -> aeron_glide::ErrorKind {
+    match result {
+        Err(aeron_glide::OfferError::Error(e)) => e.kind(),
+        other => panic!("expected an error, got {other:?}"),
+    }
+}
+
+#[test]
+fn offer_block_publishes_preformatted_frames() {
+    use aeron_glide::ErrorKind;
+    let driver = TestDriver::start();
+    let client = driver.client();
+    let mut sub = client.add_subscription("aeron:ipc", 30).unwrap();
+    let mut publication = client.add_exclusive_publication("aeron:ipc", 30).unwrap();
+    wait_connected(&sub);
+
+    let block = block_at_position(&publication, &[b"one", b"two", b"three"]);
+    let before = publication.position().unwrap();
+    assert_eq!(
+        publication.offer_block(&block).unwrap(),
+        before + block.len() as i64
+    );
+    let mut received = Vec::new();
+    common::poll_n(&mut sub, 3, |data| received.push(data.to_vec()));
+    assert_eq!(
+        received,
+        [b"one".to_vec(), b"two".to_vec(), b"three".to_vec()]
+    );
+
+    // Malformed blocks are rejected before they reach the log.
+    let good = block_at_position(&publication, &[b"four", b"five"]);
+    let second = 64; // each frame above is 64 bytes
+    let mut corrupt = Vec::new();
+    corrupt.push(good[..16].to_vec()); // shorter than a header
+    corrupt.push(good[..good.len() - 8].to_vec()); // not frame aligned
+    let mut b = good.clone();
+    b[second..second + 4].copy_from_slice(&0i32.to_le_bytes()); // zero-length frame
+    corrupt.push(b);
+    let mut b = good.clone();
+    b[second..second + 4].copy_from_slice(&4096i32.to_le_bytes()); // runs past the block
+    corrupt.push(b);
+    let mut b = good.clone();
+    b[second + 12..second + 16].copy_from_slice(&12345i32.to_le_bytes()); // other session
+    corrupt.push(b);
+    let mut b = good.clone();
+    b[second + 8..second + 12].copy_from_slice(&0i32.to_le_bytes()); // wrong term offset
+    corrupt.push(b);
+    let mut b = good.clone();
+    b[second + 6..second + 8].copy_from_slice(&5i16.to_le_bytes()); // not data or padding
+    corrupt.push(b);
+    for block in corrupt {
+        assert_eq!(
+            rejected(publication.offer_block(&block)),
+            ErrorKind::IllegalArgument
+        );
+    }
+    // A well-formed block that doesn't start at the position: Aeron rejects it.
+    let mut stale = good.clone();
+    let shifted = 64i32.to_le_bytes();
+    for frame in [0, second] {
+        let offset = i32::from_le_bytes(stale[frame + 8..frame + 12].try_into().unwrap());
+        stale[frame + 8..frame + 12]
+            .copy_from_slice(&(offset + i32::from_le_bytes(shifted)).to_le_bytes());
+    }
+    assert!(matches!(
+        publication.offer_block(&stale),
+        Err(aeron_glide::OfferError::Error(_))
+    ));
+
+    // The stream is intact.
+    assert_eq!(publication.position().unwrap(), before + block.len() as i64);
+    publication.offer_block(&good).unwrap();
+    let mut received = Vec::new();
+    common::poll_n(&mut sub, 2, |data| received.push(data.to_vec()));
+    assert_eq!(received, [b"four".to_vec(), b"five".to_vec()]);
+}
+
+#[test]
+fn append_padding_advances_the_position_without_messages() {
+    let driver = TestDriver::start();
+    let client = driver.client();
+    let mut sub = client.add_subscription("aeron:ipc", 31).unwrap();
+    let mut publication = client.add_exclusive_publication("aeron:ipc", 31).unwrap();
+    wait_connected(&sub);
+
+    let first = loop {
+        if let Ok(position) = publication.offer(b"a") {
+            break position;
+        }
+    };
+    let padded = publication.append_padding(1000).unwrap();
+    assert!(padded >= first + 1000, "{first} -> {padded}");
+    publication.offer(b"b").unwrap();
+    let mut received = Vec::new();
+    common::poll_n(&mut sub, 2, |data| received.push(data.to_vec()));
+    assert_eq!(received, [b"a".to_vec(), b"b".to_vec()]);
+
+    let too_long = publication.max_message_length() + 1;
+    assert_eq!(
+        rejected(publication.append_padding(too_long)),
+        aeron_glide::ErrorKind::IllegalArgument
+    );
+}

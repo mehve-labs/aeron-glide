@@ -31,7 +31,8 @@ subscription.poll(10, |data, _header| {
 ## What it covers
 
 - **Client**: publications (concurrent and exclusive), `offer`, zero-copy
-  `try_claim`, vectored offers, subscriptions with fragment reassembly and
+  `try_claim`, vectored offers, block offers and padding (exclusive
+  publications), subscriptions with fragment reassembly and
   controlled polling, images, synchronous and asynchronous adds, destinations
   (MDC/MDS), response channels, and the client's lifecycle handlers.
 - **Channels**: `ChannelBuilder` builds and validates channel URIs (every C++

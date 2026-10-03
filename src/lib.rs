@@ -465,6 +465,15 @@ pub(crate) mod ffi {
             length: usize,
         ) -> i64;
         fn raiseOfferError(self: &ExclusivePublicationWrapper) -> Result<()>;
+        /// # Safety
+        ///
+        /// `data` must point to `length` readable bytes holding valid frames.
+        unsafe fn offerBlockRaw(
+            self: &ExclusivePublicationWrapper,
+            data: *const u8,
+            length: usize,
+        ) -> i64;
+        fn appendPaddingRaw(self: &ExclusivePublicationWrapper, length: usize) -> i64;
         fn offerParts(
             self: &ExclusivePublicationWrapper,
             parts: &[OfferPart],

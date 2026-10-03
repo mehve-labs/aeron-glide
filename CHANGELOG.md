@@ -291,6 +291,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Multi-destination support: `add_destination`, `remove_destination` and
   `find_destination_response` on `Publication`, `ExclusivePublication` and
   `Subscription`, plus `remove_destination_by_id` on publications.
+- `ExclusivePublication::offer_block` (publish pre-formatted frames in one
+  copy, e.g. forwarding blocks read with `block_poll`; every frame is checked,
+  unlike Aeron's C function, which checks only the first) and
+  `ExclusivePublication::append_padding` (C `offer_block` / `append_padding`,
+  Java `offerBlock` / `appendPadding`; not in the C++ wrapper).
 - `ExclusivePublication::revoke` (consumes the publication) and
   `revoke_on_close`: end the stream for subscribers without lingering.
 - Every scalar media driver setting is available on `MediaDriverBuilder`

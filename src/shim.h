@@ -286,6 +286,24 @@ public:
         AERON_MAP_ERRNO_TO_SOURCED_EXCEPTION_AND_THROW;
     }
 
+    // Exclusive publications only (C; the C++ wrapper has neither). Same result
+    // convention as offerRaw. The Rust side validates the block's frames first:
+    // Aeron only checks the first frame's header.
+    int64_t offerBlockRaw(const uint8_t *data, size_t length) const noexcept {
+        auto *publication = pub->publication();
+        if (publication == nullptr) {
+            return AERON_PUBLICATION_CLOSED;
+        }
+        return aeron_exclusive_publication_offer_block(publication, data, length);
+    }
+    int64_t appendPaddingRaw(size_t length) const noexcept {
+        auto *publication = pub->publication();
+        if (publication == nullptr) {
+            return AERON_PUBLICATION_CLOSED;
+        }
+        return aeron_exclusive_publication_append_padding(publication, length);
+    }
+
     // Offer `parts` as one message (vectored offer), optionally with a reserved
     // value supplier. Up to 16 parts are wrapped on the stack.
     int64_t offerParts(rust::Slice<const OfferPart> parts, ReservedValueFn supplier, size_t ctx, bool useSupplier) const;

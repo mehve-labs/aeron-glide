@@ -334,6 +334,47 @@ impl ExclusivePublication {
         error::offer_result(position)
     }
 
+    /// Publish a block of complete data frames, headers included, in one copy
+    /// (C `aeron_exclusive_publication_offer_block`; Java `offerBlock`). For
+    /// forwarding a stream already in Aeron's format, e.g. blocks read with
+    /// [`Subscription::block_poll`](crate::Subscription::block_poll) whose frame
+    /// headers are rewritten for this publication.
+    ///
+    /// The block must start at this publication's current position: its first
+    /// frame's term ID and term offset are those of
+    /// [`position`](Self::position) (term ID `initial_term_id + (position >>
+    /// log2(term_buffer_length))`, term offset `position & (term_buffer_length -
+    /// 1)`), and every frame carries this publication's session and stream IDs.
+    /// It must fit in the rest of the current term. Returns the new position.
+    ///
+    /// Fails with [`ErrorKind::IllegalArgument`](crate::ErrorKind::IllegalArgument)
+    /// (as [`OfferError::Error`]) unless the whole block is well formed: Aeron
+    /// itself only checks the first frame, and malformed frames in the log
+    /// would be read by every subscriber.
+    pub fn offer_block(&mut self, block: &[u8]) -> std::result::Result<i64, OfferError> {
+        validate_block(block, self.session_id(), self.stream_id()).map_err(OfferError::Error)?;
+        // SAFETY: `block` is a live slice of `block.len()` bytes of valid frames.
+        let position = unsafe { self.inner.offerBlockRaw(block.as_ptr(), block.len()) };
+        if position == AERON_PUBLICATION_ERROR {
+            self.inner.raiseOfferError()?;
+        }
+        error::offer_result(position)
+    }
+
+    /// Append a padding frame of `length` bytes (C
+    /// `aeron_exclusive_publication_append_padding`; Java `appendPadding`):
+    /// subscribers skip it, and the stream position advances past it, e.g. to
+    /// keep a copied stream's positions aligned with the original. `length` is
+    /// at most [`max_message_length`](Self::max_message_length). Returns the
+    /// new position.
+    pub fn append_padding(&mut self, length: usize) -> std::result::Result<i64, OfferError> {
+        let position = self.inner.appendPaddingRaw(length);
+        if position == AERON_PUBLICATION_ERROR {
+            self.inner.raiseOfferError()?;
+        }
+        error::offer_result(position)
+    }
+
     /// Publish `parts` as one message, without first copying them into one buffer
     /// (C++ vectored `offer`). Returns the new stream position on success.
     pub fn offer_vectored(&mut self, parts: &[&[u8]]) -> std::result::Result<i64, OfferError> {
@@ -426,6 +467,66 @@ pub struct BufferClaim<'a> {
 
 /// Length of the data frame header that precedes the claimed bytes.
 const DATA_HEADER_LENGTH: usize = 32;
+/// Frames are aligned to 32 bytes (`AERON_LOGBUFFER_FRAME_ALIGNMENT`).
+const FRAME_ALIGNMENT: usize = 32;
+/// `AERON_HDR_TYPE_PAD` and `AERON_HDR_TYPE_DATA`.
+const HDR_TYPE_PAD: i16 = 0;
+const HDR_TYPE_DATA: i16 = 1;
+
+/// Check that `block` is a sequence of well-formed frames for one term of one
+/// stream (`aeron_data_header_t`, little-endian): each frame's length is at
+/// least a header, the aligned frames exactly fill the block, the frames are
+/// data (the first) or padding, and their term offsets follow on from the
+/// first one's, with the same term, session and stream IDs throughout.
+fn validate_block(block: &[u8], session_id: i32, stream_id: i32) -> Result<()> {
+    let invalid = |reason: String| {
+        Err(Error::new(
+            ErrorKind::IllegalArgument,
+            format!("invalid block: {reason}"),
+        ))
+    };
+    let i32_at = |at: usize| i32::from_le_bytes(block[at..at + 4].try_into().unwrap());
+    if block.len() < DATA_HEADER_LENGTH || !block.len().is_multiple_of(FRAME_ALIGNMENT) {
+        return invalid(format!(
+            "length {} is not a positive multiple of {FRAME_ALIGNMENT}",
+            block.len()
+        ));
+    }
+    let (first_term_offset, term_id) = (i32_at(8), i32_at(20));
+    let mut offset = 0;
+    while offset < block.len() {
+        let frame_length = i32_at(offset);
+        let frame_type = i16::from_le_bytes([block[offset + 6], block[offset + 7]]);
+        let aligned = usize::try_from(frame_length)
+            .ok()
+            .filter(|&length| length >= DATA_HEADER_LENGTH)
+            .map(|length| length.next_multiple_of(FRAME_ALIGNMENT));
+        let Some(aligned) = aligned.filter(|&aligned| aligned <= block.len() - offset) else {
+            return invalid(format!("frame at {offset} has length {frame_length}"));
+        };
+        let expected_type = if offset == 0 {
+            frame_type == HDR_TYPE_DATA
+        } else {
+            matches!(frame_type, HDR_TYPE_DATA | HDR_TYPE_PAD)
+        };
+        if !expected_type {
+            return invalid(format!("frame at {offset} has type {frame_type}"));
+        }
+        let expected_term_offset = i64::from(first_term_offset) + offset as i64;
+        if i64::from(i32_at(offset + 8)) != expected_term_offset
+            || i32_at(offset + 12) != session_id
+            || i32_at(offset + 16) != stream_id
+            || i32_at(offset + 20) != term_id
+        {
+            return invalid(format!(
+                "frame at {offset} is not at term offset {expected_term_offset} of term {term_id} for session {session_id}, stream {stream_id}"
+            ));
+        }
+        offset += aligned;
+    }
+    Ok(())
+}
+
 /// C `AERON_PUBLICATION_ERROR`: the offer failed with an Aeron error (e.g. a
 /// message longer than the maximum message length).
 const AERON_PUBLICATION_ERROR: i64 = -6;
