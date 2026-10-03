@@ -850,6 +850,11 @@ private:
     std::shared_ptr<ConductorLock> lock_;
 };
 
+// Version and clocks (T3).
+inline rust::String aeronVersion() { return rust::String::lossy(aeron::Aeron::version()); }
+inline int64_t currentTimeMillis() { return aeron::currentTimeMillis(); }
+inline int64_t systemNanoClock() { return aeron::systemNanoClock(); }
+
 // Static aeron::Context utilities (P13).
 inline bool requestDriverTermination(rust::Str directory, rust::Slice<const uint8_t> token) {
     return aeron::Context::requestDriverTermination(detail::cString(directory), token.data(), token.size());

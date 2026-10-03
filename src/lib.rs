@@ -79,6 +79,7 @@ pub mod archive;
 mod callback;
 pub mod channel;
 mod client;
+pub mod concurrent;
 mod context;
 pub mod counter_types;
 mod counters;
@@ -108,6 +109,23 @@ pub use image::Image;
 pub use publication::{BufferClaim, ChannelStatus, ExclusivePublication, Publication};
 use std::marker::PhantomData;
 pub use subscription::{ControlledAction, PollAction, Subscription};
+
+/// The version and build of the Aeron C library this crate is built with (C++
+/// `Aeron::version()`), e.g. `"aeron version=1.53.3 commit=..."`.
+pub fn aeron_version() -> String {
+    ffi::aeronVersion()
+}
+
+/// Milliseconds since the epoch (C++ `aeron::currentTimeMillis`), the clock of
+/// Aeron's timestamps (e.g. the CnC heartbeat and error log).
+pub fn current_time_millis() -> i64 {
+    ffi::currentTimeMillis()
+}
+
+/// A monotonic clock in nanoseconds (C++ `aeron::systemNanoClock`).
+pub fn system_nano_clock() -> i64 {
+    ffi::systemNanoClock()
+}
 
 #[cxx::bridge(namespace = "aeron_rs")]
 pub(crate) mod ffi {
@@ -193,6 +211,9 @@ pub(crate) mod ffi {
         fn create_context() -> Result<UniquePtr<ContextWrapper>>;
         fn requestDriverTermination(directory: &str, token: &[u8]) -> Result<bool>;
         fn defaultAeronPath() -> Result<String>;
+        fn aeronVersion() -> String;
+        fn currentTimeMillis() -> i64;
+        fn systemNanoClock() -> i64;
         fn setAeronDir(self: Pin<&mut ContextWrapper>, dir: &str) -> Result<()>;
         fn setClientName(self: Pin<&mut ContextWrapper>, name: &str) -> Result<()>;
         fn setDriverTimeoutMs(self: Pin<&mut ContextWrapper>, value: i64) -> Result<()>;

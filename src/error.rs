@@ -63,9 +63,12 @@ pub enum ErrorKind {
     /// A callback re-entered the client in an unsupported way, e.g. a nested
     /// assembled poll on the same subscription.
     Reentrant,
-    /// The operation is not supported, e.g. `ThreadingMode::Invoker` for the
-    /// embedded media driver.
+    /// The operation is not supported, e.g. a writable counter handle on a
+    /// counters reader of a (read-only) CnC file.
     UnsupportedOperation,
+    /// An [`Agent`](crate::concurrent::Agent) asks to stop (C++
+    /// `AgentTerminationException`); see [`Error::agent_termination`].
+    AgentTermination,
     /// An Archive error, including archive connect and request timeouts.
     Archive,
     /// A general Aeron error without a more specific category, including
@@ -120,6 +123,12 @@ impl Error {
             code: 0,
             message: message.into(),
         }
+    }
+
+    /// The error an [`Agent`](crate::concurrent::Agent) returns to stop its
+    /// runner or invoker (kind [`ErrorKind::AgentTermination`]).
+    pub fn agent_termination() -> Self {
+        Self::new(ErrorKind::AgentTermination, "agent terminated")
     }
 
     /// The same error with an Aeron error code.

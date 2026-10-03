@@ -317,6 +317,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PersistentSubscriptionBuilder`, `ReplayMerge::with_progress_timeout`, and
   `ArchiveErrorCode` (`ArchiveErrorCode::of(&error)`), and
   `archive::REPLAY_ALL_AND_STOP`.
+- `concurrent` module (C++ `aeron::concurrent`): the `IdleStrategy` trait with
+  `BusySpinIdleStrategy`, `NoOpIdleStrategy`, `YieldingIdleStrategy`,
+  `SleepingIdleStrategy` and `BackoffIdleStrategy`; the `Agent` trait,
+  `AgentRunner` (a duty cycle on its own thread) and `AgentInvoker` (on
+  yours). An agent stops by returning `Error::agent_termination()`
+  (`ErrorKind::AgentTermination`). An agent invoker client
+  (`Arc<AeronClient>`) and an invoker media driver (`Arc<MediaDriver>`) are
+  agents.
+- `aeron_version()`, `current_time_millis()` and `system_nano_clock()` (C++
+  `Aeron::version`, `currentTimeMillis`, `systemNanoClock`).
 - Media driver invoker mode: `ThreadingMode::Invoker` starts a driver without
   threads, run with `MediaDriver::do_work` and `MediaDriver::idle` (C
   `aeron_driver_main_do_work` / `main_idle_strategy`). The `mediadriver`
