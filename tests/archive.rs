@@ -1038,3 +1038,56 @@ fn closed_clients_fail_instead_of_hanging() {
     }
     assert!(start.elapsed() < std::time::Duration::from_secs(2));
 }
+
+/// The archive client waits for the next session id while connecting without a
+/// deadline of its own; once the client's conductor stops (here the driver
+/// stops answering and times out), that wait used to spin forever.
+#[cfg(unix)]
+#[test]
+fn connect_fails_when_the_driver_stops_answering() {
+    let driver = archive_or_skip!();
+    let client = aeron_glide::AeronClient::connect(
+        Context::new()
+            .aeron_dir(&driver.aeron_dir)
+            .driver_timeout(std::time::Duration::from_secs(1))
+            .error_handler(|_| {}),
+    )
+    .unwrap();
+    let context = driver.context(&client);
+    driver.signal("-STOP");
+    let start = Instant::now();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let result = context.connect().map(drop);
+        tx.send(result).ok();
+        drop(client);
+    });
+    let result = rx.recv_timeout(std::time::Duration::from_secs(30));
+    driver.signal("-CONT");
+    let err = result.expect("connect hangs").expect_err("no driver");
+    assert_eq!(err.kind(), ErrorKind::DriverTimeout, "{err}");
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(30),
+        "{err}"
+    );
+}
+
+/// A listing consumer runs inside the archive client's response poll: other
+/// archive requests from it fail instead of polling the same responses again.
+#[test]
+fn requests_from_list_consumers_are_reentrant() {
+    let driver = archive_or_skip!();
+    let client = driver.client();
+    let archive = driver.connect(&client);
+    let (recording_id, _) = record(&archive, 1, 2);
+    let mut kinds = Vec::new();
+    archive
+        .list_recording(recording_id, |_| {
+            kinds.push(archive.poll_for_recording_signals().unwrap_err().kind());
+            kinds.push(archive.poll_for_error_response().unwrap_err().kind());
+            kinds.push(archive.check_for_error_response().unwrap_err().kind());
+        })
+        .unwrap();
+    assert_eq!(kinds, [ErrorKind::Reentrant; 3]);
+    archive.poll_for_recording_signals().unwrap();
+}

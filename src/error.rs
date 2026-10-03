@@ -289,6 +289,26 @@ impl fmt::Display for OfferError {
     }
 }
 
+/// For `?` in functions returning [`Result`]: an Aeron error is returned as is,
+/// the publication states as [`ErrorKind::IllegalState`] with the offer result
+/// (e.g. -2 for back pressure) as the [`code`](Error::code).
+impl From<OfferError> for Error {
+    fn from(e: OfferError) -> Self {
+        let code = match &e {
+            OfferError::Error(_) => 0,
+            OfferError::NotConnected => -1,
+            OfferError::BackPressured => -2,
+            OfferError::AdminAction => -3,
+            OfferError::Closed => -4,
+            OfferError::MaxPositionExceeded => -5,
+        };
+        match e {
+            OfferError::Error(e) => e,
+            other => Error::new(ErrorKind::IllegalState, other.to_string()).with_code(code),
+        }
+    }
+}
+
 impl std::error::Error for OfferError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
@@ -310,6 +330,14 @@ pub(crate) fn offer_result(position: i64) -> Result<i64, OfferError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn offer_errors_convert_to_errors() {
+        let e = Error::from(OfferError::BackPressured);
+        assert_eq!((e.kind(), e.code()), (ErrorKind::IllegalState, -2));
+        let inner = Error::new(ErrorKind::IllegalArgument, "too long");
+        assert_eq!(Error::from(OfferError::Error(inner.clone())), inner);
+    }
 
     #[test]
     fn decodes_shim_encoding() {

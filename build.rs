@@ -146,6 +146,21 @@ fn main() {
 
     builder.compile("aeron_rs_cxx");
 
+    if archive_enabled {
+        // Plain C helpers reaching into the client conductor (see the file),
+        // linked after the shim that calls them.
+        println!("cargo:rerun-if-changed=src/conductor_helper.c");
+        let mut helper = cc::Build::new();
+        helper
+            .file("src/conductor_helper.c")
+            .include(&c_client_include_path)
+            .include(aeron_dir.join("aeron-archive/src/main/c/client"));
+        for flag in sanitizer.iter().flat_map(|flags| flags.split(' ')) {
+            helper.flag(flag);
+        }
+        helper.compile("aeron_glide_c_helpers");
+    }
+
     // After the shim library (emitted by `compile`), in dependency order: GNU ld
     // resolves static libraries left to right.
     if archive_enabled {

@@ -1,4 +1,4 @@
-use aeron_glide::{IdleStrategy, MediaDriver, ThreadingMode};
+use aeron_glide::{DriverIdleStrategy, MediaDriver, ThreadingMode};
 use serde::Deserialize;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -6,6 +6,7 @@ use std::thread;
 use std::time::Duration;
 
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Config {
     dir: Option<String>,
     dir_delete_on_start: Option<bool>,
@@ -42,13 +43,13 @@ fn parse_threading_mode(s: &str) -> Result<ThreadingMode, String> {
     }
 }
 
-fn parse_idle_strategy(s: &str) -> Result<IdleStrategy, String> {
+fn parse_idle_strategy(s: &str) -> Result<DriverIdleStrategy, String> {
     match s {
-        "backoff" => Ok(IdleStrategy::Backoff),
-        "spin" => Ok(IdleStrategy::Spin),
-        "yield" => Ok(IdleStrategy::Yield),
-        "sleeping" => Ok(IdleStrategy::Sleeping),
-        "noop" => Ok(IdleStrategy::Noop),
+        "backoff" => Ok(DriverIdleStrategy::Backoff),
+        "spin" => Ok(DriverIdleStrategy::Spin),
+        "yield" => Ok(DriverIdleStrategy::Yield),
+        "sleeping" => Ok(DriverIdleStrategy::Sleeping),
+        "noop" => Ok(DriverIdleStrategy::Noop),
         _ => Err(format!(
             "Unknown idle strategy: '{}'. Expected: backoff, spin, yield, sleeping, noop",
             s

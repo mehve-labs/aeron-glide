@@ -8,7 +8,8 @@ use std::marker::PhantomData;
 
 /// Default timeout for replay merge progress (C++
 /// `REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT_MS`).
-pub const REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT_MS: i64 = 5_000;
+pub const REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT: std::time::Duration =
+    std::time::Duration::from_secs(5);
 
 /// Merges a replay of a recording with the live stream it records (C++
 /// `ReplayMerge`): a late joiner catches up from the archive, then switches to
@@ -89,7 +90,7 @@ impl<'a> ReplayMerge<'a> {
             live_destination,
             recording_id,
             start_position,
-            std::time::Duration::from_millis(REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT_MS as u64),
+            REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT,
         )
     }
 

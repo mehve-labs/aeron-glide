@@ -122,7 +122,9 @@ let driver = MediaDriver::builder()
     .start()?; // reports the first invalid setting
 ```
 
-`MediaDriver::launch()` starts one with the defaults.
+`MediaDriver::launch()` starts one with the defaults. The idle strategy enum
+for the driver's threads is renamed `DriverIdleStrategy` (`IdleStrategy` is now
+the trait in `aeron_glide::concurrent`).
 
 ### Archive client
 

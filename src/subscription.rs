@@ -18,9 +18,16 @@ pub enum ControlledAction {
     Continue = 4,
 }
 
-/// Trait that allows `poll_assembled` to accept handlers returning either `()` or `ControlledAction`.
-/// Closures returning `()` map to `ControlledAction::Continue`.
-pub trait PollAction {
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for () {}
+    impl Sealed for super::ControlledAction {}
+}
+
+/// What an assembled poll handler returns: `()` (continue) or a
+/// [`ControlledAction`]. Implemented for those two types only.
+pub trait PollAction: sealed::Sealed {
+    /// The action this return value stands for (`()` is `Continue`).
     fn into_action(self) -> ControlledAction;
 }
 

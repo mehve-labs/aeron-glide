@@ -99,8 +99,8 @@ aeron-glide = "0.4"
   newer one from cmake.org or pip)
 - **A C++17 compiler**
 - **Java 17+**, only with the `archive` feature
-- On Linux, `libbsd` and `libuuid` headers (`libbsd-dev uuid-dev` on
-  Debian/Ubuntu)
+- On Linux, `libbsd` and `libuuid` headers are recommended (`libbsd-dev
+  uuid-dev` on Debian/Ubuntu): Aeron uses them when CMake finds them
 
 The build script downloads the Aeron source release from GitHub, checks its
 SHA-256 and compiles it on the first build. Environment variables:
@@ -197,7 +197,7 @@ cargo run --example ping -- --channel "aeron:udp?endpoint=localhost:20121"
 The archive **server** is Java only (Aeron's C and C++ APIs only include the
 client), so run the Java `ArchivingMediaDriver` next to your application.
 `--features archive` builds Aeron's `aeron-all` jar along with the client, and
-`scripts/start-archive.sh` starts the server from it:
+`scripts/start-archive.sh` in this repository starts the server from it:
 
 ```bash
 cargo build --features archive        # JAVA_HOME=/path/to/jdk17+ if needed

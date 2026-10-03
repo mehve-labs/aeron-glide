@@ -1,7 +1,9 @@
 #![cfg(feature = "driver")]
 mod common;
 
-use aeron_glide::{AeronClient, Context, ErrorKind, IdleStrategy, InferableBoolean, ThreadingMode};
+use aeron_glide::{
+    AeronClient, Context, DriverIdleStrategy, ErrorKind, InferableBoolean, ThreadingMode,
+};
 use common::{TestDriver, offer, wait_connected, wait_until};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -99,13 +101,13 @@ fn generated_driver_settings_round_trip() {
         builder
             .publication_linger_timeout_ns(1_000_000)
             .term_buffer_length(1 << 20)
-            .conductor_idle_strategy(IdleStrategy::Sleeping)
+            .conductor_idle_strategy(DriverIdleStrategy::Sleeping)
             .receiver_group_consideration(InferableBoolean::ForceTrue)
             .receiver_group_tag(Some(7))
             .sender_wildcard_port_range(20_000, 20_100)
             .untethered_linger_timeout_ns(u64::MAX)
             // Init args set after their strategy still apply (the strategy is reloaded).
-            .sender_idle_strategy(IdleStrategy::Sleeping)
+            .sender_idle_strategy(DriverIdleStrategy::Sleeping)
             .sender_idle_strategy_init_args("1us")
             // These C setters keep the pointer they are given (regression: dangling).
             .resolver_name("a-fairly-long-resolver-name-that-is-not-inlined")
@@ -122,8 +124,7 @@ fn generated_driver_settings_round_trip() {
         d.receiver_group_consideration(),
         InferableBoolean::ForceTrue
     );
-    assert!(d.receiver_group_tag_is_present());
-    assert_eq!(d.receiver_group_tag_value(), 7);
+    assert_eq!(d.receiver_group_tag(), Some(7));
     assert_eq!(d.sender_wildcard_port_range(), (20_000, 20_100));
     assert_eq!(d.untethered_linger_timeout_ns(), u64::MAX);
     assert_eq!(d.sender_idle_strategy(), "sleeping");

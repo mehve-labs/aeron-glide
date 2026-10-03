@@ -5,10 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - Unreleased
 
 ### Changed
 
+- **Breaking:** the media driver's idle strategy enum is `DriverIdleStrategy`
+  (was `IdleStrategy`, now the name of the `concurrent::IdleStrategy` trait),
+  `#[non_exhaustive]`. `ThreadingMode` is `#[non_exhaustive]` too.
+- **Breaking:** `archive::REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT` is a
+  `Duration` (was `REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT_MS`, milliseconds).
+- `PollAction` (what `poll_assembled` handlers return) is sealed.
+- The `mediadriver` binary rejects unknown keys in its YAML configuration.
+- `offer` calls Aeron's C offer directly, without the C++ wrapper's layers:
+  about 13% more messages per second in the IPC throughput benchmark.
 - **Breaking:** cargo features. `driver` (default) builds the embedded media
   driver; without it only the client is built and linked. The `mediadriver`
   binary needs the `bin` feature (`cargo install aeron-glide --features bin`),
@@ -108,6 +117,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- An archive connect hung forever when the media driver stopped answering
+  during it: Aeron's client stops timing out pending requests once it times out
+  the driver, and the archive client waits for one without a deadline. It now
+  fails with `DriverTimeout`.
+- `AeronArchive::poll_for_recording_signals` could leave the archive locked
+  (Aeron returns without unlocking when the response poller fails), blocking
+  every other thread's archive requests.
+- Two clients in agent invoker mode used from each other's handlers on one
+  thread deadlocked instead of failing with `Reentrant`.
+- `PendingAdd::poll` from inside a client handler (agent invoker mode) dropped
+  the add as failed; it now fails with `Reentrant` and stays pending. It also
+  fails once the client is closed, instead of returning `None` forever.
+- Archive requests from a listing consumer (`list_recordings`, ...) fail with
+  `Reentrant`, as documented, instead of polling the same responses again.
+- A corrupt CnC file could make `read_error_log` and `CountersReader::for_each`
+  read out of bounds: lengths in the file are checked.
 - Timeouts near `Duration::MAX` (client driver timeout, CnC mapping,
   ReplayMerge progress) overflowed Aeron's `now + timeout` deadlines: requests
   timed out at once, and the client conductor could then read a request from
@@ -213,6 +238,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `MIGRATION.md`: upgrading from 0.3, and moving from rusteron.
+- `From<OfferError> for Error`, so `?` works on offers in functions returning
+  `aeron_glide::Result`.
 - Publication accessors on `Publication` and `ExclusivePublication`: `channel`,
   `stream_id`, `session_id`, `initial_term_id`, `registration_id`,
   `original_registration_id`, `is_original` (concurrent only), `max_message_length`,
@@ -265,8 +292,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Every scalar media driver setting is available on `MediaDriverBuilder`
   (96 setters, e.g. `publication_linger_timeout_ns`, `sender_wildcard_port_range`,
   `receiver_group_tag`) with the matching getters on a started `MediaDriver`
-  (95, e.g. `dir()`), generated from Aeron's `aeronmd.h`. New enums
-  `ThreadNaming` and `InferableBoolean`. Settings that take function pointers or
+  (97, e.g. `dir()`, `receiver_group_tag() -> Option<i64>`), generated from
+  Aeron's `aeronmd.h`. New enums `ThreadNaming` and `InferableBoolean`
+  (`#[non_exhaustive]`, like `ThreadingMode`). Settings that take function pointers or
   driver-internal structs are not exposed yet. Strings passed to driver
   settings are owned by the builder (some C setters keep the pointer), and
   setting an idle strategy's `*_init_args` reloads that strategy, so their order

@@ -103,6 +103,9 @@ public:
     // none was set: the archive C client would otherwise create one with
     // Aeron's default handler, which exit()s).
     void conclude();
+    // Installs the delegating invoker (the user's, if any, see installInvoker).
+    void installInvoker();
+    std::function<void()> userInvoker;
 
     std::shared_ptr<arc::Context> ctx;
     std::shared_ptr<ConductorLock> lock;

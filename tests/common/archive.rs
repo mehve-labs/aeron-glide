@@ -193,6 +193,16 @@ impl ArchiveDriver {
         Some(driver)
     }
 
+    /// Freeze (`SIGSTOP`) or resume (`SIGCONT`) the Java process.
+    #[cfg(unix)]
+    pub fn signal(&self, signal: &str) {
+        let status = std::process::Command::new("kill")
+            .args([signal, &self.child.id().to_string()])
+            .status()
+            .unwrap();
+        assert!(status.success(), "kill {signal}");
+    }
+
     /// A client of the archive's media driver.
     pub fn client(&self) -> AeronClient {
         AeronClient::connect(Context::new().aeron_dir(&self.aeron_dir)).expect("connect client")

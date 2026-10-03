@@ -1,7 +1,7 @@
 #![cfg(feature = "driver")]
 mod common;
 
-use aeron_glide::{ErrorKind, IdleStrategy, MediaDriver, OfferError, ThreadingMode};
+use aeron_glide::{DriverIdleStrategy, ErrorKind, MediaDriver, OfferError, ThreadingMode};
 use common::{TestDriver, wait_connected};
 
 fn assert_illegal_argument(result: Result<i64, OfferError>) {
@@ -60,7 +60,7 @@ fn invalid_driver_setting_is_reported_by_start() {
 #[test]
 fn builder_keeps_the_first_setter_error() {
     let err = MediaDriver::builder()
-        .sender_idle_strategy(IdleStrategy::Sleeping)
+        .sender_idle_strategy(DriverIdleStrategy::Sleeping)
         .sender_idle_strategy_init_args("not-a-duration")
         .term_buffer_length(1 << 20)
         .threading_mode(ThreadingMode::Invoker)

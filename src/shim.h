@@ -4,6 +4,7 @@
 #include <exception>
 #include <atomic>
 #include <mutex>
+#include <thread>
 #include <memory>
 #include <string>
 #include <Aeron.h>
@@ -172,11 +173,13 @@ public:
 
     private:
         ConductorLock *lock_ = nullptr;
-        const ConductorLock *previous_ = nullptr;
     };
 
 private:
     std::mutex mutex_;
+    // The thread holding mutex_, so a thread holding several clients' locks
+    // (one client's handler using another client) still detects nesting.
+    std::atomic<std::thread::id> owner_{};
     const bool enabled_;
 };
 
@@ -243,6 +246,16 @@ inline int64_t channelStatus(aeron::ExclusivePublication &p) {
 }
 } // namespace detail
 
+namespace detail {
+// Aeron's C offer for each publication type (the C++ offer wraps these).
+inline int64_t cOffer(aeron_publication_t *p, const uint8_t *data, size_t length) {
+    return aeron_publication_offer(p, data, length, nullptr, nullptr);
+}
+inline int64_t cOffer(aeron_exclusive_publication_t *p, const uint8_t *data, size_t length) {
+    return aeron_exclusive_publication_offer(p, data, length, nullptr, nullptr);
+}
+} // namespace detail
+
 // One wrapper for both publication types. Members that exist on only one of them
 // (isOriginal, revoke, ...) are only instantiated for the type that uses them.
 // All members are const: a concurrent publication is used from several threads,
@@ -258,9 +271,19 @@ public:
         pub.reset();
     }
 
-    int64_t offer(rust::Slice<const uint8_t> buffer) const {
-        aeron::AtomicBuffer atomic_buffer(const_cast<uint8_t *>(buffer.data()), buffer.size());
-        return pub->offer(atomic_buffer);
+    // The hot path: C++ offer without its wrapping layers (an AtomicBuffer, the
+    // exception, cxx's Result). On AERON_PUBLICATION_ERROR, call raiseOfferError
+    // right away, on the same thread, for the exception C++ offer would throw.
+    int64_t offerRaw(const uint8_t *data, size_t length) const noexcept {
+        auto *publication = pub->publication();
+        if (publication == nullptr) {
+            return AERON_PUBLICATION_CLOSED;
+        }
+        return detail::cOffer(publication, data, length);
+    }
+    void raiseOfferError() const {
+        using namespace aeron::util;
+        AERON_MAP_ERRNO_TO_SOURCED_EXCEPTION_AND_THROW;
     }
 
     // Offer `parts` as one message (vectored offer), optionally with a reserved

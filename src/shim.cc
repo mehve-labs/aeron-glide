@@ -324,13 +324,12 @@ aeron::ControlledPollAction dispatchControlled(
 
 } // namespace
 
-thread_local const ConductorLock *t_held_conductor_lock = nullptr;
-
 ConductorLock::Guard::Guard(const std::shared_ptr<ConductorLock> &lock, bool nested_ok) {
     if (!lock || !lock->enabled_) {
         return;
     }
-    if (t_held_conductor_lock == lock.get()) {
+    // Only this thread stores its own id, so this is exact for this thread.
+    if (lock->owner_.load(std::memory_order_relaxed) == std::this_thread::get_id()) {
         if (nested_ok) {
             return;
         }
@@ -338,14 +337,13 @@ ConductorLock::Guard::Guard(const std::shared_ptr<ConductorLock> &lock, bool nes
             "the client conductor is running on this thread (inside invoke)", SOURCEINFO, EPERM);
     }
     lock->mutex_.lock();
+    lock->owner_.store(std::this_thread::get_id(), std::memory_order_relaxed);
     lock_ = lock.get();
-    previous_ = t_held_conductor_lock;
-    t_held_conductor_lock = lock_;
 }
 
 ConductorLock::Guard::~Guard() {
     if (lock_ != nullptr) {
-        t_held_conductor_lock = previous_;
+        lock_->owner_.store(std::thread::id(), std::memory_order_relaxed);
         lock_->mutex_.unlock();
     }
 }
@@ -663,12 +661,27 @@ rust::String CountersReaderWrapper::getCounterLabel(int32_t id) const {
     return rust::String::lossy(reader_->getCounterLabel(id));
 }
 
+namespace {
+struct ForEachCounter {
+    CounterFn handler;
+    size_t ctx;
+};
+
+// Called from C: noexcept. The label length comes from the counters metadata
+// (e.g. a CnC file mapped without a driver): clamp it to the label field, which
+// the C++ forEach would turn into a std::string of any length.
+void forEachCounterCallback(int64_t, int32_t id, int32_t type_id, const uint8_t *key, size_t key_length,
+                            const char *label, size_t label_length, void *clientd) noexcept {
+    auto *state = static_cast<ForEachCounter *>(clientd);
+    label_length = std::min<size_t>(label_length, AERON_COUNTER_MAX_LABEL_LENGTH);
+    state->handler(state->ctx, id, type_id, rust::Slice<const uint8_t>(key, key_length),
+                   rust::Slice<const uint8_t>(reinterpret_cast<const uint8_t *>(label), label_length));
+}
+} // namespace
+
 void CountersReaderWrapper::forEach(CounterFn handler, size_t ctx) const {
-    reader_->forEach([&](int32_t counter_id, int32_t type_id, const aeron::concurrent::AtomicBuffer& keyBuffer, const std::string& label) {
-        rust::Slice<const uint8_t> key_slice(keyBuffer.buffer(), keyBuffer.capacity());
-        rust::Slice<const uint8_t> label_slice(reinterpret_cast<const uint8_t *>(label.data()), label.size());
-        handler(ctx, counter_id, type_id, key_slice, label_slice);
-    });
+    ForEachCounter state{handler, ctx};
+    aeron_counters_reader_foreach_counter(reader_->countersReader(), forEachCounterCallback, &state);
 }
 
 CncFileWrapper::CncFileWrapper(rust::Str directory, int64_t timeout_ms) {
@@ -709,32 +722,7 @@ std::unique_ptr<CountersReaderWrapper> CncFileWrapper::countersReader() const {
     return std::unique_ptr<CountersReaderWrapper>(new CountersReaderWrapper(std::move(reader), nullptr, false));
 }
 
-namespace {
-struct ErrorLogConsumer {
-    ErrorLogFn handler;
-    size_t ctx;
-    int32_t count;
-};
-
-// Called from C: noexcept, and builds nothing that could throw.
-void errorLogCallback(int32_t observations, int64_t first, int64_t last, const char *error, size_t length,
-                      void *clientd) noexcept {
-    auto *consumer = static_cast<ErrorLogConsumer *>(clientd);
-    // The driver publishes an entry before its first observation is recorded.
-    if (observations <= 0) {
-        return;
-    }
-    consumer->count++;
-    consumer->handler(consumer->ctx, observations, first, last,
-                      rust::Slice<const uint8_t>(reinterpret_cast<const uint8_t *>(error), length));
-}
-} // namespace
-
-int32_t CncFileWrapper::readErrorLog(ErrorLogFn handler, size_t ctx, int64_t since_timestamp) const {
-    ErrorLogConsumer consumer{handler, ctx, 0};
-    aeron_cnc_error_log_read(state_->cnc, errorLogCallback, &consumer, since_timestamp);
-    return consumer.count;
-}
+// The error log is read below with the loss report helpers (bounds-checked).
 
 // aeron_fileutil.h includes the C11 atomics header that does not compile as
 // C++ with GCC on ARM: declare the two functions used here (same layout).
@@ -812,6 +800,81 @@ int32_t CncFileWrapper::readLossReport(LossReportFn handler, size_t ctx) const {
                 rust::Slice<const uint8_t>(channel, static_cast<size_t>(channelLength)),
                 rust::Slice<const uint8_t>(source, static_cast<size_t>(sourceLength)));
         offset = alignUp(position, AERON_CACHE_LINE_LENGTH);
+    }
+    return count;
+}
+
+namespace {
+// aeron_error_log_entry_t (aeron_distinct_error_log.h, packed to 4 bytes).
+#pragma pack(push, 4)
+struct ErrorLogEntryHeader {
+    int32_t length;
+    int32_t observation_count;
+    int64_t last_observation_timestamp;
+    int64_t first_observation_timestamp;
+};
+#pragma pack(pop)
+static_assert(sizeof(ErrorLogEntryHeader) == 24, "aeron_error_log_entry_t layout");
+
+int32_t loadAcquire32(const int32_t *p) {
+#if defined(__GNUC__) || defined(__clang__)
+    return __atomic_load_n(p, __ATOMIC_ACQUIRE);
+#else
+    int32_t v = *static_cast<const volatile int32_t *>(p);
+    std::atomic_thread_fence(std::memory_order_acquire);
+    return v;
+#endif
+}
+} // namespace
+
+// aeron_cnc_error_log_read uses each entry's length from the file unchecked (a
+// corrupt file is read out of bounds); this walks the same buffer with checks.
+// The buffer's place in the file comes from the constants checked on open.
+int32_t CncFileWrapper::readErrorLog(ErrorLogFn handler, size_t ctx, int64_t since_timestamp) const {
+    aeron_cnc_constants_t c = {};
+    if (aeron_cnc_constants(state_->cnc, &c) < 0) {
+        using namespace aeron::util;
+        AERON_MAP_ERRNO_TO_SOURCED_EXCEPTION_AND_THROW;
+    }
+    const std::string path = aeron_cnc_filename(state_->cnc);
+    aeron_glide_mapped_file_t file = {nullptr, 0};
+    if (aeron_map_readonly_file(&file, path.c_str()) < 0) {
+        throw aeron::util::IOException("failed to map " + path + ": " + aeron_errmsg(), SOURCEINFO, aeron_errcode());
+    }
+    std::unique_ptr<aeron_glide_mapped_file_t, int (*)(aeron_glide_mapped_file_t *)> mapping(&file, aeron_unmap);
+    // AERON_CNC_VERSION_AND_META_DATA_LENGTH, then the buffers in file order.
+    const size_t start = static_cast<size_t>(AERON_CACHE_LINE_LENGTH * 2) +
+                         static_cast<size_t>(c.to_driver_buffer_length) +
+                         static_cast<size_t>(c.to_clients_buffer_length) +
+                         static_cast<size_t>(c.counter_metadata_buffer_length) +
+                         static_cast<size_t>(c.counter_values_buffer_length);
+    const size_t capacity = static_cast<size_t>(c.error_log_buffer_length);
+    if (start > file.length || file.length - start < capacity) {
+        throw aeron::util::IOException("invalid cnc file: " + path, SOURCEINFO, EINVAL);
+    }
+    const uint8_t *buffer = static_cast<const uint8_t *>(file.addr) + start;
+    int32_t count = 0;
+    size_t offset = 0;
+    while (offset < capacity && capacity - offset >= sizeof(ErrorLogEntryHeader)) {
+        const auto *entry = reinterpret_cast<const ErrorLogEntryHeader *>(buffer + offset);
+        const int32_t length = loadAcquire32(&entry->length);
+        if (length == 0) {
+            break;
+        }
+        if (length < static_cast<int32_t>(sizeof(ErrorLogEntryHeader)) ||
+            static_cast<size_t>(length) > capacity - offset) {
+            break; // corrupt
+        }
+        const int64_t last = detail::loadAcquire(&entry->last_observation_timestamp);
+        const int32_t observations = loadAcquire32(&entry->observation_count);
+        // The driver publishes an entry before its first observation is recorded.
+        if (last >= since_timestamp && observations > 0) {
+            count++;
+            handler(ctx, observations, entry->first_observation_timestamp, last,
+                    rust::Slice<const uint8_t>(buffer + offset + sizeof(ErrorLogEntryHeader),
+                                               static_cast<size_t>(length) - sizeof(ErrorLogEntryHeader)));
+        }
+        offset += alignUp(static_cast<size_t>(length), sizeof(int64_t));
     }
     return count;
 }

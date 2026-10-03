@@ -151,3 +151,100 @@ fn reentrant_calls_inside_invoke_are_rejected() {
         ]
     );
 }
+
+/// A thread holding two clients' conductor locks (client A's handler invokes
+/// client B, whose handler uses A) must still detect that it holds A's lock:
+/// it used to only remember the innermost lock and deadlock on A's.
+#[test]
+fn nested_handlers_across_two_invoker_clients() {
+    use std::sync::{Mutex, OnceLock, mpsc};
+    use std::time::Duration;
+    static A: OnceLock<Arc<aeron_glide::AeronClient>> = OnceLock::new();
+    static B: OnceLock<Arc<aeron_glide::AeronClient>> = OnceLock::new();
+    static NESTED: Mutex<Option<ErrorKind>> = Mutex::new(None);
+
+    let driver = TestDriver::start();
+    let a = driver.connect(
+        Context::new()
+            .use_conductor_agent_invoker(true)
+            .on_new_publication(|_| {
+                // A's lock is held: run B's conductor from here.
+                for _ in 0..50 {
+                    B.get().unwrap().invoke().ok();
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+            }),
+    );
+    let b = driver.connect(
+        Context::new()
+            .use_conductor_agent_invoker(true)
+            .on_new_publication(|_| {
+                // Both locks are held by this thread: using A must fail, not hang.
+                let result = A
+                    .get()
+                    .unwrap()
+                    .add_publication_async("aeron:ipc", 99)
+                    .map(drop);
+                *NESTED.lock().unwrap() =
+                    Some(result.map_or_else(|e| e.kind(), |_| ErrorKind::Other));
+            }),
+    );
+    A.set(Arc::new(a)).ok();
+    B.set(Arc::new(b)).ok();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let (a, b) = (A.get().unwrap(), B.get().unwrap());
+        let pending_b = b.add_publication_async("aeron:ipc", 2).unwrap();
+        let pending_a = a.add_publication_async("aeron:ipc", 1).unwrap();
+        for _ in 0..500 {
+            a.invoke().unwrap();
+            if NESTED.lock().unwrap().is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        drop((pending_a, pending_b));
+        tx.send(()).ok();
+    });
+    rx.recv_timeout(Duration::from_secs(30))
+        .expect("deadlocked");
+    assert_eq!(*NESTED.lock().unwrap(), Some(ErrorKind::Reentrant));
+}
+
+/// Polling a pending add from a handler inside `invoke` fails with `Reentrant`
+/// and leaves the add pending (it used to be dropped as failed).
+#[test]
+fn pending_add_polled_inside_invoke_stays_pending() {
+    use aeron_glide::{AeronClient, PendingAdd, Publication};
+    use std::sync::{Mutex, OnceLock};
+    static CLIENT: OnceLock<AeronClient> = OnceLock::new();
+    static PENDING: Mutex<Option<PendingAdd<'static, Publication>>> = Mutex::new(None);
+    static NESTED: Mutex<Option<ErrorKind>> = Mutex::new(None);
+
+    let driver = TestDriver::start();
+    let client = CLIENT.get_or_init(|| {
+        driver.connect(
+            Context::new()
+                .use_conductor_agent_invoker(true)
+                .on_new_subscription(|_| {
+                    if let Some(pending) = PENDING.lock().unwrap().as_mut() {
+                        let kind = pending
+                            .poll()
+                            .map_or_else(|e| e.kind(), |_| ErrorKind::Other);
+                        *NESTED.lock().unwrap() = Some(kind);
+                    }
+                }),
+        )
+    });
+    *PENDING.lock().unwrap() = Some(client.add_publication_async("aeron:ipc", 5).unwrap());
+    let _sub = client.add_subscription("aeron:ipc", 6).unwrap();
+    assert_eq!(*NESTED.lock().unwrap(), Some(ErrorKind::Reentrant));
+    let mut pending = PENDING.lock().unwrap().take().unwrap();
+    let publication = loop {
+        client.invoke().unwrap();
+        if let Some(publication) = pending.poll().unwrap() {
+            break publication;
+        }
+    };
+    assert_eq!(publication.stream_id(), 5);
+}

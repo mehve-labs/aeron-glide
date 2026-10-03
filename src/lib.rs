@@ -128,7 +128,7 @@ pub use counters::{
 };
 #[cfg(feature = "driver")]
 #[cfg_attr(docsrs, doc(cfg(feature = "driver")))]
-pub use driver::{IdleStrategy, MediaDriver, MediaDriverBuilder, ThreadingMode};
+pub use driver::{DriverIdleStrategy, MediaDriver, MediaDriverBuilder, ThreadingMode};
 #[cfg(feature = "driver")]
 #[cfg_attr(docsrs, doc(cfg(feature = "driver")))]
 pub use driver_gen::{InferableBoolean, ThreadNaming};
@@ -414,7 +414,11 @@ pub(crate) mod ffi {
         fn removeCloseClientHandler(self: &AeronWrapper, registration_id: i64) -> Result<()>;
         fn countersReader(self: &AeronWrapper) -> UniquePtr<CountersReaderWrapper>;
 
-        fn offer(self: &PublicationWrapper, buffer: &[u8]) -> Result<i64>;
+        /// # Safety
+        ///
+        /// `data` must point to `length` readable bytes.
+        unsafe fn offerRaw(self: &PublicationWrapper, data: *const u8, length: usize) -> i64;
+        fn raiseOfferError(self: &PublicationWrapper) -> Result<()>;
         fn offerParts(
             self: &PublicationWrapper,
             parts: &[OfferPart],
@@ -452,7 +456,15 @@ pub(crate) mod ffi {
         fn removeDestinationById(self: &PublicationWrapper, registration_id: i64) -> Result<i64>;
         fn findDestinationResponse(self: &PublicationWrapper, correlation_id: i64) -> Result<bool>;
         fn isOriginal(self: &PublicationWrapper) -> bool;
-        fn offer(self: &ExclusivePublicationWrapper, buffer: &[u8]) -> Result<i64>;
+        /// # Safety
+        ///
+        /// `data` must point to `length` readable bytes.
+        unsafe fn offerRaw(
+            self: &ExclusivePublicationWrapper,
+            data: *const u8,
+            length: usize,
+        ) -> i64;
+        fn raiseOfferError(self: &ExclusivePublicationWrapper) -> Result<()>;
         fn offerParts(
             self: &ExclusivePublicationWrapper,
             parts: &[OfferPart],

@@ -316,3 +316,35 @@ fn loss_report() {
         ]
     );
 }
+
+#[test]
+fn corrupt_error_log_and_labels_are_read_safely() {
+    let driver = TestDriver::start();
+    let dir = std::env::temp_dir().join(format!("aeron-glide-corrupt-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut file = std::fs::read(format!("{}/cnc.dat", driver.dir)).unwrap();
+    let c = CncFile::map_existing(&driver.dir)
+        .unwrap()
+        .constants()
+        .unwrap();
+    let metadata = 128 + c.to_driver_buffer_length + c.to_clients_buffer_length;
+    let error_log = metadata + c.counter_metadata_buffer_length + c.counter_values_buffer_length;
+    // First counter: label length -1 (it is allocated by the running driver).
+    file[metadata + 128..metadata + 132].copy_from_slice(&(-1i32).to_le_bytes());
+    // First error log entry: one observation, a length running past the buffer.
+    file[error_log..error_log + 4].copy_from_slice(&i32::MAX.to_le_bytes());
+    file[error_log + 4..error_log + 8].copy_from_slice(&1i32.to_le_bytes());
+    std::fs::write(dir.join("cnc.dat"), &file).unwrap();
+
+    let cnc = CncFile::map_existing_with_timeout(dir.to_str().unwrap(), Duration::ZERO).unwrap();
+    assert_eq!(
+        cnc.read_error_log(0, |_| panic!("corrupt entry")).unwrap(),
+        0
+    );
+    let mut labels = Vec::new();
+    cnc.counters_reader()
+        .for_each(|id, _, _, label| labels.push((id, label.len())))
+        .unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(labels[0], (0, 380), "clamped to the label field");
+}

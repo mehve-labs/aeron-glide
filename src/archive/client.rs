@@ -46,6 +46,9 @@ macro_rules! list {
         fn $handler<F: FnMut($out)>(ctx: usize, info: &$info) {
             // SAFETY: C++ only calls this with the ctx passed alongside it, during the call.
             let cb = unsafe { Callback::<F>::from_ctx(ctx) };
+            // Inside the archive's response poll: archive requests from the
+            // consumer would poll the same responses again.
+            let _scope = callback::ConductorCallbackScope::enter();
             cb.call((), |f| f(<$out>::from_ffi(info)));
         }
     };

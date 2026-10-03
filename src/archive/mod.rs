@@ -39,7 +39,7 @@ mod types;
 pub use client::{AeronArchive, AsyncConnect};
 pub use context::{Context, ContextInfo};
 pub use persistent::{PersistentSubscription, PersistentSubscriptionBuilder};
-pub use replay_merge::{REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT_MS, ReplayMerge};
+pub use replay_merge::{REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT, ReplayMerge};
 pub use types::{
     ArchiveErrorCode, NULL_LENGTH, NULL_POSITION, REPLAY_ALL_AND_STOP, RecordingDescriptor,
     RecordingSignal, RecordingSignalCode, RecordingSubscriptionDescriptor, ReplayParams,

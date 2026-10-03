@@ -39,7 +39,7 @@
 //! - `aeron_driver_context_get_unicast_flowcontrol_supplier -> aeron_flow_control_strategy_supplier_func_t`
 #![allow(clippy::too_many_arguments)]
 
-use crate::{IdleStrategy, MediaDriver, MediaDriverBuilder, ThreadingMode};
+use crate::{DriverIdleStrategy, MediaDriver, MediaDriverBuilder, ThreadingMode};
 
 #[cxx::bridge(namespace = "aeron_rs")]
 pub(crate) mod ffi {
@@ -531,6 +531,7 @@ pub(crate) mod ffi {
 
 /// How the media driver names its threads (`aeron_thread_naming_t`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ThreadNaming {
     /// `AERON_THREAD_NAMING_CLASSIC`.
     Classic = 0,
@@ -546,6 +547,7 @@ impl ThreadNaming {
 
 /// A boolean setting that can be forced or inferred (`aeron_inferable_boolean_t`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum InferableBoolean {
     /// `AERON_FORCE_FALSE`.
     ForceFalse = 0,
@@ -840,35 +842,35 @@ impl MediaDriverBuilder {
     /// Idle strategy to be employed by Sender for DEDICATED Threading Mode.
     ///
     /// C: `aeron_driver_context_set_sender_idle_strategy`, environment variable `AERON_SENDER_IDLE_STRATEGY`.
-    pub fn sender_idle_strategy(self, strategy: IdleStrategy) -> Self {
+    pub fn sender_idle_strategy(self, strategy: DriverIdleStrategy) -> Self {
         self.apply(|w| ffi::driver_set_sender_idle_strategy(w, strategy.as_str()))
     }
 
     /// Idle strategy to be employed by Conductor for DEDICATED or SHARED_NETWORK Threading Mode.
     ///
     /// C: `aeron_driver_context_set_conductor_idle_strategy`, environment variable `AERON_CONDUCTOR_IDLE_STRATEGY`.
-    pub fn conductor_idle_strategy(self, strategy: IdleStrategy) -> Self {
+    pub fn conductor_idle_strategy(self, strategy: DriverIdleStrategy) -> Self {
         self.apply(|w| ffi::driver_set_conductor_idle_strategy(w, strategy.as_str()))
     }
 
     /// Idle strategy to be employed by Receiver for DEDICATED Threading Mode.
     ///
     /// C: `aeron_driver_context_set_receiver_idle_strategy`, environment variable `AERON_RECEIVER_IDLE_STRATEGY`.
-    pub fn receiver_idle_strategy(self, strategy: IdleStrategy) -> Self {
+    pub fn receiver_idle_strategy(self, strategy: DriverIdleStrategy) -> Self {
         self.apply(|w| ffi::driver_set_receiver_idle_strategy(w, strategy.as_str()))
     }
 
     /// Idle strategy to be employed by Sender and Receiver for SHARED_NETWORK Threading Mode.
     ///
     /// C: `aeron_driver_context_set_sharednetwork_idle_strategy`, environment variable `AERON_SHAREDNETWORK_IDLE_STRATEGY`.
-    pub fn sharednetwork_idle_strategy(self, strategy: IdleStrategy) -> Self {
+    pub fn sharednetwork_idle_strategy(self, strategy: DriverIdleStrategy) -> Self {
         self.apply(|w| ffi::driver_set_sharednetwork_idle_strategy(w, strategy.as_str()))
     }
 
     /// Idle strategy to be employed by Conductor, Sender, and Receiver for SHARED Threading Mode.
     ///
     /// C: `aeron_driver_context_set_shared_idle_strategy`, environment variable `AERON_SHARED_IDLE_STRATEGY`.
-    pub fn shared_idle_strategy(self, strategy: IdleStrategy) -> Self {
+    pub fn shared_idle_strategy(self, strategy: DriverIdleStrategy) -> Self {
         self.apply(|w| ffi::driver_set_shared_idle_strategy(w, strategy.as_str()))
     }
 
@@ -920,7 +922,7 @@ impl MediaDriverBuilder {
     /// Idle strategy to be employed by AsyncExecutor when enabled.
     ///
     /// C: `aeron_driver_context_set_native_resource_agent_idle_strategy`, environment variable `AERON_DRIVER_NATIVE_RESOURCE_AGENT_IDLE_STRATEGY`.
-    pub fn native_resource_agent_idle_strategy(self, strategy: IdleStrategy) -> Self {
+    pub fn native_resource_agent_idle_strategy(self, strategy: DriverIdleStrategy) -> Self {
         self.apply(|w| ffi::driver_set_native_resource_agent_idle_strategy(w, strategy.as_str()))
     }
 
@@ -1679,16 +1681,6 @@ impl MediaDriver {
         InferableBoolean::from_c(ffi::driver_get_receiver_group_consideration(&self.inner))
     }
 
-    /// The driver's `receiver_group_tag_is_present` setting (`aeron_driver_context_get_receiver_group_tag_is_present`).
-    pub fn receiver_group_tag_is_present(&self) -> bool {
-        ffi::driver_get_receiver_group_tag_is_present(&self.inner)
-    }
-
-    /// The driver's `receiver_group_tag_value` setting (`aeron_driver_context_get_receiver_group_tag_value`).
-    pub fn receiver_group_tag_value(&self) -> i64 {
-        ffi::driver_get_receiver_group_tag_value(&self.inner)
-    }
-
     /// The driver's `receiver_idle_strategy` setting (`aeron_driver_context_get_receiver_idle_strategy`).
     pub fn receiver_idle_strategy(&self) -> String {
         ffi::driver_get_receiver_idle_strategy(&self.inner)
@@ -1719,8 +1711,8 @@ impl MediaDriver {
         ffi::driver_get_resolver_bootstrap_neighbor(&self.inner)
     }
 
-    /// The driver's `resolver_bootstrap_resolution_interval_ns` setting (`aeron_driver_context_get_resolver_bootstrap_resolution_interval_ns`).
-    pub fn resolver_bootstrap_resolution_interval_ns(&self) -> u64 {
+    /// The driver's `resolver_bootstrap_neighbor_resolution_interval_ns` setting (`aeron_driver_context_get_resolver_bootstrap_resolution_interval_ns`).
+    pub fn resolver_bootstrap_neighbor_resolution_interval_ns(&self) -> u64 {
         ffi::driver_get_resolver_bootstrap_resolution_interval_ns(&self.inner)
     }
 
@@ -1892,5 +1884,12 @@ impl MediaDriver {
     /// The driver's `untethered_window_limit_timeout_ns` setting (`aeron_driver_context_get_untethered_window_limit_timeout_ns`).
     pub fn untethered_window_limit_timeout_ns(&self) -> u64 {
         ffi::driver_get_untethered_window_limit_timeout_ns(&self.inner)
+    }
+
+    /// The driver's `receiver_group_tag` setting, `None` if unset
+    /// (`aeron_driver_context_get_receiver_group_tag_is_present` / `_value`).
+    pub fn receiver_group_tag(&self) -> Option<i64> {
+        ffi::driver_get_receiver_group_tag_is_present(&self.inner)
+            .then(|| ffi::driver_get_receiver_group_tag_value(&self.inner))
     }
 }

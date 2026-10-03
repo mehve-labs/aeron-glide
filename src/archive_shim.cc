@@ -2,6 +2,8 @@
 #include <iostream>
 #include "aeron-glide/src/archive/mod.rs.h"
 
+extern "C" int aeron_glide_archive_poll_for_recording_signals(int32_t *count_p, aeron_archive_t *aeron_archive);
+
 namespace aeron_rs {
 
 namespace {
@@ -164,7 +166,26 @@ void ArchiveContextWrapper::setIdleStrategy(IdleFn idle_fn, ReleaseFn release, s
 
 void ArchiveContextWrapper::setDelegatingInvoker(InvokerFn invoker, ReleaseFn release, size_t context) {
     auto owner = std::make_shared<RustOwned>(release, context);
-    ctx->delegatingInvoker([owner, invoker]() { noUnwind("delegating invoker", [&] { invoker(owner->ctx()); }); });
+    userInvoker = [owner, invoker]() { noUnwind("delegating invoker", [&] { invoker(owner->ctx()); }); };
+}
+
+extern "C" int aeron_glide_time_out_registrations(aeron_t *client);
+
+void ArchiveContextWrapper::installInvoker() {
+    // The archive client calls it while waiting, e.g. for the next session id
+    // when connecting, which it polls without a deadline: if the client's
+    // conductor has stopped (the driver timed out), fail that wait instead of
+    // spinning forever (see conductor_helper.c).
+    std::weak_ptr<aeron::Aeron> client = ctx->aeron();
+    auto user = userInvoker;
+    ctx->delegatingInvoker([client, user]() {
+        if (auto aeron = client.lock()) {
+            aeron_glide_time_out_registrations(aeron->aeron());
+        }
+        if (user) {
+            user();
+        }
+    });
 }
 
 void ArchiveContextWrapper::setErrorHandler(ErrorFn handler, ReleaseFn release, size_t context) {
@@ -209,6 +230,7 @@ void ArchiveContextWrapper::conclude() {
             idle = std::make_shared<InvokingIdleStrategy>(ctx->aeron(), idle);
             ctx->idleStrategy(*idle);
         }
+        installInvoker();
         return;
     }
     aeron::Context clientContext;
@@ -220,6 +242,7 @@ void ArchiveContextWrapper::conclude() {
         clientContext.aeronDir(dir);
     }
     ctx->aeron(aeron::Aeron::connect(clientContext));
+    installInvoker();
 }
 
 std::unique_ptr<ArchiveContextWrapper> create_archive_context() {
@@ -329,7 +352,14 @@ int64_t ArchiveWrapper::controlSessionId() const { return archive_->controlSessi
 int32_t ArchiveWrapper::pollForRecordingSignals() const {
     ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
-    return archive_->pollForRecordingSignals();
+    // Aeron's C function (behind the C++ one) can leave the archive locked on
+    // failure: use the fixed copy in conductor_helper.c.
+    int32_t count = 0;
+    if (aeron_glide_archive_poll_for_recording_signals(&count, (*archive_).*member(CArchiveTag())) < 0) {
+        using namespace aeron::util;
+        ARCHIVE_MAP_ERRNO_TO_SOURCED_EXCEPTION_AND_THROW;
+    }
+    return count;
 }
 
 // Through the C function with a local buffer: the C++ method reads its shared

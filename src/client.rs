@@ -357,8 +357,11 @@ impl AeronClient {
         if callback::in_conductor_callback() {
             return;
         }
-        let Ok(mut abandoned) = self.abandoned.try_lock() else {
-            return;
+        // Not held while finding: a find waits for the conductor lock, whose
+        // holder may be dropping a `PendingAdd` (which pushes here).
+        let mut abandoned = match self.abandoned.try_lock() {
+            Ok(mut abandoned) => std::mem::take(&mut *abandoned),
+            Err(_) => return,
         };
         abandoned.retain(|&(kind, id)| {
             // A found resource is closed when its wrapper is dropped here; a failed
@@ -371,8 +374,17 @@ impl AeronClient {
                 AddKind::Subscription => self.inner.findSubscription(id).map(|s| s.is_null()),
                 AddKind::Counter => self.inner.findCounter(id).map(|c| c.is_null()),
             };
-            matches!(pending, Ok(true))
+            // Still pending, or the conductor is busy on this thread: retry later.
+            match pending {
+                Ok(pending) => pending,
+                Err(e) => Error::from(e).kind() == ErrorKind::Reentrant,
+            }
         });
+        if !abandoned.is_empty()
+            && let Ok(mut current) = self.abandoned.lock()
+        {
+            current.append(&mut abandoned);
+        }
     }
 
     /// The ID the media driver assigned to this client.
@@ -520,20 +532,29 @@ macro_rules! pending_add {
     ($resource:ident, $find:ident) => {
         impl PendingAdd<'_, $resource> {
             #[doc = concat!("Returns the [`", stringify!($resource), "`] once the media driver has created it,")]
-            /// `None` while it is pending; fails if the driver rejected it or it
-            /// already completed.
+            /// `None` while it is pending; fails if the driver rejected it, it
+            /// already completed, or the client is closed. From inside a client
+            /// handler in agent invoker mode it fails with
+            /// [`ErrorKind::Reentrant`] and stays pending.
             pub fn poll(&mut self) -> Result<Option<$resource>> {
                 self.check_not_done()?;
                 let found = self.client.inner.$find(self.registration_id);
                 self.client.reap();
-                let inner = match found {
+                let inner = match found.map_err(Error::from) {
                     Ok(inner) => inner,
+                    // The conductor is running on this thread (inside a handler):
+                    // nothing happened, so the add is still pending.
+                    Err(e) if e.kind() == ErrorKind::Reentrant => return Err(e),
                     Err(e) => {
                         // C++ forgets a failed registration; polling again is an error.
                         self.done = true;
-                        return Err(e.into());
+                        return Err(e);
                     }
                 };
+                if inner.is_null() && self.client.is_closed() {
+                    // The driver will not answer a closed client.
+                    return Err(Error::new(ErrorKind::IllegalState, "the client is closed"));
+                }
                 if inner.is_null() {
                     return Ok(None);
                 }

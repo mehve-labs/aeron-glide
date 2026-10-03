@@ -33,6 +33,7 @@ pub(crate) mod ffi {
 /// Threading model for the embedded media driver.
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ThreadingMode {
     /// Separate threads for conductor, sender, and receiver.
     Dedicated = 0,
@@ -45,9 +46,13 @@ pub enum ThreadingMode {
     Invoker = 3,
 }
 
-/// Idle strategy for media driver threads.
+/// Idle strategy for the media driver's threads, by Aeron's name for it
+/// (`AERON_*_IDLE_STRATEGY`). Not to be confused with the
+/// [`concurrent::IdleStrategy`](crate::concurrent::IdleStrategy) trait for your
+/// own duty cycles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IdleStrategy {
+#[non_exhaustive]
+pub enum DriverIdleStrategy {
     /// Progressive back-off: spin → yield → park.
     Backoff,
     /// Busy spin (lowest latency, highest CPU).
@@ -71,14 +76,15 @@ impl ThreadingMode {
     }
 }
 
-impl IdleStrategy {
+impl DriverIdleStrategy {
+    /// Aeron's name for the strategy, as the driver settings take it.
     pub fn as_str(&self) -> &'static str {
         match self {
-            IdleStrategy::Backoff => "backoff",
-            IdleStrategy::Spin => "spin",
-            IdleStrategy::Yield => "yield",
-            IdleStrategy::Sleeping => "sleeping",
-            IdleStrategy::Noop => "noop",
+            DriverIdleStrategy::Backoff => "backoff",
+            DriverIdleStrategy::Spin => "spin",
+            DriverIdleStrategy::Yield => "yield",
+            DriverIdleStrategy::Sleeping => "sleeping",
+            DriverIdleStrategy::Noop => "noop",
         }
     }
 }

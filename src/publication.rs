@@ -221,7 +221,12 @@ impl Publication {
     /// On failure, [`OfferError::is_retryable`] tells whether retrying can succeed
     /// (not connected, back pressured, admin action).
     pub fn offer(&self, buffer: &[u8]) -> std::result::Result<i64, OfferError> {
-        error::offer_result(self.inner.offer(buffer)?)
+        // SAFETY: `buffer` is a live slice of `buffer.len()` bytes.
+        let position = unsafe { self.inner.offerRaw(buffer.as_ptr(), buffer.len()) };
+        if position == AERON_PUBLICATION_ERROR {
+            self.inner.raiseOfferError()?;
+        }
+        error::offer_result(position)
     }
 
     /// Publish `parts` as one message, without first copying them into one buffer
@@ -321,7 +326,12 @@ impl ExclusivePublication {
     /// On failure, [`OfferError::is_retryable`] tells whether retrying can succeed
     /// (not connected, back pressured, admin action).
     pub fn offer(&mut self, buffer: &[u8]) -> std::result::Result<i64, OfferError> {
-        error::offer_result(self.inner.offer(buffer)?)
+        // SAFETY: `buffer` is a live slice of `buffer.len()` bytes.
+        let position = unsafe { self.inner.offerRaw(buffer.as_ptr(), buffer.len()) };
+        if position == AERON_PUBLICATION_ERROR {
+            self.inner.raiseOfferError()?;
+        }
+        error::offer_result(position)
     }
 
     /// Publish `parts` as one message, without first copying them into one buffer
@@ -416,6 +426,9 @@ pub struct BufferClaim<'a> {
 
 /// Length of the data frame header that precedes the claimed bytes.
 const DATA_HEADER_LENGTH: usize = 32;
+/// C `AERON_PUBLICATION_ERROR`: the offer failed with an Aeron error (e.g. a
+/// message longer than the maximum message length).
+const AERON_PUBLICATION_ERROR: i64 = -6;
 
 impl BufferClaim<'_> {
     fn new(frame: ffi::ClaimFrame, position: i64) -> Self {
