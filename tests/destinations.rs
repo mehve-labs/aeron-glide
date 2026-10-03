@@ -69,6 +69,10 @@ fn multi_destination_subscription() {
     let mut received = Vec::new();
     poll_n(&mut sub, 1, |data| received.push(data.to_vec()));
     assert_eq!(received, [b"via the destination".to_vec()]);
+    wait_until("the transport count", || {
+        sub.image_by_index(0)
+            .is_some_and(|image| image.active_transport_count().unwrap() == 1)
+    });
 
     let removal = sub.remove_destination(&destination).unwrap();
     wait_until("the destination to be removed", || {

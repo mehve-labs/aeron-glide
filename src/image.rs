@@ -73,6 +73,133 @@ impl Image<'_> {
         self.inner.endOfStreamPosition()
     }
 
+    /// The initial term ID of the stream.
+    pub fn initial_term_id(&self) -> i32 {
+        self.inner.initialTermId()
+    }
+
+    /// The length of each term in the image's log buffer.
+    pub fn term_buffer_length(&self) -> usize {
+        self.inner.termBufferLength() as usize
+    }
+
+    /// The number of bits to shift a term ID by to get a stream position.
+    pub fn position_bits_to_shift(&self) -> i32 {
+        self.inner.positionBitsToShift()
+    }
+
+    /// The counter ID of this image's subscriber position, for reading it from a
+    /// [`CountersReader`](crate::CountersReader).
+    pub fn subscriber_position_id(&self) -> i32 {
+        self.inner.subscriberPositionId()
+    }
+
+    /// The registration ID of the subscription this image belongs to.
+    pub fn subscription_registration_id(&self) -> i64 {
+        self.inner.subscriptionRegistrationId()
+    }
+
+    /// Returns `true` if the publisher revoked the publication (see
+    /// [`ExclusivePublication::revoke`](crate::ExclusivePublication::revoke)).
+    pub fn is_publication_revoked(&self) -> bool {
+        self.inner.isPublicationRevoked()
+    }
+
+    /// The number of network transports (connections) that recently delivered
+    /// frames to this image, e.g. several for a multi-destination subscription.
+    /// 0 for IPC. The media driver updates it periodically, so it lags new
+    /// connections.
+    pub fn active_transport_count(&self) -> Result<i32> {
+        Ok(self.inner.activeTransportCount()?)
+    }
+
+    /// Ask the media driver to reject (disconnect) the remote publisher of this
+    /// image, with a reason reported to it.
+    pub fn reject(&self, reason: &str) -> Result<()> {
+        Ok(self.inner.reject(reason)?)
+    }
+
+    /// Poll for fragments without reassembly, with flow control: the handler
+    /// returns `()` (continue) or a [`ControlledAction`].
+    ///
+    /// # Panics
+    ///
+    /// If `handler` panics, the panic is resumed once Aeron returns from the poll;
+    /// the fragment being handled is aborted and delivered again by the next poll.
+    pub fn controlled_poll<R, F>(&mut self, limit: i32, handler: F) -> Result<i32>
+    where
+        R: PollAction,
+        F: FnMut(&[u8], &Header) -> R,
+    {
+        let mut cb = Callback::new(handler);
+        let result = self.inner.pin_mut().controlledPoll(
+            limit,
+            callback::controlled_fragment::<F, R>,
+            cb.ctx(),
+        );
+        Ok(cb.finish(result)?)
+    }
+
+    /// Like [`poll`](Self::poll), but stops at `limit_position` in the stream.
+    ///
+    /// # Panics
+    ///
+    /// As for [`poll`](Self::poll).
+    pub fn bounded_poll<F>(&mut self, limit_position: i64, limit: i32, handler: F) -> Result<i32>
+    where
+        F: FnMut(&[u8], &Header),
+    {
+        let mut cb = Callback::new(handler);
+        let result = self.inner.pin_mut().boundedPoll(
+            limit_position,
+            limit,
+            callback::fragment::<F>,
+            cb.ctx(),
+        );
+        Ok(cb.finish(result)?)
+    }
+
+    /// Like [`controlled_poll`](Self::controlled_poll), but stops at
+    /// `limit_position` in the stream.
+    ///
+    /// # Panics
+    ///
+    /// As for [`controlled_poll`](Self::controlled_poll).
+    pub fn bounded_controlled_poll<R, F>(
+        &mut self,
+        limit_position: i64,
+        limit: i32,
+        handler: F,
+    ) -> Result<i32>
+    where
+        R: PollAction,
+        F: FnMut(&[u8], &Header) -> R,
+    {
+        let mut cb = Callback::new(handler);
+        let result = self.inner.pin_mut().boundedControlledPoll(
+            limit_position,
+            limit,
+            callback::controlled_fragment::<F, R>,
+            cb.ctx(),
+        );
+        Ok(cb.finish(result)?)
+    }
+
+    /// Poll a block of whole frames (headers included) of up to
+    /// `block_length_limit` bytes, calling `handler(block, session_id, term_id)`.
+    /// Returns the number of bytes consumed.
+    pub fn block_poll<F>(&mut self, block_length_limit: i32, handler: F) -> Result<i32>
+    where
+        F: FnMut(&[u8], i32, i32),
+    {
+        let mut cb = Callback::new(handler);
+        let result =
+            self.inner
+                .pin_mut()
+                .blockPoll(block_length_limit, callback::block::<F>, cb.ctx());
+        Ok(cb.finish(result)?)
+    }
+
     /// Poll this specific image for fragments. Returns the number of fragments dispatched.
     ///
     /// # Panics

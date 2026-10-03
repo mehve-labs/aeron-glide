@@ -118,6 +118,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `local_socket_addresses`, `resolved_endpoint`,
   `try_resolve_channel_endpoint_port`, `controlled_poll` (flow-controlled,
   without reassembly), `block_poll`, `images` and `for_each_image`.
+- `Image` accessors and polling: `initial_term_id`, `term_buffer_length`,
+  `position_bits_to_shift`, `subscriber_position_id`,
+  `subscription_registration_id`, `is_publication_revoked`,
+  `active_transport_count`, `reject`, `controlled_poll` (without reassembly),
+  `bounded_poll`, `bounded_controlled_poll` and `block_poll`.
 - Multi-destination support: `add_destination`, `remove_destination` and
   `find_destination_response` on `Publication`, `ExclusivePublication` and
   `Subscription`, plus `remove_destination_by_id` on publications.

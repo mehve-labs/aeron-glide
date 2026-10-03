@@ -362,6 +362,20 @@ public:
     // Polling
     int poll(int fragment_limit, FragmentFn handler, size_t ctx);
     int controlledPollAssembled(int fragment_limit, ControlledFragmentFn handler, size_t ctx);
+    int controlledPoll(int fragment_limit, ControlledFragmentFn handler, size_t ctx);
+    int boundedPoll(int64_t limit_position, int fragment_limit, FragmentFn handler, size_t ctx);
+    int boundedControlledPoll(int64_t limit_position, int fragment_limit, ControlledFragmentFn handler, size_t ctx);
+    int blockPoll(int block_length_limit, BlockFn handler, size_t ctx);
+
+    // Accessors (P8)
+    int32_t initialTermId() const { return image_->initialTermId(); }
+    int32_t termBufferLength() const { return image_->termBufferLength(); }
+    int32_t positionBitsToShift() const { return image_->positionBitsToShift(); }
+    int32_t subscriberPositionId() const { return image_->subscriberPositionId(); }
+    int64_t subscriptionRegistrationId() const { return image_->subscriptionRegistrationId(); }
+    bool isPublicationRevoked() const { return image_->isPublicationRevoked(); }
+    int32_t activeTransportCount() const { return image_->activeTransportCount(); }
+    void reject(rust::Str reason) const { image_->reject(std::string(reason)); }
 
 private:
     std::shared_ptr<aeron::Subscription> subscription_;

@@ -348,6 +348,40 @@ pub(crate) mod ffi {
             handler: fn(usize, &[u8], &Header) -> i32,
             ctx: usize,
         ) -> Result<i32>;
+        fn controlledPoll(
+            self: Pin<&mut ImageWrapper>,
+            fragment_limit: i32,
+            handler: fn(usize, &[u8], &Header) -> i32,
+            ctx: usize,
+        ) -> Result<i32>;
+        fn boundedPoll(
+            self: Pin<&mut ImageWrapper>,
+            limit_position: i64,
+            fragment_limit: i32,
+            handler: fn(usize, &[u8], &Header),
+            ctx: usize,
+        ) -> Result<i32>;
+        fn boundedControlledPoll(
+            self: Pin<&mut ImageWrapper>,
+            limit_position: i64,
+            fragment_limit: i32,
+            handler: fn(usize, &[u8], &Header) -> i32,
+            ctx: usize,
+        ) -> Result<i32>;
+        fn blockPoll(
+            self: Pin<&mut ImageWrapper>,
+            block_length_limit: i32,
+            handler: fn(usize, &[u8], i32, i32),
+            ctx: usize,
+        ) -> Result<i32>;
+        fn initialTermId(self: &ImageWrapper) -> i32;
+        fn termBufferLength(self: &ImageWrapper) -> i32;
+        fn positionBitsToShift(self: &ImageWrapper) -> i32;
+        fn subscriberPositionId(self: &ImageWrapper) -> i32;
+        fn subscriptionRegistrationId(self: &ImageWrapper) -> i64;
+        fn isPublicationRevoked(self: &ImageWrapper) -> bool;
+        fn activeTransportCount(self: &ImageWrapper) -> Result<i32>;
+        fn reject(self: &ImageWrapper, reason: &str) -> Result<()>;
 
         fn maxCounterId(self: &CountersReaderWrapper) -> i32;
         fn getCounterValue(self: &CountersReaderWrapper, id: i32) -> Result<i64>;

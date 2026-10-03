@@ -359,6 +359,39 @@ int ImageWrapper::controlledPollAssembled(int fragment_limit, ControlledFragment
     return image_->controlledPoll(controlled_assembler_.handler(), fragment_limit);
 }
 
+int ImageWrapper::controlledPoll(int fragment_limit, ControlledFragmentFn handler, size_t ctx) {
+    auto fragment_handler = [&](const aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
+        rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
+        return static_cast<aeron::ControlledPollAction>(handler(ctx, slice, header));
+    };
+    return image_->controlledPoll(fragment_handler, fragment_limit);
+}
+
+int ImageWrapper::boundedPoll(int64_t limit_position, int fragment_limit, FragmentFn handler, size_t ctx) {
+    auto fragment_handler = [&](const aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
+        rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
+        handler(ctx, slice, header);
+    };
+    return image_->boundedPoll(fragment_handler, limit_position, fragment_limit);
+}
+
+int ImageWrapper::boundedControlledPoll(int64_t limit_position, int fragment_limit, ControlledFragmentFn handler, size_t ctx) {
+    auto fragment_handler = [&](const aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
+        rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
+        return static_cast<aeron::ControlledPollAction>(handler(ctx, slice, header));
+    };
+    return image_->boundedControlledPoll(fragment_handler, limit_position, fragment_limit);
+}
+
+int ImageWrapper::blockPoll(int block_length_limit, BlockFn handler, size_t ctx) {
+    auto block_handler = [&](aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length,
+                             int32_t session_id, int32_t term_id) {
+        rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
+        handler(ctx, slice, session_id, term_id);
+    };
+    return image_->blockPoll(block_handler, block_length_limit);
+}
+
 CountersReaderWrapper::CountersReaderWrapper(std::shared_ptr<aeron::Aeron> aeron) : aeron(aeron) {}
 
 CountersReaderWrapper::~CountersReaderWrapper() {}
