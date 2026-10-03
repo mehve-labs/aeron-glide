@@ -96,10 +96,6 @@ difference is in what the API guarantees.
   the driver's pluggable flow control, congestion control and interceptors,
   which aeron-glide does not expose yet. If you need a C function we don't
   wrap, rusteron probably has it (and please open an issue).
-- **Builds.** Optional precompiled static libraries on macOS, so no CMake;
-  aeron-glide always builds Aeron from source and needs a C++17 compiler and
-  CMake 3.30+.
-- **Maturity.** Years of production use; aeron-glide 0.4 is new.
 
 | | aeron-glide | rusteron |
 |---|---|---|
