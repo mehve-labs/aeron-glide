@@ -519,31 +519,34 @@ fn counter_dropped_from_a_handler_with_the_last_client_reference() {
 }
 
 #[test]
-fn compare_and_set_increments_are_not_lost() {
-    // A failed compare-and-set must report failure: on ARM the upstream C++
-    // could report success without writing, losing increments here.
+fn compare_and_set_never_reports_a_phantom_success() {
+    // On ARM the upstream C++ compareAndSet could report success without
+    // writing when the value changed away and back to `expected` (ABA): a
+    // flipper alternates 0 and 1 and counts the 100s it overwrites, which must
+    // match the successful compare-and-sets of 0 -> 100.
     let driver = TestDriver::start();
     let client = driver.client();
     let counter = Arc::new(client.add_counter(TYPE_ID, &[], "cas").unwrap());
-    let threads: Vec<_> = (0..4)
-        .map(|_| {
-            let counter = counter.clone();
-            std::thread::spawn(move || {
-                for _ in 0..20_000 {
-                    loop {
-                        let value = counter.get();
-                        if counter.compare_and_set(value, value + 1) {
-                            break;
-                        }
-                    }
-                }
-            })
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flipper = {
+        let (counter, stop) = (counter.clone(), stop.clone());
+        std::thread::spawn(move || {
+            let mut overwritten = 0u64;
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                overwritten += u64::from(counter.get_and_set(1) == 100);
+                overwritten += u64::from(counter.get_and_set(0) == 100);
+            }
+            overwritten
         })
-        .collect();
-    for thread in threads {
-        thread.join().unwrap();
+    };
+    let mut claimed = 0u64;
+    for _ in 0..200_000 {
+        claimed += u64::from(counter.compare_and_set(0, 100));
     }
-    assert_eq!(counter.get(), 80_000);
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    let mut overwritten = flipper.join().unwrap();
+    overwritten += u64::from(counter.get() == 100);
+    assert_eq!(claimed, overwritten);
 }
 
 #[test]

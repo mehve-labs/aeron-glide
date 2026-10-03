@@ -225,7 +225,9 @@ ArchiveAsyncConnectWrapper::ArchiveAsyncConnectWrapper(std::unique_ptr<ArchiveCo
     async_ = arc::AeronArchive::asyncConnect(*context_->ctx);
 }
 
-// Abandoning a pending connect closes its publication and subscription.
+// Upstream (1.53.3): AsyncConnect has no destructor and the C API has no way to
+// abandon a pending connect, so an abandoned connect leaks its C state (its
+// publication and subscription stay open until the client closes).
 ArchiveAsyncConnectWrapper::~ArchiveAsyncConnectWrapper() {
     ConductorLock::Guard guard(context_->lock, true);
     async_.reset();

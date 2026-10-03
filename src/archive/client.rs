@@ -512,7 +512,12 @@ impl AeronArchive {
 
 /// An archive connection in progress, from
 /// [`Context::connect_async`](super::Context::connect_async) (C++
-/// `AeronArchive::AsyncConnect`). Dropping it abandons the connection.
+/// `AeronArchive::AsyncConnect`). Dropping it abandons the connection; the
+/// archive client in Aeron 1.53.3 cannot release an abandoned connection, whose
+/// publication and subscription then stay open until the client closes.
+///
+/// After [`poll`](Self::poll) fails, the connection is over: polling again
+/// returns an error (upstream would use freed memory).
 pub struct AsyncConnect {
     inner: cxx::UniquePtr<ffi::ArchiveAsyncConnectWrapper>,
     done: bool,
@@ -553,6 +558,7 @@ impl AsyncConnect {
             .inner
             .pin_mut()
             .poll()
+            // A failed poll frees the C connection: never poll it again.
             .inspect_err(|_| self.done = true)?;
         if archive.is_null() {
             return Ok(None);

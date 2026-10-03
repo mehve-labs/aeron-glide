@@ -107,8 +107,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   events channel when unset crashed, replicating without credentials read
   uninitialised memory, a custom idle strategy was dropped after connecting,
   and some requests never ran an agent invoker client's conductor (hanging).
-- `Counter::compare_and_set` could report success without writing on ARM
-  (an upstream bug in Aeron's GCC atomics, worked around in the shim).
+- `Counter::compare_and_set` could report success without writing on ARM when
+  the value changed away and back to the expected one (an upstream bug in
+  Aeron's GCC atomics, worked around in the shim).
 - Synchronous adds on a closed client (e.g. after a driver timeout) waited for
   the whole driver timeout; they now fail at once with `IllegalState`.
 - The embedded driver's version labels (e.g. the "Aeron software" counter)
