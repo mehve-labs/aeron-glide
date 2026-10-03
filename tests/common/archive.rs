@@ -155,8 +155,12 @@ impl ArchiveDriver {
             );
             std::thread::sleep(Duration::from_millis(50));
         }
-        let client = driver.client();
+        let mut client = driver.client();
         loop {
+            if client.is_closed() {
+                // E.g. timed out while the JVM was busy starting.
+                client = driver.client();
+            }
             match driver
                 .context(&client)
                 .message_timeout(Duration::from_secs(1))
