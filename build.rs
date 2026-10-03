@@ -76,23 +76,6 @@ fn main() {
         base_lib_dir.join("lib/Release").display()
     );
 
-    println!("cargo:rustc-link-lib=static=aeron_static");
-    println!("cargo:rustc-link-lib=static=aeron_driver_static");
-
-    if archive_enabled {
-        println!("cargo:rustc-link-lib=static=aeron_archive_c_client_static");
-    }
-
-    // OS specific dependencies
-    if cfg!(target_os = "windows") {
-        println!("cargo:rustc-link-lib=shell32");
-        println!("cargo:rustc-link-lib=iphlpapi");
-    }
-    if cfg!(target_os = "linux") {
-        println!("cargo:rustc-link-lib=uuid");
-        println!("cargo:rustc-link-lib=bsd");
-    }
-
     let include_path = aeron_dir.join("aeron-client/src/main/cpp_wrapper");
     let c_client_include_path = aeron_dir.join("aeron-client/src/main/c");
     let driver_include_path = aeron_dir.join("aeron-driver/src/main/c");
@@ -136,6 +119,27 @@ fn main() {
     }
 
     builder.compile("aeron_rs_cxx");
+
+    // After the shim library (emitted by `compile`), in dependency order: GNU ld
+    // resolves static libraries left to right.
+    if archive_enabled {
+        println!("cargo:rustc-link-lib=static=aeron_archive_c_client_static");
+    }
+    println!("cargo:rustc-link-lib=static=aeron_driver_static");
+    println!("cargo:rustc-link-lib=static=aeron_static");
+
+    // OS-specific dependencies of the target (not the host running build.rs).
+    match env::var("CARGO_CFG_TARGET_OS").as_deref() {
+        Ok("windows") => {
+            println!("cargo:rustc-link-lib=shell32");
+            println!("cargo:rustc-link-lib=iphlpapi");
+        }
+        Ok("linux") => {
+            println!("cargo:rustc-link-lib=uuid");
+            println!("cargo:rustc-link-lib=bsd");
+        }
+        _ => {}
+    }
 }
 
 fn download_and_extract(url: &str, dest_dir: &PathBuf) {

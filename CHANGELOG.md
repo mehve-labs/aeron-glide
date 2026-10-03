@@ -100,6 +100,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Linux builds failed to link (static libraries were passed to the linker
+  before the shim that uses them) and, on ARM, to compile (a C11 atomics header
+  included from C++). `build.rs` now uses the target's OS, not the host's, for
+  its OS-specific libraries.
 - Strings with an interior NUL (channels, destinations, directories, client
   name, image rejection reasons, media driver and archive settings) were
   silently cut short at the NUL; they now fail with `IllegalArgument`.

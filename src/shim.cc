@@ -10,7 +10,7 @@
 
 extern "C" {
 #include <aeronmd.h>
-#include <aeron_cnc_file_descriptor.h>
+#include <util/aeron_bitutil.h>
 }
 
 namespace aeron_rs {
@@ -737,7 +737,9 @@ CncFileWrapper::CncFileWrapper(rust::Str directory, int64_t timeout_ms) {
     std::error_code ec;
     const auto fileLength = std::filesystem::file_size(aeron_cnc_filename(cnc), ec);
     bool valid = aeron_cnc_constants(cnc, &c) == 0 && !ec;
-    int64_t total = AERON_CNC_VERSION_AND_META_DATA_LENGTH;
+    // AERON_CNC_VERSION_AND_META_DATA_LENGTH (aeron_cnc_file_descriptor.h, whose
+    // atomics header does not compile as C++ with GCC on ARM).
+    int64_t total = AERON_CACHE_LINE_LENGTH * 2;
     for (int32_t length : {c.to_driver_buffer_length, c.to_clients_buffer_length, c.counter_metadata_buffer_length,
                            c.counter_values_buffer_length, c.error_log_buffer_length}) {
         valid = valid && length >= 0;

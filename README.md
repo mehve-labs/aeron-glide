@@ -27,7 +27,7 @@ aeron-glide = "0.3"
 
 ## Prerequisites
 
-- **CMake** (for building the Aeron C++ Driver from source)
+- **CMake 3.30+** (Aeron 1.53 requires it; older distributions such as Debian 12 ship 3.25 — install a newer one from cmake.org or pip)
 - **Rust 1.97+** (Cargo)
 - **C++14+ compiler**
 - **Java JDK 17+** (only required when building with `--features archive`)
