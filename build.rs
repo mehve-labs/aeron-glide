@@ -112,7 +112,10 @@ fn main() {
         .include(&c_client_include_path)
         .include(&driver_include_path)
         .include("src")
-        .flag_if_supported("-std=c++14")
+        // C++17 for guaranteed copy elision: aeron::CncFileReader is copyable but
+        // closes its mapping in its destructor, so it must never be copied.
+        .flag_if_supported("-std=c++17")
+        .flag_if_supported("/std:c++17")
         .flag_if_supported("-Wno-unused-parameter");
 
     if archive_enabled {

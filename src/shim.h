@@ -6,6 +6,8 @@
 #include <memory>
 #include <string>
 #include <Aeron.h>
+#include <CncFileReader.h>
+#include <HeartbeatTimestamp.h>
 #include <ControlledFragmentAssembler.h>
 #include "rust/cxx.h"
 
@@ -123,6 +125,8 @@ void claimSetHeaderType(ClaimFrame frame, uint16_t type);
 int64_t claimReservedValue(ClaimFrame frame);
 void claimSetReservedValue(ClaimFrame frame, int64_t value);
 using CounterFn = rust::Fn<void(size_t, int32_t, int32_t, rust::Slice<const uint8_t>, rust::Slice<const uint8_t>)>;
+// (ctx, observation count, first observation timestamp, last observation timestamp, encoded exception)
+using ErrorLogFn = rust::Fn<void(size_t, int32_t, int64_t, int64_t, rust::Slice<const uint8_t>)>;
 // Long-lived handlers, run on the client conductor thread. Each takes the opaque
 // Rust context first; the release function frees it (see RustOwned).
 using ErrorFn = rust::Fn<void(size_t, rust::Slice<const uint8_t>)>;
@@ -582,7 +586,9 @@ private:
 class CountersReaderWrapper {
 public:
     // `reader` shares ownership of what it reads (the client or the CnC file).
-    CountersReaderWrapper(std::shared_ptr<aeron::CountersReader> reader, std::shared_ptr<ConductorLock> lock);
+    // A read-only reader (the CnC file is mapped read-only) refuses counter().
+    CountersReaderWrapper(std::shared_ptr<aeron::CountersReader> reader, std::shared_ptr<ConductorLock> lock,
+                          bool writable = true);
     ~CountersReaderWrapper();
 
     int32_t maxCounterId() const;
@@ -605,12 +611,45 @@ public:
     // A view of a counter (see CounterWrapper). Throws for an out-of-range id.
     std::unique_ptr<CounterWrapper> counter(int64_t registration_id, int32_t counter_id) const;
 
+    // HeartbeatTimestamp (C3). isActive is false for an out-of-range id, which
+    // the C++ function does not check.
+    int32_t findHeartbeatCounterId(int32_t type_id, int64_t registration_id) const {
+        return aeron::HeartbeatTimestamp::findCounterIdByRegistrationId(*reader_, type_id, registration_id);
+    }
+    bool isHeartbeatActive(int32_t counter_id, int32_t type_id, int64_t registration_id) const {
+        return counter_id >= 0 && counter_id <= reader_->maxCounterId() &&
+               aeron::HeartbeatTimestamp::isActive(*reader_, counter_id, type_id, registration_id);
+    }
+
 private:
     void validateCounterId(int32_t id) const;
 
     std::shared_ptr<aeron::CountersReader> reader_;
     std::shared_ptr<ConductorLock> lock_;
+    bool writable_;
 };
+
+// The CnC file of a media driver, mapped read-only without a client (C3,
+// aeron::CncFileReader).
+class CncFileWrapper {
+public:
+    // Waits up to 10 seconds for the file (CncFileReader::mapExisting).
+    explicit CncFileWrapper(rust::Str directory);
+
+    std::unique_ptr<CountersReaderWrapper> countersReader() const;
+    int32_t readErrorLog(ErrorLogFn handler, size_t ctx, int64_t since_timestamp) const;
+
+private:
+    struct State {
+        explicit State(std::unique_ptr<aeron::CncFileReader> mapped)
+            : file(std::move(mapped)), reader(file->countersReader()) {}
+        std::unique_ptr<aeron::CncFileReader> file;
+        aeron::CountersReader reader; // points into `file`'s mapping
+    };
+    std::shared_ptr<State> state_;
+};
+
+std::unique_ptr<CncFileWrapper> mapCncFile(rust::Str directory);
 
 class AeronWrapper {
 public:

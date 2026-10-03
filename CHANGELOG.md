@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The C++ shim is compiled as C++17 (was C++14): building needs a C++17
+  compiler (GCC 7+, Clang 5+, MSVC 2017+).
 - **Breaking:** `AeronClient::start` is removed. It did nothing: the client
   starts when it connects.
 - **Breaking:** the cxx bridge module `aeron_glide::ffi` is private. It exposed
@@ -212,6 +214,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `find_by_type_id_and_registration_id` (returning `Option<i32>`),
   `get_counter_registration_id`, `get_counter_owner_id`,
   `get_free_for_reuse_deadline` and `get_counter_key`.
+- `CncFile`: map a running driver's CnC file without a client
+  (`CncFile::map_existing`), read its counters (`counters_reader`, read-only)
+  and its distinct-error log (`read_error_log`).
+- `heartbeat_timestamp` (C++ `HeartbeatTimestamp`): `CLIENT_HEARTBEAT_TYPE_ID`,
+  `find_counter_id_by_registration_id` and `is_active`, to check whether a
+  client is alive.
 - `CountersReader` constants: `RECORD_UNUSED`, `RECORD_ALLOCATED`,
   `RECORD_RECLAIMED`, `DEFAULT_REGISTRATION_ID`, `NOT_FREE_TO_REUSE`,
   `MAX_LABEL_LENGTH`, `MAX_KEY_LENGTH`.

@@ -93,7 +93,7 @@ use callback::Callback;
 pub use channel::ChannelBuilder;
 pub use client::{AeronClient, PendingAdd};
 pub use context::Context;
-pub use counters::{Counter, CountersReader};
+pub use counters::{CncFile, Counter, CountersReader, heartbeat_timestamp};
 pub use driver::{IdleStrategy, MediaDriver, MediaDriverBuilder, ThreadingMode};
 pub use driver_gen::{InferableBoolean, ThreadNaming};
 pub use error::{Error, ErrorKind, OfferError, Result};
@@ -171,6 +171,7 @@ pub(crate) mod ffi {
         type MediaDriverWrapper;
         type CountersReaderWrapper;
         type CounterWrapper;
+        type CncFileWrapper;
 
         fn create_context() -> Result<UniquePtr<ContextWrapper>>;
         fn requestDriverTermination(directory: &str, token: &[u8]) -> Result<bool>;
@@ -542,6 +543,27 @@ pub(crate) mod ffi {
         fn getCounterOwnerId(self: &CountersReaderWrapper, id: i32) -> Result<i64>;
         fn getFreeForReuseDeadline(self: &CountersReaderWrapper, id: i32) -> Result<i64>;
         fn getCounterKey(self: &CountersReaderWrapper, id: i32) -> Result<Vec<u8>>;
+        fn findHeartbeatCounterId(
+            self: &CountersReaderWrapper,
+            type_id: i32,
+            registration_id: i64,
+        ) -> Result<i32>;
+        fn isHeartbeatActive(
+            self: &CountersReaderWrapper,
+            counter_id: i32,
+            type_id: i32,
+            registration_id: i64,
+        ) -> Result<bool>;
+
+        fn mapCncFile(directory: &str) -> Result<UniquePtr<CncFileWrapper>>;
+        fn countersReader(self: &CncFileWrapper) -> Result<UniquePtr<CountersReaderWrapper>>;
+        fn readErrorLog(
+            self: &CncFileWrapper,
+            handler: fn(usize, i32, i64, i64, &[u8]),
+            ctx: usize,
+            since_timestamp: i64,
+        ) -> Result<i32>;
+
         fn counter(
             self: &CountersReaderWrapper,
             registration_id: i64,
@@ -589,6 +611,7 @@ mod tests {
         send_sync::<Publication>();
         send_sync::<CountersReader>();
         send_sync::<Counter>();
+        send_sync::<CncFile>();
         send_sync::<MediaDriver>();
         send::<ExclusivePublication>();
         send::<Subscription>();

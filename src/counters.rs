@@ -1,4 +1,4 @@
-//! Counters ([`Counter`], [`CountersReader`]).
+//! Counters ([`Counter`], [`CountersReader`]) and the CnC file ([`CncFile`]).
 
 use super::*;
 
@@ -21,6 +21,14 @@ impl Drop for CountersReader {
 // reference count). All bridged methods are const.
 unsafe impl Send for CountersReader {}
 unsafe impl Sync for CountersReader {}
+
+impl std::fmt::Debug for CountersReader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CountersReader")
+            .field("max_counter_id", &self.max_counter_id())
+            .finish_non_exhaustive()
+    }
+}
 
 impl CountersReader {
     /// State of a counter record that was never allocated.
@@ -123,7 +131,9 @@ impl CountersReader {
     /// [`Counter::registration_id`]. The handle does not own the counter: dropping
     /// it does not free it, and [`Counter::is_closed`] is always `false`.
     ///
-    /// Fails if `counter_id` is out of range.
+    /// Fails if `counter_id` is out of range, and with
+    /// [`ErrorKind::UnsupportedOperation`] for a reader from a [`CncFile`], which
+    /// maps the counters read-only.
     pub fn counter(&self, registration_id: i64, counter_id: i32) -> Result<Counter> {
         Ok(Counter {
             inner: self.inner.counter(registration_id, counter_id)?,
@@ -267,5 +277,116 @@ impl Counter {
     /// was set.
     pub fn compare_and_set(&self, expected: i64, update: i64) -> bool {
         self.inner.compareAndSet(expected, update)
+    }
+}
+
+/// The command-and-control (CnC) file of a running media driver, read without
+/// connecting a client (C++ `aeron::CncFileReader`): the driver's counters and
+/// its error log, as used by tools like `AeronStat` and `ErrorStat`.
+///
+/// The file is mapped read-only. `Send + Sync`.
+///
+/// ```no_run
+/// use aeron_glide::CncFile;
+///
+/// let cnc = CncFile::map_existing("/dev/shm/aeron")?;
+/// cnc.counters_reader()?.for_each(|id, _, _, label| {
+///     println!("{id}: {label}");
+/// })?;
+/// cnc.read_error_log(0, |count, _first, last, error| {
+///     println!("{count} observations, last at {last} ms: {error}");
+/// })?;
+/// # Ok::<(), aeron_glide::Error>(())
+/// ```
+pub struct CncFile {
+    inner: cxx::UniquePtr<ffi::CncFileWrapper>,
+}
+
+// SAFETY: the wrapper only reads its read-only mapping (written by the media
+// driver concurrently anyway), and every bridged method is const. It is shared
+// with its counters readers through a `shared_ptr` (atomic reference count).
+unsafe impl Send for CncFile {}
+unsafe impl Sync for CncFile {}
+
+impl std::fmt::Debug for CncFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CncFile").finish_non_exhaustive()
+    }
+}
+
+impl CncFile {
+    /// Map the CnC file in `aeron_dir`, waiting up to 10 seconds for it to
+    /// exist and be initialised by a media driver (C++
+    /// `CncFileReader::mapExisting`). Fails with [`ErrorKind::Io`] if it does not.
+    pub fn map_existing(aeron_dir: &str) -> Result<Self> {
+        Ok(Self {
+            inner: ffi::mapCncFile(aeron_dir)?,
+        })
+    }
+
+    /// A reader for the driver's counters. It keeps the file mapped.
+    pub fn counters_reader(&self) -> Result<CountersReader> {
+        Ok(CountersReader {
+            inner: self.inner.countersReader()?,
+        })
+    }
+
+    /// Read the driver's distinct-error log: `consumer(observation_count,
+    /// first_observation_timestamp, last_observation_timestamp, error)` is called
+    /// for each distinct error last observed at or after `since_timestamp`
+    /// (milliseconds since the epoch; 0 for all). Returns the number of errors read.
+    ///
+    /// Invalid UTF-8 in an error is replaced with `U+FFFD`.
+    pub fn read_error_log<F>(&self, since_timestamp: i64, consumer: F) -> Result<usize>
+    where
+        F: FnMut(i32, i64, i64, &str),
+    {
+        let mut cb = Callback::new(consumer);
+        let result = self
+            .inner
+            .readErrorLog(callback::error_log::<F>, cb.ctx(), since_timestamp);
+        Ok(cb.finish(result)?.max(0) as usize)
+    }
+}
+
+/// Client liveness through heartbeat counters (C++ `aeron::HeartbeatTimestamp`).
+///
+/// Each client has a heartbeat counter of type [`CLIENT_HEARTBEAT_TYPE_ID`](heartbeat_timestamp::CLIENT_HEARTBEAT_TYPE_ID)
+/// whose key is its client ID ([`AeronClient::client_id`]). The driver allocates
+/// it when the client first adds a resource (a keepalive alone does not), and
+/// frees it when the client closes or times out.
+pub mod heartbeat_timestamp {
+    use super::*;
+
+    /// Counter type ID of a client heartbeat timestamp.
+    pub const CLIENT_HEARTBEAT_TYPE_ID: i32 = 11;
+
+    /// The ID of the allocated heartbeat counter of type `counter_type_id` whose
+    /// key holds `registration_id` (e.g. a client ID), if any.
+    pub fn find_counter_id_by_registration_id(
+        reader: &CountersReader,
+        counter_type_id: i32,
+        registration_id: i64,
+    ) -> Option<i32> {
+        reader
+            .inner
+            .findHeartbeatCounterId(counter_type_id, registration_id)
+            .ok()
+            .and_then(found)
+    }
+
+    /// Returns `true` if `counter_id` is still the allocated heartbeat counter of
+    /// type `counter_type_id` for `registration_id` (`false` for an out-of-range
+    /// ID).
+    pub fn is_active(
+        reader: &CountersReader,
+        counter_id: i32,
+        counter_type_id: i32,
+        registration_id: i64,
+    ) -> bool {
+        reader
+            .inner
+            .isHeartbeatActive(counter_id, counter_type_id, registration_id)
+            .unwrap_or(false)
     }
 }

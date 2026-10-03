@@ -162,6 +162,28 @@ pub(crate) fn reserved_value<F: FnMut(&[u8]) -> i64>(ctx: usize, frame: &[u8]) -
     cb.call(0, |f| f(frame))
 }
 
+/// Error log consumer: `(observation_count, first_observation_timestamp,
+/// last_observation_timestamp, encoded_exception)`.
+pub(crate) fn error_log<F: FnMut(i32, i64, i64, &str)>(
+    ctx: usize,
+    observation_count: i32,
+    first_observation_timestamp: i64,
+    last_observation_timestamp: i64,
+    error: &[u8],
+) {
+    // SAFETY: as in `fragment`.
+    let cb = unsafe { Callback::<F>::from_ctx(ctx) };
+    let error = String::from_utf8_lossy(error);
+    cb.call((), |f| {
+        f(
+            observation_count,
+            first_observation_timestamp,
+            last_observation_timestamp,
+            &error,
+        )
+    });
+}
+
 /// Counter metadata handler: `(counter_id, type_id, key, label)`.
 pub(crate) fn counter<F: FnMut(i32, i32, &[u8], &str)>(
     ctx: usize,
