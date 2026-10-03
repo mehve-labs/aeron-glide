@@ -240,6 +240,67 @@ impl AeronClient {
         Ok(PendingAdd::new(self, id, AddKind::Subscription))
     }
 
+    /// Allocate a counter in the media driver, waiting until it is ready (C++
+    /// `addCounter` / `findCounter`). `type_id` identifies the kind of counter for
+    /// tools (use your own, distinct from Aeron's);
+    /// `key` (at most [`CountersReader::MAX_KEY_LENGTH`] bytes) and `label` (at most
+    /// [`CountersReader::MAX_LABEL_LENGTH`] bytes) describe it; longer ones fail with
+    /// [`ErrorKind::IllegalArgument`], as in the Java client (the C++ client lets
+    /// the driver truncate them).
+    ///
+    /// The counter is freed when the returned [`Counter`] (and every handle on it)
+    /// is dropped, or when this client closes.
+    pub fn add_counter(&self, type_id: i32, key: &[u8], label: &str) -> Result<Counter> {
+        self.add_counter_async(type_id, key, label)?.wait()
+    }
+
+    /// Start allocating a counter without waiting: poll the returned
+    /// [`PendingAdd`] until the counter is ready.
+    pub fn add_counter_async(
+        &self,
+        type_id: i32,
+        key: &[u8],
+        label: &str,
+    ) -> Result<PendingAdd<'_, Counter>> {
+        check_counter_metadata(key, label)?;
+        self.reap();
+        let id = self.inner.addCounter(type_id, key, label)?;
+        Ok(PendingAdd::new(self, id, AddKind::Counter))
+    }
+
+    /// Allocate a static counter, or get the existing one with the same `type_id`
+    /// and `registration_id`, waiting until it is ready (C++ `addStaticCounter`).
+    ///
+    /// A static counter is never freed: it outlives this client and the
+    /// returned [`Counter`], so another client can find it again.
+    pub fn add_static_counter(
+        &self,
+        type_id: i32,
+        key: &[u8],
+        label: &str,
+        registration_id: i64,
+    ) -> Result<Counter> {
+        self.add_static_counter_async(type_id, key, label, registration_id)?
+            .wait()
+    }
+
+    /// Start allocating a static counter without waiting: poll the returned
+    /// [`PendingAdd`] until the counter is ready.
+    pub fn add_static_counter_async(
+        &self,
+        type_id: i32,
+        key: &[u8],
+        label: &str,
+        registration_id: i64,
+    ) -> Result<PendingAdd<'_, Counter>> {
+        check_counter_metadata(key, label)?;
+        self.reap();
+        let id = self
+            .inner
+            .addStaticCounter(type_id, key, label, registration_id)?;
+        Ok(PendingAdd::new(self, id, AddKind::Counter))
+    }
+
     /// Returns `true` if the client runs its conductor through [`invoke`](Self::invoke)
     /// (see [`Context::use_conductor_agent_invoker`]).
     pub fn uses_agent_invoker(&self) -> bool {
@@ -292,6 +353,7 @@ impl AeronClient {
                     self.inner.findExclusivePublication(id).map(|p| p.is_null())
                 }
                 AddKind::Subscription => self.inner.findSubscription(id).map(|s| s.is_null()),
+                AddKind::Counter => self.inner.findCounter(id).map(|c| c.is_null()),
             };
             matches!(pending, Ok(true))
         });
@@ -332,14 +394,39 @@ impl AeronClient {
     }
 }
 
+fn check_counter_metadata(key: &[u8], label: &str) -> Result<()> {
+    if key.len() > CountersReader::MAX_KEY_LENGTH {
+        return Err(Error::new(
+            ErrorKind::IllegalArgument,
+            format!(
+                "counter key is {} bytes, more than the maximum {}",
+                key.len(),
+                CountersReader::MAX_KEY_LENGTH
+            ),
+        ));
+    }
+    if label.len() > CountersReader::MAX_LABEL_LENGTH {
+        return Err(Error::new(
+            ErrorKind::IllegalArgument,
+            format!(
+                "counter label is {} bytes, more than the maximum {}",
+                label.len(),
+                CountersReader::MAX_LABEL_LENGTH
+            ),
+        ));
+    }
+    Ok(())
+}
+
 impl Default for AeronClient {
     fn default() -> Self {
         Self::new().expect("Failed to create AeronClient")
     }
 }
 
-/// A publication or subscription being added by the media driver, returned by
-/// `AeronClient::add_*_async` (C++ `addPublication` / `findPublication`, ...).
+/// A publication, subscription or counter being added by the media driver,
+/// returned by `AeronClient::add_*_async` (C++ `addPublication` /
+/// `findPublication`, ...).
 ///
 /// [`poll`](Self::poll) until it returns the resource. If dropped before then (or
 /// if [`wait`](Self::wait) times out), the driver still creates the resource; the
@@ -362,6 +449,7 @@ pub(crate) enum AddKind {
     Publication,
     ExclusivePublication,
     Subscription,
+    Counter,
 }
 
 impl<T> Drop for PendingAdd<'_, T> {
@@ -461,3 +549,4 @@ macro_rules! pending_add {
 pending_add!(Publication, findPublication);
 pending_add!(ExclusivePublication, findExclusivePublication);
 pending_add!(Subscription, findSubscription);
+pending_add!(Counter, findCounter);

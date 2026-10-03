@@ -34,7 +34,7 @@
 //! - **Zero-copy publish** via [`Publication::try_claim`]
 //! - **Fragment reassembly** via [`Subscription::poll_assembled`] with [`ControlledAction`] flow control
 //! - **Image** access for per-session stream inspection
-//! - **Counters** reader for real-time driver statistics
+//! - **Counters**: create your own ([`Counter`]) and read the driver's statistics ([`CountersReader`])
 //! - **Embedded media driver** ([`MediaDriver`]) with full configuration
 //! - **Archive client** (behind the `archive` feature flag): recording, replay, listing, and `ReplayMerge`
 //!
@@ -42,7 +42,7 @@
 //!
 //! | Type | `Send` | `Sync` |
 //! |---|---|---|
-//! | [`AeronClient`], [`Publication`], [`CountersReader`] | yes | yes |
+//! | [`AeronClient`], [`Publication`], [`Counter`], [`CountersReader`] | yes | yes |
 //! | [`ExclusivePublication`], [`Subscription`] | yes | no |
 //! | [`Image`] (borrows its `Subscription`) | no | no |
 //!
@@ -93,7 +93,7 @@ use callback::Callback;
 pub use channel::ChannelBuilder;
 pub use client::{AeronClient, PendingAdd};
 pub use context::Context;
-pub use counters::CountersReader;
+pub use counters::{Counter, CountersReader};
 pub use driver::{IdleStrategy, MediaDriver, MediaDriverBuilder, ThreadingMode};
 pub use driver_gen::{InferableBoolean, ThreadNaming};
 pub use error::{Error, ErrorKind, OfferError, Result};
@@ -170,6 +170,7 @@ pub(crate) mod ffi {
         type SubscriptionWrapper;
         type MediaDriverWrapper;
         type CountersReaderWrapper;
+        type CounterWrapper;
 
         fn create_context() -> Result<UniquePtr<ContextWrapper>>;
         fn requestDriverTermination(directory: &str, token: &[u8]) -> Result<bool>;
@@ -264,6 +265,18 @@ pub(crate) mod ffi {
             self: &AeronWrapper,
             registration_id: i64,
         ) -> Result<UniquePtr<SubscriptionWrapper>>;
+        fn addCounter(self: &AeronWrapper, type_id: i32, key: &[u8], label: &str) -> Result<i64>;
+        fn addStaticCounter(
+            self: &AeronWrapper,
+            type_id: i32,
+            key: &[u8],
+            label: &str,
+            registration_id: i64,
+        ) -> Result<i64>;
+        fn findCounter(
+            self: &AeronWrapper,
+            registration_id: i64,
+        ) -> Result<UniquePtr<CounterWrapper>>;
         fn clientId(self: &AeronWrapper) -> i64;
         fn nextCorrelationId(self: &AeronWrapper) -> i64;
         fn aeronDir(self: &AeronWrapper) -> String;
@@ -519,6 +532,28 @@ pub(crate) mod ffi {
             handler: fn(usize, i32, i32, &[u8], &[u8]),
             ctx: usize,
         ) -> Result<()>;
+        fn counter(
+            self: &CountersReaderWrapper,
+            registration_id: i64,
+            counter_id: i32,
+        ) -> Result<UniquePtr<CounterWrapper>>;
+
+        fn id(self: &CounterWrapper) -> i32;
+        fn registrationId(self: &CounterWrapper) -> i64;
+        fn state(self: &CounterWrapper) -> Result<i32>;
+        fn label(self: &CounterWrapper) -> Result<String>;
+        fn isClosed(self: &CounterWrapper) -> bool;
+        fn get(self: &CounterWrapper) -> i64;
+        fn getWeak(self: &CounterWrapper) -> i64;
+        fn set(self: &CounterWrapper, value: i64);
+        fn setOrdered(self: &CounterWrapper, value: i64);
+        fn setWeak(self: &CounterWrapper, value: i64);
+        fn increment(self: &CounterWrapper);
+        fn incrementOrdered(self: &CounterWrapper);
+        fn getAndAdd(self: &CounterWrapper, value: i64) -> i64;
+        fn getAndAddOrdered(self: &CounterWrapper, value: i64) -> i64;
+        fn getAndSet(self: &CounterWrapper, value: i64) -> i64;
+        fn compareAndSet(self: &CounterWrapper, expected: i64, update: i64) -> bool;
     }
 }
 
@@ -543,6 +578,7 @@ mod tests {
         send_sync::<AeronClient>();
         send_sync::<Publication>();
         send_sync::<CountersReader>();
+        send_sync::<Counter>();
         send_sync::<MediaDriver>();
         send::<ExclusivePublication>();
         send::<Subscription>();

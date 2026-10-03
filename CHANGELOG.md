@@ -195,6 +195,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `OfferError` (`NotConnected`, `BackPressured`, `AdminAction`, `Closed`,
   `MaxPositionExceeded`, `Error`) with `is_retryable()` and `is_back_pressured()`.
 
+- Counters: `AeronClient::add_counter` and `add_static_counter` (plus `_async`
+  forms returning a `PendingAdd<Counter>`) allocate counters in the media
+  driver. `Counter` has `id`, `registration_id`, `state`, `label`, `is_closed`
+  and the atomic counter operations (`get`, `get_weak`, `set`, `set_ordered`,
+  `set_weak`, `increment`, `increment_ordered`, `get_and_add`,
+  `get_and_add_ordered`, `get_and_set`, `compare_and_set`); it is
+  `Send + Sync`. `CountersReader::counter` gives a handle on any existing
+  counter. Keys and labels longer than `CountersReader::MAX_KEY_LENGTH` /
+  `MAX_LABEL_LENGTH` are rejected. Works around an upstream C++ bug: a counter
+  holding the last reference to its client was closed after the client had
+  freed it.
+- `CountersReader` constants: `RECORD_UNUSED`, `RECORD_ALLOCATED`,
+  `RECORD_RECLAIMED`, `DEFAULT_REGISTRATION_ID`, `NOT_FREE_TO_REUSE`,
+  `MAX_LABEL_LENGTH`, `MAX_KEY_LENGTH`.
+
 ## [0.3.1] - 2026-10-03
 
 ### Added

@@ -535,9 +535,54 @@ private:
     std::shared_ptr<AssemblerState> assembly_;
 };
 
+// A counter (C1): one this client added, closed when the last handle is dropped,
+// or a view of any counter through a CountersReader (the public C++
+// Counter(CountersReader&, registrationId, counterId) constructor).
+// AtomicCounter's operations are non-const in C++ but only touch the counter's
+// shared memory, so they are bridged as const.
+class CounterWrapper {
+public:
+    // `keepalive` is released after the counter: it owns what a view's reader
+    // points into (the client or CnC file), or the client of an added counter.
+    CounterWrapper(std::shared_ptr<aeron::Counter> counter, std::shared_ptr<const void> keepalive,
+                   std::shared_ptr<ConductorLock> lock)
+        : counter_(std::move(counter)), keepalive_(std::move(keepalive)), lock_(std::move(lock)) {}
+    // Closing an added counter is conductor work, and either member may hold the
+    // last reference to the client.
+    ~CounterWrapper() {
+        ConductorLock::Guard guard(lock_, true);
+        counter_.reset();
+        keepalive_.reset();
+    }
+
+    int32_t id() const { return counter_->id(); }
+    int64_t registrationId() const { return counter_->registrationId(); }
+    int32_t state() const { return counter_->state(); }
+    rust::String label() const { return rust::String::lossy(counter_->label()); }
+    bool isClosed() const { return counter_->isClosed(); }
+
+    int64_t get() const { return counter_->get(); }
+    int64_t getWeak() const { return counter_->getWeak(); }
+    void set(int64_t value) const { counter_->set(value); }
+    void setOrdered(int64_t value) const { counter_->setOrdered(value); }
+    void setWeak(int64_t value) const { counter_->setWeak(value); }
+    void increment() const { counter_->increment(); }
+    void incrementOrdered() const { counter_->incrementOrdered(); }
+    int64_t getAndAdd(int64_t value) const { return counter_->getAndAdd(value); }
+    int64_t getAndAddOrdered(int64_t value) const { return counter_->getAndAddOrdered(value); }
+    int64_t getAndSet(int64_t value) const { return counter_->getAndSet(value); }
+    bool compareAndSet(int64_t expected, int64_t update) const { return counter_->compareAndSet(expected, update); }
+
+private:
+    std::shared_ptr<aeron::Counter> counter_;
+    std::shared_ptr<const void> keepalive_;
+    std::shared_ptr<ConductorLock> lock_;
+};
+
 class CountersReaderWrapper {
 public:
-    CountersReaderWrapper(std::shared_ptr<aeron::Aeron> aeron, std::shared_ptr<ConductorLock> lock);
+    // `reader` shares ownership of what it reads (the client or the CnC file).
+    CountersReaderWrapper(std::shared_ptr<aeron::CountersReader> reader, std::shared_ptr<ConductorLock> lock);
     ~CountersReaderWrapper();
 
     int32_t maxCounterId() const;
@@ -546,9 +591,13 @@ public:
     int32_t getCounterTypeId(int32_t id) const;
     rust::String getCounterLabel(int32_t id) const;
     void forEach(CounterFn handler, size_t ctx) const;
+    // A view of a counter (see CounterWrapper). Throws for an out-of-range id.
+    std::unique_ptr<CounterWrapper> counter(int64_t registration_id, int32_t counter_id) const;
 
 private:
-    std::shared_ptr<aeron::Aeron> aeron;
+    void validateCounterId(int32_t id) const;
+
+    std::shared_ptr<aeron::CountersReader> reader_;
     std::shared_ptr<ConductorLock> lock_;
 };
 
@@ -568,6 +617,10 @@ public:
     std::unique_ptr<PublicationWrapper> findPublication(int64_t registration_id) const;
     std::unique_ptr<ExclusivePublicationWrapper> findExclusivePublication(int64_t registration_id) const;
     std::unique_ptr<SubscriptionWrapper> findSubscription(int64_t registration_id) const;
+    // Counters (C1), added asynchronously like the other resources.
+    int64_t addCounter(int32_t type_id, rust::Slice<const uint8_t> key, rust::Str label) const;
+    int64_t addStaticCounter(int32_t type_id, rust::Slice<const uint8_t> key, rust::Str label, int64_t registration_id) const;
+    std::unique_ptr<CounterWrapper> findCounter(int64_t registration_id) const;
 
     int64_t clientId() const { return aeron->clientId(); }
     int64_t nextCorrelationId() const { return aeron->nextCorrelationId(); }

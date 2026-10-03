@@ -193,8 +193,7 @@ fn counter_handlers_and_panicking_handlers() {
     client
         .remove_unavailable_counter_handler(unavailable)
         .unwrap();
-    // Counter events are exercised with client-created counters in Phase 2; here
-    // the handlers are registered and removed while the driver allocates counters.
+    // Counter events themselves are tested in tests/counters.rs.
     drop(counters);
 }
 

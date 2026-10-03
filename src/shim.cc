@@ -12,6 +12,15 @@ extern "C" {
 
 namespace aeron_rs {
 
+// Mirrored by the CountersReader constants in src/counters.rs.
+static_assert(aeron::CountersReader::RECORD_UNUSED == 0, "src/counters.rs");
+static_assert(aeron::CountersReader::RECORD_ALLOCATED == 1, "src/counters.rs");
+static_assert(aeron::CountersReader::RECORD_RECLAIMED == -1, "src/counters.rs");
+static_assert(aeron::CountersReader::DEFAULT_REGISTRATION_ID == 0, "src/counters.rs");
+static_assert(aeron::CountersReader::NOT_FREE_TO_REUSE == INT64_MAX, "src/counters.rs");
+static_assert(aeron::CountersReader::MAX_LABEL_LENGTH == 380, "src/counters.rs");
+static_assert(aeron::CountersReader::MAX_KEY_LENGTH == 112, "src/counters.rs");
+
 template <typename P>
 int64_t PublicationWrapperT<P>::offerParts(
     rust::Slice<const OfferPart> parts, ReservedValueFn supplier, size_t ctx, bool useSupplier) const {
@@ -607,37 +616,51 @@ int ImageWrapper::blockPoll(int block_length_limit, BlockFn handler, size_t ctx)
     return image_->blockPoll(block_handler, block_length_limit);
 }
 
-CountersReaderWrapper::CountersReaderWrapper(std::shared_ptr<aeron::Aeron> aeron, std::shared_ptr<ConductorLock> lock)
-    : aeron(std::move(aeron)), lock_(std::move(lock)) {}
+CountersReaderWrapper::CountersReaderWrapper(std::shared_ptr<aeron::CountersReader> reader, std::shared_ptr<ConductorLock> lock)
+    : reader_(std::move(reader)), lock_(std::move(lock)) {}
 
 // The reader may hold the last reference to the client.
 CountersReaderWrapper::~CountersReaderWrapper() {
     ConductorLock::Guard guard(lock_, true);
-    aeron.reset();
+    reader_.reset();
+}
+
+void CountersReaderWrapper::validateCounterId(int32_t id) const {
+    if (id < 0 || id > reader_->maxCounterId()) {
+        throw aeron::util::IllegalArgumentException(
+            "counter id " + std::to_string(id) + " out of range: maxCounterId=" + std::to_string(reader_->maxCounterId()),
+            SOURCEINFO, EINVAL);
+    }
+}
+
+std::unique_ptr<CounterWrapper> CountersReaderWrapper::counter(int64_t registration_id, int32_t counter_id) const {
+    validateCounterId(counter_id); // the C++ constructor does not check it
+    auto view = std::make_shared<aeron::Counter>(*reader_, registration_id, counter_id);
+    return std::unique_ptr<CounterWrapper>(new CounterWrapper(std::move(view), reader_, lock_));
 }
 
 int32_t CountersReaderWrapper::maxCounterId() const {
-    return aeron->countersReader().maxCounterId();
+    return reader_->maxCounterId();
 }
 
 int64_t CountersReaderWrapper::getCounterValue(int32_t id) const {
-    return aeron->countersReader().getCounterValue(id);
+    return reader_->getCounterValue(id);
 }
 
 int32_t CountersReaderWrapper::getCounterState(int32_t id) const {
-    return aeron->countersReader().getCounterState(id);
+    return reader_->getCounterState(id);
 }
 
 int32_t CountersReaderWrapper::getCounterTypeId(int32_t id) const {
-    return aeron->countersReader().getCounterTypeId(id);
+    return reader_->getCounterTypeId(id);
 }
 
 rust::String CountersReaderWrapper::getCounterLabel(int32_t id) const {
-    return rust::String::lossy(aeron->countersReader().getCounterLabel(id));
+    return rust::String::lossy(reader_->getCounterLabel(id));
 }
 
 void CountersReaderWrapper::forEach(CounterFn handler, size_t ctx) const {
-    aeron->countersReader().forEach([&](int32_t counter_id, int32_t type_id, const aeron::concurrent::AtomicBuffer& keyBuffer, const std::string& label) {
+    reader_->forEach([&](int32_t counter_id, int32_t type_id, const aeron::concurrent::AtomicBuffer& keyBuffer, const std::string& label) {
         rust::Slice<const uint8_t> key_slice(keyBuffer.buffer(), keyBuffer.capacity());
         rust::Slice<const uint8_t> label_slice(reinterpret_cast<const uint8_t *>(label.data()), label.size());
         handler(ctx, counter_id, type_id, key_slice, label_slice);
@@ -677,8 +700,31 @@ std::unique_ptr<SubscriptionWrapper> AeronWrapper::findSubscription(int64_t regi
     return sub ? std::unique_ptr<SubscriptionWrapper>(new SubscriptionWrapper(sub, lock_)) : nullptr;
 }
 
+int64_t AeronWrapper::addCounter(int32_t type_id, rust::Slice<const uint8_t> key, rust::Str label) const {
+    ConductorLock::Guard guard(lock_);
+    return aeron->addCounter(type_id, key.data(), key.size(), std::string(label));
+}
+
+int64_t AeronWrapper::addStaticCounter(
+    int32_t type_id, rust::Slice<const uint8_t> key, rust::Str label, int64_t registration_id) const {
+    ConductorLock::Guard guard(lock_);
+    return aeron->addStaticCounter(type_id, key.data(), key.size(), std::string(label), registration_id);
+}
+
+std::unique_ptr<CounterWrapper> AeronWrapper::findCounter(int64_t registration_id) const {
+    ConductorLock::Guard guard(lock_);
+    auto counter = aeron->findCounter(registration_id);
+    // Upstream bug (1.53.3): aeron::Counter releases its reference to the client
+    // (a member) before ~AtomicCounter (its base) closes the C counter, which the
+    // client has freed if that was the last reference. Keep the client alive
+    // until the counter is destroyed.
+    return counter ? std::unique_ptr<CounterWrapper>(new CounterWrapper(counter, aeron, lock_)) : nullptr;
+}
+
 std::unique_ptr<CountersReaderWrapper> AeronWrapper::countersReader() const {
-    return std::unique_ptr<CountersReaderWrapper>(new CountersReaderWrapper(aeron, lock_));
+    // Aliasing: points at the client's reader and keeps the client alive.
+    std::shared_ptr<aeron::CountersReader> reader(aeron, &aeron->countersReader());
+    return std::unique_ptr<CountersReaderWrapper>(new CountersReaderWrapper(std::move(reader), lock_));
 }
 
 std::unique_ptr<ContextWrapper> create_context() {
