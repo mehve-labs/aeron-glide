@@ -39,6 +39,10 @@ fn main() {
     // Build Aeron C++ using CMake
     let mut config = Config::new(&aeron_dir);
     config
+        // Aeron's CMake stamps `git log` of its source directory into the driver
+        // (e.g. the "Aeron software" counter label). The extracted tarball is not a
+        // repository, so stop git from finding the enclosing project's instead.
+        .env("GIT_CEILING_DIRECTORIES", &out_dir)
         .define("BUILD_AERON_DRIVER", "ON")
         .define(
             "BUILD_AERON_ARCHIVE_API",

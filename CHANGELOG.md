@@ -75,6 +75,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The embedded driver's version labels (e.g. the "Aeron software" counter)
+  carried the git commit of whatever repository the crate was built in.
 - Agent invoker mode was not thread-safe: the C client runs conductor work inline
   on whichever thread adds or closes a resource, which raced with `invoke()`
   (crashes). A per-client conductor lock now serialises all of it in invoker
