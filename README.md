@@ -236,11 +236,11 @@ Aeron C code. On an Apple M4 Pro, against one shared media driver (Aeron
 
 | | IPC throughput | UDP round trip p50 | p99 | p99.9 |
 |---|---|---|---|---|
-| aeron-glide 0.4 | 39.7M msgs/sec | 19.8 µs | 29.6 µs | 43.1 µs |
+| aeron-glide 0.4.0 | 39.7M msgs/sec | 19.8 µs | 29.6 µs | 43.1 µs |
 | rusteron 0.2.10 | 39.9M msgs/sec | 20.1 µs | 29.8 µs | 46.4 µs |
 
 **[BENCHMARKS.md](BENCHMARKS.md)** has the method, a run pinned with
-`taskset` on Linux, the comparison with 0.3.1, why throughput numbers like
+`taskset` on Linux, the comparison with the previous release (0.3.1), why throughput numbers like
 these move so much, and how to reproduce them with
 [`scripts/benchmark.py`](scripts/benchmark.py).
 

@@ -240,7 +240,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MIGRATION.md`: upgrading from 0.3, and moving from rusteron.
 - `BENCHMARKS.md` and `scripts/benchmark.py`: throughput and latency against
   one shared media driver, optionally pinned with `taskset`, compared with
-  rusteron and 0.3.1. The `throughput` example takes `--shared-client` to use
+  rusteron and the previous release (0.3.1). The `throughput` example takes `--shared-client` to use
   one client for both ends.
 - `From<OfferError> for Error`, so `?` works on offers in functions returning
   `aeron_glide::Result`.

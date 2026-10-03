@@ -1,7 +1,7 @@
 # Benchmarks
 
 How aeron-glide performs, compared with [rusteron](https://github.com/gsrxyz/rusteron)
-and with aeron-glide 0.3.1, and how the numbers were measured. In short:
+and with the previous release, aeron-glide 0.3.1, and how the numbers were measured. In short:
 aeron-glide and rusteron perform the same, since both spend their time in the
 same Aeron C code. aeron-glide's latency tail was slightly lower in these runs.
 
@@ -42,8 +42,8 @@ Apple M4 Pro (8 performance and 4 efficiency cores, 48 GB), macOS 27.
 
 | | Throughput | p50 | p99 | p99.9 | p99.99 |
 |---|---|---|---|---|---|
-| aeron-glide 0.4 | 39.7M msgs/sec | 19.8 µs | 29.6 µs | 43.1 µs | 81.3 µs |
-| aeron-glide 0.4, one client | 39.9M msgs/sec | | | | |
+| aeron-glide 0.4.0 | 39.7M msgs/sec | 19.8 µs | 29.6 µs | 43.1 µs | 81.3 µs |
+| aeron-glide 0.4.0, one client | 39.9M msgs/sec | | | | |
 | rusteron 0.2.10 | 39.9M msgs/sec | 20.1 µs | 29.8 µs | 46.4 µs | 118.7 µs |
 
 macOS cannot pin threads to cores: `taskset` does not exist, Apple Silicon
@@ -64,21 +64,21 @@ pausing, not either library.
 
 | | Throughput | p50 | p99 | p99.9 | p99.99 |
 |---|---|---|---|---|---|
-| aeron-glide 0.4 | 41.5M msgs/sec | 22.4 µs | 33.2 µs | 62.8 µs | 4.0 ms |
-| aeron-glide 0.4, one client | 41.4M msgs/sec | | | | |
+| aeron-glide 0.4.0 | 41.5M msgs/sec | 22.4 µs | 33.2 µs | 62.8 µs | 4.0 ms |
+| aeron-glide 0.4.0, one client | 41.4M msgs/sec | | | | |
 | rusteron 0.2.10 | 41.8M msgs/sec | 22.4 µs | 33.2 µs | 83.1 µs | 4.0 ms |
 
 On a Linux host, pin to isolated physical cores (e.g. `isolcpus`) for numbers
 that hold for production.
 
-## Compared with aeron-glide 0.3.1
+## Compared with the previous release (0.3.1)
 
 Measured on macOS, against the 0.3.1 release built with the same Aeron 1.53.3
 (its examples are equivalent).
 
 | | Throughput, per round | p50 | p99 | p99.9 |
 |---|---|---|---|---|
-| 0.4 | 39.7M, 39.6M, 39.4M | 20.0 µs | 29.4 µs | 42.0 µs |
+| 0.4.0 | 39.7M, 39.6M, 39.4M | 20.0 µs | 29.4 µs | 42.0 µs |
 | 0.3.1 | 79.3M, 49.5M, 40.4M | 20.3 µs | 29.8 µs | 43.8 µs |
 
 Latency is the same. 0.3.1's throughput is not higher, it is unstable.
@@ -86,14 +86,14 @@ Latency is the same. 0.3.1's throughput is not higher, it is unstable.
 - Back pressure is close to zero in both versions, so the publisher sets the
   pace, and the rate depends on how its thread and the subscriber's share cache
   lines.
-- 0.4's subscriber does less work per poll: 0.3.1 looked its handler up in a
+- 0.4.0's subscriber does less work per poll: 0.3.1 looked its handler up in a
   thread-local registry each time. So it follows the publisher closely and
   reads each cache line just after it is written, and the publisher waits for
   those lines. In a profile, the copy into the log buffer takes 38% of the
-  publisher's time in 0.4, and 23% in 0.3.1.
+  publisher's time in 0.4.0, and 23% in 0.3.1.
 - 0.3.1's slower subscriber sometimes stays far enough behind to avoid that,
   and sometimes not, hence 40M to 79M from one run to the next.
-- Making 0.4's subscriber wait 200 ns after each poll gives about 65M messages
+- Making 0.4.0's subscriber wait 200 ns after each poll gives about 65M messages
   per second.
 
 A throughput number like this measures how two threads share a cache more than
