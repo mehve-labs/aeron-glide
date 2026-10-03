@@ -94,6 +94,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `offer_vectored` (several buffers as one message, no copy),
   `offer_with_reserved_value` and `offer_vectored_with_reserved_value` (a
   supplier sets each fragment header's reserved value).
+- Multi-destination support: `add_destination`, `remove_destination` and
+  `find_destination_response` on `Publication`, `ExclusivePublication` and
+  `Subscription`, plus `remove_destination_by_id` on publications.
 - `ExclusivePublication::revoke` (consumes the publication) and
   `revoke_on_close`: end the stream for subscribers without lingering.
 - Every scalar media driver setting is available on `MediaDriverBuilder`

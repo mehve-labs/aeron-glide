@@ -209,6 +209,10 @@ pub mod ffi {
         fn channelStatusId(self: &PublicationWrapper) -> i32;
         fn channelStatus(self: &PublicationWrapper) -> Result<i64>;
         fn localSocketAddresses(self: &PublicationWrapper) -> Result<Vec<String>>;
+        fn addDestination(self: &PublicationWrapper, endpoint: &str) -> Result<i64>;
+        fn removeDestination(self: &PublicationWrapper, endpoint: &str) -> Result<i64>;
+        fn removeDestinationById(self: &PublicationWrapper, registration_id: i64) -> Result<i64>;
+        fn findDestinationResponse(self: &PublicationWrapper, correlation_id: i64) -> Result<bool>;
         fn isOriginal(self: &PublicationWrapper) -> bool;
         fn offer(self: &ExclusivePublicationWrapper, buffer: &[u8]) -> Result<i64>;
         fn offerParts(
@@ -243,6 +247,16 @@ pub mod ffi {
         fn channelStatusId(self: &ExclusivePublicationWrapper) -> i32;
         fn channelStatus(self: &ExclusivePublicationWrapper) -> Result<i64>;
         fn localSocketAddresses(self: &ExclusivePublicationWrapper) -> Result<Vec<String>>;
+        fn addDestination(self: &ExclusivePublicationWrapper, endpoint: &str) -> Result<i64>;
+        fn removeDestination(self: &ExclusivePublicationWrapper, endpoint: &str) -> Result<i64>;
+        fn removeDestinationById(
+            self: &ExclusivePublicationWrapper,
+            registration_id: i64,
+        ) -> Result<i64>;
+        fn findDestinationResponse(
+            self: &ExclusivePublicationWrapper,
+            correlation_id: i64,
+        ) -> Result<bool>;
         fn revoke(self: &ExclusivePublicationWrapper) -> Result<()>;
         fn revokeOnClose(self: &ExclusivePublicationWrapper);
 
@@ -260,6 +274,10 @@ pub mod ffi {
         ) -> Result<i32>;
         fn isConnected(self: &SubscriptionWrapper) -> bool;
         fn deleteSessionBuffer(self: Pin<&mut SubscriptionWrapper>, session_id: i32) -> bool;
+        fn addDestination(self: &SubscriptionWrapper, endpoint: &str) -> Result<i64>;
+        fn removeDestination(self: &SubscriptionWrapper, endpoint: &str) -> Result<i64>;
+        fn findDestinationResponse(self: &SubscriptionWrapper, correlation_id: i64)
+        -> Result<bool>;
         fn imageCount(self: &SubscriptionWrapper) -> i32;
         fn imageByIndex(self: &SubscriptionWrapper, index: usize) -> UniquePtr<ImageWrapper>;
         fn imageBySessionId(self: &SubscriptionWrapper, session_id: i32)

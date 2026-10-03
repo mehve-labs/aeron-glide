@@ -214,6 +214,13 @@ public:
     int64_t availableWindow() const { return pub->availableWindow(); }
     int32_t channelStatusId() const { return pub->channelStatusId(); }
     int64_t channelStatus() const { return pub->channelStatus(); }
+    // Multi-destination-cast (P5). Each returns a correlation id; poll
+    // findDestinationResponse until the driver has applied the change.
+    int64_t addDestination(rust::Str endpoint) const { return pub->addDestination(std::string(endpoint)); }
+    int64_t removeDestination(rust::Str endpoint) const { return pub->removeDestination(std::string(endpoint)); }
+    int64_t removeDestinationById(int64_t registrationId) const { return pub->removeDestination(registrationId); }
+    bool findDestinationResponse(int64_t correlationId) const { return pub->findDestinationResponse(correlationId); }
+
     // Exclusive publications only. revoke() frees the C publication; the Rust side
     // consumes the publication so nothing can be called on it afterwards.
     void revoke() const { pub->revoke(); }
@@ -245,6 +252,11 @@ public:
     int controlledPollAssembled(int fragment_limit, ControlledFragmentFn handler, size_t ctx);
     bool isConnected() const;
     bool deleteSessionBuffer(int32_t session_id);
+
+    // Multi-destination subscriptions (P5).
+    int64_t addDestination(rust::Str endpoint) const { return sub->addDestination(std::string(endpoint)); }
+    int64_t removeDestination(rust::Str endpoint) const { return sub->removeDestination(std::string(endpoint)); }
+    bool findDestinationResponse(int64_t correlationId) const { return sub->findDestinationResponse(correlationId); }
 
     // Image accessors
     int imageCount() const;

@@ -119,6 +119,29 @@ impl Subscription {
         self.inner.pin_mut().deleteSessionBuffer(session_id)
     }
 
+    /// Add a destination to a multi-destination subscription (channel with
+    /// `control-mode=manual`), e.g. `"aeron:udp?endpoint=host:port"`.
+    ///
+    /// Returns a correlation ID; the destination is in use once
+    /// [`find_destination_response`](Self::find_destination_response) returns `true`.
+    pub fn add_destination(&self, endpoint_channel: &str) -> Result<i64> {
+        Ok(self.inner.addDestination(endpoint_channel)?)
+    }
+
+    /// Remove a destination added with [`add_destination`](Self::add_destination).
+    /// Returns a correlation ID to pass to
+    /// [`find_destination_response`](Self::find_destination_response).
+    pub fn remove_destination(&self, endpoint_channel: &str) -> Result<i64> {
+        Ok(self.inner.removeDestination(endpoint_channel)?)
+    }
+
+    /// Returns `true` once the media driver has applied the destination change with
+    /// this correlation ID, `false` while it is pending; fails if the driver
+    /// rejected it or the ID is unknown.
+    pub fn find_destination_response(&self, correlation_id: i64) -> Result<bool> {
+        Ok(self.inner.findDestinationResponse(correlation_id)?)
+    }
+
     #[cfg(feature = "archive")]
     pub(crate) fn inner_pin_mut(&mut self) -> std::pin::Pin<&mut ffi::SubscriptionWrapper> {
         self.inner.pin_mut()
