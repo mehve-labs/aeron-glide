@@ -224,6 +224,7 @@ fn invalid_values_fail_at_build_with_the_first_error() {
         udp().initial_position(33, 0, 65536),
         udp().initial_position(64, 0, 1000),
         udp().linger(Duration::MAX),
+        udp().linger(Duration::from_nanos(i64::MAX as u64)),
         udp().nak_delay(Duration::from_secs(u64::MAX)),
         udp().param("bad|key", "x"),
         udp().param("bad=key", "x"),

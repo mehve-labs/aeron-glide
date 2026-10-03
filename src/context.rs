@@ -330,9 +330,9 @@ impl Context {
     }
 }
 
-/// Milliseconds for the C++ `long` setters, clamped so Aeron's conversion to
-/// nanoseconds (`ms * 1_000_000` as `u64`) cannot overflow.
+/// Milliseconds for the C++ `long` setters, clamped so Aeron's deadlines
+/// (`now + timeout` in nanoseconds) cannot overflow.
+#[allow(clippy::unnecessary_cast)] // `c_long` is 32 bits on Windows
 fn millis(duration: Duration) -> i64 {
-    let max = (u64::MAX / 1_000_000).min(c_long::MAX as u64);
-    duration.as_millis().min(u128::from(max)) as i64
+    crate::timeout_millis(duration).min(c_long::MAX as i64)
 }

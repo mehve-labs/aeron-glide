@@ -133,6 +133,26 @@ pub fn nano_clock() -> i64 {
     ffi::nanoClock()
 }
 
+/// The longest timeout handed to Aeron, about 73 years. Aeron adds timeouts to
+/// its clocks (`now + timeout`, in milliseconds or nanoseconds) in signed 64-bit
+/// arithmetic, so larger ones overflow into a deadline in the past: a request
+/// would time out at once, and the client could then free a command its
+/// conductor still holds.
+pub(crate) const MAX_TIMEOUT_NS: i64 = i64::MAX / 4;
+
+/// `timeout` in milliseconds, at most [`MAX_TIMEOUT_NS`].
+pub(crate) fn timeout_millis(timeout: std::time::Duration) -> i64 {
+    timeout
+        .as_millis()
+        .min((MAX_TIMEOUT_NS / 1_000_000) as u128) as i64
+}
+
+/// `timeout` in nanoseconds, at most [`MAX_TIMEOUT_NS`].
+#[cfg(feature = "archive")]
+pub(crate) fn timeout_nanos(timeout: std::time::Duration) -> i64 {
+    timeout.as_nanos().min(MAX_TIMEOUT_NS as u128) as i64
+}
+
 #[cxx::bridge(namespace = "aeron_rs")]
 pub(crate) mod ffi {
     /// One part of a vectored offer: the address and length of a byte slice.

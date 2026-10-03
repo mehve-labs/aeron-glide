@@ -48,6 +48,18 @@ fn main() {
         .define("AERON_BUILD_SAMPLES", "OFF")
         .define("AERON_BUILD_DOCUMENTATION", "OFF");
 
+    // AERON_GLIDE_SANITIZER=address (or another -fsanitize value) instruments
+    // Aeron and the shims, for runs with e.g. RUSTFLAGS=-Zsanitizer=address.
+    // Unlike CFLAGS, it doesn't reach other crates' C code.
+    println!("cargo:rerun-if-env-changed=AERON_GLIDE_SANITIZER");
+    let sanitizer = env::var("AERON_GLIDE_SANITIZER")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("-fsanitize={s} -fno-omit-frame-pointer"));
+    if let Some(flags) = &sanitizer {
+        config.cflag(flags).cxxflag(flags);
+    }
+
     if env::var("PROFILE").unwrap() == "release" {
         config.profile("Release");
     } else {
@@ -125,6 +137,10 @@ fn main() {
             .include(&archive_cpp_path)
             .include(&archive_c_path)
             .define("AERON_ARCHIVE", None);
+    }
+
+    for flag in sanitizer.iter().flat_map(|flags| flags.split(' ')) {
+        builder.flag(flag);
     }
 
     builder.compile("aeron_rs_cxx");

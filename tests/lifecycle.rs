@@ -148,4 +148,12 @@ fn huge_client_timeouts_are_clamped() {
         !client.is_closed(),
         "an overflowing timeout closed the client"
     );
+    // Requests wait for the conductor instead of timing out at once (Aeron
+    // adds the driver timeout to its clock). Under AddressSanitizer this caught
+    // the conductor reading a timed-out request from the caller's dead stack.
+    let mut sub = client.add_subscription("aeron:ipc", 7).unwrap();
+    let publication = client.add_publication("aeron:ipc", 7).unwrap();
+    wait_connected(&sub);
+    offer(&publication, b"timeouts");
+    common::poll_n(&mut sub, 1, |_| {});
 }

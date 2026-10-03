@@ -129,7 +129,8 @@ impl<'a> ReplayMerge<'a> {
             live_destination,
             recording_id,
             start_position,
-            i64::try_from(merge_progress_timeout.as_millis()).unwrap_or(i64::MAX),
+            // C++ adds it to the clock: clamp far below overflow.
+            crate::timeout_millis(merge_progress_timeout),
         )?;
         Ok(Self {
             inner,

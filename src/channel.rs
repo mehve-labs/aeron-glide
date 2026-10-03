@@ -709,9 +709,10 @@ impl ChannelBuilder {
     }
 
     fn duration_param(self, key: &str, value: Duration) -> Self {
+        // The driver adds durations to its clock: refuse ones that overflow it.
         match i64::try_from(value.as_nanos()) {
-            Ok(ns) => self.param(key, &ns.to_string()),
-            Err(_) => self.fail(
+            Ok(ns) if ns <= crate::MAX_TIMEOUT_NS => self.param(key, &ns.to_string()),
+            _ => self.fail(
                 ErrorKind::IllegalArgument,
                 format!("{key} too large: {value:?}"),
             ),

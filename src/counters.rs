@@ -441,7 +441,8 @@ impl CncFile {
     /// [`map_existing`](Self::map_existing), waiting up to `timeout` (zero: fail
     /// at once if the file is not ready).
     pub fn map_existing_with_timeout(aeron_dir: &str, timeout: Duration) -> Result<Self> {
-        let timeout_ms = i64::try_from(timeout.as_millis()).unwrap_or(i64::MAX);
+        // The C client adds it to the clock: clamp far below overflow.
+        let timeout_ms = crate::timeout_millis(timeout);
         Ok(Self {
             inner: ffi::mapCncFile(aeron_dir, timeout_ms)?,
         })

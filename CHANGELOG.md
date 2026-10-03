@@ -110,6 +110,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Timeouts near `Duration::MAX` (client driver timeout, CnC mapping,
+  ReplayMerge progress) overflowed Aeron's `now + timeout` deadlines: requests
+  timed out at once, and the client conductor could then read a request from
+  the caller's freed stack (found by AddressSanitizer). Timeouts are capped at
+  about 73 years, and `ChannelBuilder` rejects URI durations above that.
 - Examples no longer spin forever on offer errors that retrying cannot fix
   (e.g. a message too long): they retry back pressure only.
 - Linux builds failed to link (static libraries were passed to the linker

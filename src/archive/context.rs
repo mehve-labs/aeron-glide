@@ -150,9 +150,7 @@ impl Context {
     /// How long to wait for a response (C++ `messageTimeoutNs`).
     pub fn message_timeout(self, timeout: Duration) -> Self {
         // The C client adds it to the clock: clamp far below overflow.
-        let ns = i64::try_from(timeout.as_nanos())
-            .unwrap_or(i64::MAX)
-            .min(i64::MAX / 4);
+        let ns = crate::timeout_nanos(timeout);
         self.set(move |ctx| Ok(ctx.setMessageTimeoutNs(ns)?))
     }
 
