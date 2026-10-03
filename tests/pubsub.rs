@@ -91,12 +91,7 @@ fn controlled_actions_break_and_abort() {
     for message in [b"one", b"two", b"six"] {
         offer(&publication, message);
     }
-    let published = publication.position().unwrap();
-    wait_until("all three to be readable", || {
-        sub.image_by_index(0)
-            .is_some_and(|image| image.position().unwrap() == 0)
-            && publication.position().unwrap() == published
-    });
+    wait_until("the image", || sub.image_count() == 1);
 
     // Break: deliver one fragment, consume it, stop.
     let mut seen = Vec::new();

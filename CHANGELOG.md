@@ -75,6 +75,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Polling an image from inside a handler that is already polling the same
+  image through another handle now fails with `ErrorKind::Reentrant`; it used
+  to re-deliver fragments and could release the term the outer handler was
+  reading.
 - Synchronous `add_publication` / `add_exclusive_publication` /
   `add_subscription` spun forever if the media driver never answered; they now
   fail with `ErrorKind::Timeout` after the client's driver timeout.
@@ -149,6 +153,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `add_/remove_unavailable_counter_handler`, `add_/remove_close_client_handler`
   and `add_subscription_with_image_handlers` (plus `_async`). Handlers are
   owned by the C++ client, may drop the client, and have their panics caught.
+- `Image::bounded_poll_assembled` and `ReplayMerge::poll_assembled`.
 - Asynchronous adds: `AeronClient::add_publication_async`,
   `add_exclusive_publication_async` and `add_subscription_async` return a
   `PendingAdd` to `poll()` (or `wait()`) for the resource. Also

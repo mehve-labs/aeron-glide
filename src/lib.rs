@@ -485,6 +485,13 @@ pub(crate) mod ffi {
             handler: fn(usize, &[u8], &Header) -> i32,
             ctx: usize,
         ) -> Result<i32>;
+        fn boundedControlledPollAssembled(
+            self: Pin<&mut ImageWrapper>,
+            limit_position: i64,
+            fragment_limit: i32,
+            handler: fn(usize, &[u8], &Header) -> i32,
+            ctx: usize,
+        ) -> Result<i32>;
         fn blockPoll(
             self: Pin<&mut ImageWrapper>,
             block_length_limit: i32,

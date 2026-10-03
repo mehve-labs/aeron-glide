@@ -309,9 +309,11 @@ using ExclusivePublicationWrapper = PublicationWrapperT<aeron::ExclusivePublicat
 
 class ImageWrapper; // forward declaration
 
-// The reassembly state of a subscription (a C++ ControlledFragmentAssembler, keyed
-// by session id), shared by the subscription and all of its Image handles so that a
-// message split across polls on different handles is not lost.
+// Polling state of a subscription, shared by the subscription and all of its Image
+// handles: the reassembly state (a C++ ControlledFragmentAssembler, keyed by session
+// id), so a message split across polls on different handles is not lost, and the
+// sessions whose image is being polled, so a handler cannot poll the same image
+// again through another handle.
 class AssemblerState {
 public:
     AssemblerState();
@@ -332,8 +334,22 @@ public:
         AssemblerState &state_;
     };
 
+    // Marks an image (by session id) as being polled. Throws ReentrantException if
+    // it already is: a nested poll would move the subscriber position under the
+    // outer poll, re-delivering or releasing fragments it is still handling.
+    class ImagePoll {
+    public:
+        ImagePoll(AssemblerState &state, int32_t session_id);
+        ~ImagePoll();
+
+    private:
+        AssemblerState &state_;
+    };
+
 private:
     friend class Scope;
+    friend class ImagePoll;
+    std::vector<int32_t> polling_sessions_;
     const ControlledFragmentFn *handler_ = nullptr;
     size_t ctx_ = 0;
     aeron::ControlledFragmentAssembler assembler_;
@@ -401,7 +417,7 @@ public:
 
 private:
     std::shared_ptr<aeron::Subscription> sub;
-    // Handler of the controlledPollAssembled call in progress, used by the assembler.
+    // The subscription's polling state, shared with its images.
     std::shared_ptr<AssemblerState> assembly_;
 };
 
@@ -435,6 +451,7 @@ public:
     int boundedPoll(int64_t limit_position, int fragment_limit, FragmentFn handler, size_t ctx);
     int boundedControlledPoll(int64_t limit_position, int fragment_limit, ControlledFragmentFn handler, size_t ctx);
     int blockPoll(int block_length_limit, BlockFn handler, size_t ctx);
+    int boundedControlledPollAssembled(int64_t limit_position, int fragment_limit, ControlledFragmentFn handler, size_t ctx);
 
     // Accessors (P8)
     int32_t initialTermId() const { return image_->initialTermId(); }
@@ -449,7 +466,7 @@ public:
 private:
     std::shared_ptr<aeron::Subscription> subscription_;
     std::shared_ptr<aeron::Image> image_;
-    // Handler of the controlledPollAssembled call in progress, used by the assembler.
+    // The subscription's polling state, shared with its images.
     std::shared_ptr<AssemblerState> assembly_;
 };
 

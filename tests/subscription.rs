@@ -56,10 +56,7 @@ fn controlled_poll_break_and_abort() {
     for message in [b"one", b"two", b"six"] {
         offer(&publication, message);
     }
-    wait_until("all three to be available", || {
-        let image = sub.image_by_index(0);
-        image.is_some_and(|i| i.position().unwrap() < publication.position().unwrap())
-    });
+    wait_until("the image", || sub.image_count() == 1);
 
     // Break after the first fragment: only one is delivered.
     let mut seen = Vec::new();

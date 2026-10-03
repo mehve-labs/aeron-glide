@@ -106,3 +106,72 @@ fn reject_a_udp_publisher() {
         !publication.is_connected()
     });
 }
+
+#[test]
+fn nested_poll_of_the_same_image_is_rejected() {
+    use aeron_glide::ErrorKind;
+    let driver = TestDriver::start();
+    let client = driver.client();
+    let mut first = client.add_exclusive_publication("aeron:ipc", 4).unwrap();
+    let mut second = client.add_exclusive_publication("aeron:ipc", 4).unwrap();
+    let sub = client.add_subscription("aeron:ipc", 4).unwrap();
+    wait_until("two images", || sub.image_count() == 2);
+    wait_until("both connected", || {
+        first.is_connected() && second.is_connected()
+    });
+    while first.offer(b"a").is_err() {}
+    while second.offer(b"b").is_err() {}
+
+    let mut outer = sub.image_by_session_id(first.session_id()).unwrap();
+    let mut same = sub.image_by_session_id(first.session_id()).unwrap();
+    let mut other = sub.image_by_session_id(second.session_id()).unwrap();
+    let (mut nested_same, mut nested_other) = (None, None);
+    wait_until("the outer fragment", || {
+        outer
+            .poll(10, |_, _| {
+                nested_same = Some(same.poll(10, |_, _| {}));
+                nested_other = Some(other.poll(10, |_, _| {}));
+            })
+            .unwrap();
+        nested_same.is_some()
+    });
+    assert_eq!(
+        nested_same.unwrap().unwrap_err().kind(),
+        ErrorKind::Reentrant
+    );
+    // Another session's image may be polled from the handler.
+    assert!(nested_other.unwrap().is_ok());
+    // The guard is released afterwards.
+    assert!(same.poll(10, |_, _| {}).is_ok());
+}
+
+#[test]
+fn bounded_poll_assembled_stops_before_the_limit() {
+    let driver = TestDriver::start();
+    let client = driver.client();
+    let publication = client.add_publication("aeron:ipc", 5).unwrap();
+    let sub = client.add_subscription("aeron:ipc", 5).unwrap();
+    wait_connected(&sub);
+    let large = vec![9u8; 2 * publication.max_payload_length()];
+    let end_of_first = offer(&publication, &large);
+    offer(&publication, b"second");
+
+    let mut image = sub.image_by_index(0).unwrap();
+    let mut seen = Vec::new();
+    wait_until("the first message", || {
+        image
+            .bounded_poll_assembled(end_of_first, 10, |data: &[u8], _: &aeron_glide::Header| {
+                seen.push(data.len())
+            })
+            .unwrap();
+        !seen.is_empty()
+    });
+    for _ in 0..10 {
+        image
+            .bounded_poll_assembled(end_of_first, 10, |data: &[u8], _: &aeron_glide::Header| {
+                seen.push(data.len())
+            })
+            .unwrap();
+    }
+    assert_eq!(seen, [large.len()]);
+}

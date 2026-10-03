@@ -43,7 +43,8 @@ wait with `common::wait_until` (it has a deadline) rather than open-ended loops.
   function that is not declared `-> Result<..>`. Declare every bridged function
   that can throw (directly, via the Aeron C++ wrapper, or via the checked
   `rust::String` constructor) as `-> Result<..>` and map it to `aeron_glide::Result` on the
-  Rust side. Only functions that cannot throw may be bridged without `Result`;
+  Rust side. Only functions that cannot throw may be bridged without `Result`
+  (allocation failure, `std::bad_alloc`, is treated as fatal, as in Rust);
   when a lookup's only failure means "not found", catch in `shim.cc` and return
   `nullptr` (surfaced as `Option`).
 - **Strings from C++.** Use `rust::String::lossy`, never `rust::String(...)`,

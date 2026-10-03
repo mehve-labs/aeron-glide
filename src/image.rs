@@ -7,6 +7,9 @@ use super::*;
 /// Each publisher session creates one image on each matching subscription.
 /// Images track their own position and can be polled independently.
 ///
+/// Polling an image from inside a handler that is already polling the same image
+/// (through another handle) fails with [`ErrorKind::Reentrant`](crate::ErrorKind::Reentrant).
+///
 /// An `Image` borrows the [`Subscription`] (or `ReplayMerge`) it came from, so it
 /// cannot outlive it:
 ///
@@ -140,27 +143,33 @@ impl Image<'_> {
         Ok(cb.finish(result)?)
     }
 
-    /// Like [`poll`](Self::poll), but stops at `limit_position` in the stream.
+    /// Like [`poll`](Self::poll), but only delivers fragments that start before
+    /// `limit_position` in the stream (a fragment straddling it is delivered).
     ///
     /// # Panics
     ///
     /// As for [`poll`](Self::poll).
-    pub fn bounded_poll<F>(&mut self, limit_position: i64, limit: i32, handler: F) -> Result<i32>
+    pub fn bounded_poll<F>(
+        &mut self,
+        limit_position: i64,
+        fragment_limit: i32,
+        handler: F,
+    ) -> Result<i32>
     where
         F: FnMut(&[u8], &Header),
     {
         let mut cb = Callback::new(handler);
         let result = self.inner.pin_mut().boundedPoll(
             limit_position,
-            limit,
+            fragment_limit,
             callback::fragment::<F>,
             cb.ctx(),
         );
         Ok(cb.finish(result)?)
     }
 
-    /// Like [`controlled_poll`](Self::controlled_poll), but stops at
-    /// `limit_position` in the stream.
+    /// Like [`controlled_poll`](Self::controlled_poll), but only delivers fragments
+    /// that start before `limit_position` in the stream.
     ///
     /// # Panics
     ///
@@ -168,7 +177,7 @@ impl Image<'_> {
     pub fn bounded_controlled_poll<R, F>(
         &mut self,
         limit_position: i64,
-        limit: i32,
+        fragment_limit: i32,
         handler: F,
     ) -> Result<i32>
     where
@@ -178,7 +187,33 @@ impl Image<'_> {
         let mut cb = Callback::new(handler);
         let result = self.inner.pin_mut().boundedControlledPoll(
             limit_position,
-            limit,
+            fragment_limit,
+            callback::controlled_fragment::<F, R>,
+            cb.ctx(),
+        );
+        Ok(cb.finish(result)?)
+    }
+
+    /// Like [`poll_assembled`](Self::poll_assembled), but only delivers messages
+    /// whose fragments start before `limit_position` in the stream.
+    ///
+    /// # Panics
+    ///
+    /// As for [`poll_assembled`](Self::poll_assembled).
+    pub fn bounded_poll_assembled<R, F>(
+        &mut self,
+        limit_position: i64,
+        fragment_limit: i32,
+        handler: F,
+    ) -> Result<i32>
+    where
+        R: PollAction,
+        F: FnMut(&[u8], &Header) -> R,
+    {
+        let mut cb = Callback::new(handler);
+        let result = self.inner.pin_mut().boundedControlledPollAssembled(
+            limit_position,
+            fragment_limit,
             callback::controlled_fragment::<F, R>,
             cb.ctx(),
         );
@@ -222,7 +257,9 @@ impl Image<'_> {
     /// [`Subscription::poll_assembled`].
     ///
     /// Reassembly state is shared with the subscription and its other `Image`
-    /// handles, so a message may be completed by any of them. Fails with
+    /// handles, so a message may be completed by any of them. A raw (unassembled)
+    /// poll in the middle of a partially reassembled message makes that message
+    /// be dropped. Fails with
     /// [`ErrorKind::Reentrant`](crate::ErrorKind::Reentrant) if called from inside
     /// another assembled poll on the same subscription.
     ///

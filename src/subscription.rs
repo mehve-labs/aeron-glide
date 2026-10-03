@@ -2,7 +2,8 @@
 
 use super::*;
 
-/// Flow-control actions for `poll_assembled` when the handler returns a `ControlledAction`.
+/// Flow-control actions returned by the handlers of `controlled_poll`,
+/// `poll_assembled` and the bounded controlled polls.
 /// The values are Aeron's `ControlledPollAction` (`AERON_ACTION_*`, 1 to 4).
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

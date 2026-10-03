@@ -461,7 +461,7 @@ pub const REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT_MS: i64 = 10_000;
 /// # let mut archive = AeronArchive::connect("", 0, "", 0).unwrap();
 /// let mut sub = client.add_subscription("aeron:udp?control-mode=manual", 1).unwrap();
 /// let mut merge = ReplayMerge::new(&mut sub, &mut archive, "", "", "", 0, 0).unwrap();
-/// std::thread::spawn(move || sub.poll(10, |_| {})); // error: `sub` is borrowed
+/// std::thread::spawn(move || sub.poll(10, |_, _| {})); // error: `sub` is borrowed
 /// merge.do_work().unwrap();
 /// ```
 pub struct ReplayMerge<'a> {
@@ -526,6 +526,21 @@ impl<'a> ReplayMerge<'a> {
             .pin_mut()
             .poll(fragment_limit, callback::fragment::<F>, cb.ctx());
         Ok(cb.finish(result)?)
+    }
+
+    /// Drive the merge and poll for reassembled messages (C++ `ReplayMerge::poll`
+    /// with a fragment assembler): [`do_work`](Self::do_work), then
+    /// `Image::poll_assembled` on the merged image, if there is one yet.
+    pub fn poll_assembled<R, F>(&mut self, fragment_limit: i32, handler: F) -> Result<i32>
+    where
+        R: crate::PollAction,
+        F: FnMut(&[u8], &crate::Header) -> R,
+    {
+        self.do_work()?;
+        match self.image() {
+            Some(mut image) => image.poll_assembled(fragment_limit, handler),
+            None => Ok(0),
+        }
     }
 
     /// Get the merged Image, or `None` if it is not available yet. Available after

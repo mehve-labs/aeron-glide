@@ -1,4 +1,5 @@
 #include "shim.h"
+#include <algorithm>
 #include <array>
 #include <iostream>
 #include <vector>
@@ -360,6 +361,20 @@ AssemblerState::Scope::~Scope() {
     state_.handler_ = nullptr;
 }
 
+AssemblerState::ImagePoll::ImagePoll(AssemblerState &state, int32_t session_id) : state_(state) {
+    auto &sessions = state.polling_sessions_;
+    if (std::find(sessions.begin(), sessions.end(), session_id) != sessions.end()) {
+        throw aeron::util::ReentrantException(
+            "this image is already being polled by an enclosing handler", SOURCEINFO, EPERM);
+    }
+    sessions.push_back(session_id);
+}
+
+// Polls nest, so the innermost one finishes first and its session is the last.
+AssemblerState::ImagePoll::~ImagePoll() {
+    state_.polling_sessions_.pop_back();
+}
+
 SubscriptionWrapper::SubscriptionWrapper(std::shared_ptr<aeron::Subscription> sub)
     : sub(sub), assembly_(std::make_shared<AssemblerState>()) {}
 
@@ -479,6 +494,7 @@ int64_t ImageWrapper::endOfStreamPosition() const {
 }
 
 int ImageWrapper::poll(int fragment_limit, FragmentFn handler, size_t ctx) {
+    AssemblerState::ImagePoll guard(*assembly_, image_->sessionId());
     auto fragment_handler = [&](const aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
         rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
         handler(ctx, slice, header);
@@ -487,11 +503,13 @@ int ImageWrapper::poll(int fragment_limit, FragmentFn handler, size_t ctx) {
 }
 
 int ImageWrapper::controlledPollAssembled(int fragment_limit, ControlledFragmentFn handler, size_t ctx) {
+    AssemblerState::ImagePoll guard(*assembly_, image_->sessionId());
     AssemblerState::Scope scope(*assembly_, handler, ctx);
     return image_->controlledPoll(assembly_->assembler().handler(), fragment_limit);
 }
 
 int ImageWrapper::controlledPoll(int fragment_limit, ControlledFragmentFn handler, size_t ctx) {
+    AssemblerState::ImagePoll guard(*assembly_, image_->sessionId());
     auto fragment_handler = [&](const aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
         rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
         return static_cast<aeron::ControlledPollAction>(handler(ctx, slice, header));
@@ -500,6 +518,7 @@ int ImageWrapper::controlledPoll(int fragment_limit, ControlledFragmentFn handle
 }
 
 int ImageWrapper::boundedPoll(int64_t limit_position, int fragment_limit, FragmentFn handler, size_t ctx) {
+    AssemblerState::ImagePoll guard(*assembly_, image_->sessionId());
     auto fragment_handler = [&](const aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
         rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
         handler(ctx, slice, header);
@@ -508,6 +527,7 @@ int ImageWrapper::boundedPoll(int64_t limit_position, int fragment_limit, Fragme
 }
 
 int ImageWrapper::boundedControlledPoll(int64_t limit_position, int fragment_limit, ControlledFragmentFn handler, size_t ctx) {
+    AssemblerState::ImagePoll guard(*assembly_, image_->sessionId());
     auto fragment_handler = [&](const aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
         rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
         return static_cast<aeron::ControlledPollAction>(handler(ctx, slice, header));
@@ -515,7 +535,15 @@ int ImageWrapper::boundedControlledPoll(int64_t limit_position, int fragment_lim
     return image_->boundedControlledPoll(fragment_handler, limit_position, fragment_limit);
 }
 
+int ImageWrapper::boundedControlledPollAssembled(
+    int64_t limit_position, int fragment_limit, ControlledFragmentFn handler, size_t ctx) {
+    AssemblerState::ImagePoll guard(*assembly_, image_->sessionId());
+    AssemblerState::Scope scope(*assembly_, handler, ctx);
+    return image_->boundedControlledPoll(assembly_->assembler().handler(), limit_position, fragment_limit);
+}
+
 int ImageWrapper::blockPoll(int block_length_limit, BlockFn handler, size_t ctx) {
+    AssemblerState::ImagePoll guard(*assembly_, image_->sessionId());
     auto block_handler = [&](aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length,
                              int32_t session_id, int32_t term_id) {
         rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
