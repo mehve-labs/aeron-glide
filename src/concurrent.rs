@@ -23,7 +23,7 @@
 //! # Ok::<(), aeron_glide::Error>(())
 //! ```
 
-use crate::{AeronClient, Error, ErrorKind, MediaDriver, Result};
+use crate::{AeronClient, Error, ErrorKind, Result};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
@@ -243,10 +243,11 @@ impl Agent for Arc<AeronClient> {
 }
 
 /// A media driver in invoker mode is an agent: its duty cycle is
-/// [`MediaDriver::do_work`].
-impl Agent for Arc<MediaDriver> {
+/// [`MediaDriver::do_work`](crate::MediaDriver::do_work).
+#[cfg(feature = "driver")]
+impl Agent for Arc<crate::MediaDriver> {
     fn do_work(&mut self) -> Result<i32> {
-        MediaDriver::do_work(self)
+        crate::MediaDriver::do_work(self)
     }
 }
 

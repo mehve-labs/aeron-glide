@@ -18,15 +18,23 @@ exclude = ["scripts/", "aeron-archive/", ".claude/", ".github/", "TODO.md"]
 features = ["archive"]
 
 [features]
+default = ["driver"]
+# The embedded C media driver (`MediaDriver`). Without it, run a media driver
+# separately (e.g. Java's, or this crate's `mediadriver` binary).
+driver = []
+# The Aeron Archive client (needs Java 17+ to build).
 archive = []
+# The `mediadriver` binary: `cargo install aeron-glide --features bin`.
+bin = ["driver", "dep:ctrlc", "dep:serde", "dep:serde_norway"]
 
 [dependencies]
-ctrlc = "3.5"
 cxx = "1.0"
-serde = { version = "1", features = ["derive"] }
-serde_yaml = "0.9"
+ctrlc = { version = "3.5", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_norway = { version = "0.9", optional = true }
 
 [dev-dependencies]
+ctrlc = "3.5"
 clap = { version = "4", features = ["derive"] }
 hdrhistogram = "7"
 once_cell = "1.19"
@@ -42,6 +50,7 @@ flate2 = "1.0"
 [[bin]]
 name = "mediadriver"
 path = "src/bin/mediadriver.rs"
+required-features = ["bin"]
 
 [[example]]
 name = "ping"
@@ -78,6 +87,7 @@ path = "examples/latency.rs"
 [[example]]
 name = "response_channel"
 path = "examples/response_channel.rs"
+required-features = ["driver"]
 
 [[example]]
 name = "record"

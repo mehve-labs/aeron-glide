@@ -1,3 +1,4 @@
+#![cfg(feature = "driver")]
 //! The media driver's invoker mode and termination requests.
 
 mod common;

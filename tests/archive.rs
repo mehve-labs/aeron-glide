@@ -1,4 +1,4 @@
-#![cfg(feature = "archive")]
+#![cfg(all(feature = "archive", feature = "driver"))]
 //! Archive client tests against a Java `ArchivingMediaDriver` (see
 //! tests/common/archive.rs); skipped without Java or the aeron-all jar.
 

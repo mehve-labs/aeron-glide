@@ -1,3 +1,4 @@
+#![cfg(feature = "driver")]
 //! Response channels (`control-mode=response`): a server answers each client
 //! on a channel the client controls.
 

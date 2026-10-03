@@ -1,3 +1,4 @@
+#![cfg(feature = "driver")]
 //! Idle strategies, agents (runner and invoker), version and clocks.
 
 mod common;

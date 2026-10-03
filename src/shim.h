@@ -105,13 +105,6 @@ static void trycatch(Try &&func, Fail &&fail) noexcept try {
 } // namespace behavior
 } // namespace rust
 
-// Forward declarations for C driver types (defined in aeronmd.h)
-extern "C" {
-    struct aeron_driver_context_stct;
-    typedef struct aeron_driver_context_stct aeron_driver_context_t;
-    struct aeron_driver_stct;
-    typedef struct aeron_driver_stct aeron_driver_t;
-}
 
 namespace aeron_rs {
 
@@ -229,60 +222,6 @@ public:
     std::shared_ptr<aeron::Context> ctx;
 };
 
-// Throws the Aeron exception matching aeron_errcode(), prefixed with `what`.
-[[noreturn]] void throwDriverError(const char *what);
-
-// Settings are applied by the generated driver_gen.h functions.
-// (ctx, token) -> whether to terminate.
-using TerminationValidatorFn = rust::Fn<bool(size_t, rust::Slice<const uint8_t>)>;
-
-class MediaDriverWrapper {
-public:
-    MediaDriverWrapper();
-    ~MediaDriverWrapper();
-
-    // `manual_main_loop`: the caller runs the conductor with doWork (required in
-    // the INVOKER threading mode).
-    void start(bool manual_main_loop);
-    // One duty cycle of a manually run driver (aeron_driver_main_do_work).
-    // const: the Rust side serialises calls; the driver is reached through a pointer.
-    int32_t doWork() const;
-    // Its idle strategy (aeron_driver_main_idle_strategy).
-    void idle(int32_t work_count) const;
-    // Termination requests (D3), called on the driver conductor thread. Each
-    // takes ownership of its ctx, released after the driver is closed.
-    void setTerminationValidator(TerminationValidatorFn validator, ReleaseFn release, size_t ctx);
-    void setTerminationHook(CloseClientFn hook, ReleaseFn release, size_t ctx);
-    // Throws IllegalStateException once started: the driver's threads read the context.
-    void ensureNotStarted() const;
-    aeron_driver_context_t *context() const { return context_; }
-    // A copy of `value` that lives as long as this wrapper: some C setters keep
-    // the pointer they are given instead of copying the string.
-    const char *keep(rust::Str value) {
-        strings_.push_back(detail::cString(value));
-        return strings_.back().c_str();
-    }
-
-    void setThreadingMode(int32_t mode);
-
-    struct TerminationValidator {
-        TerminationValidatorFn validator;
-        RustOwned owner;
-    };
-    struct TerminationHook {
-        CloseClientFn hook;
-        RustOwned owner;
-    };
-private:
-    // Destroyed after the driver and context are closed (members outlive the
-    // destructor's body), so the driver never calls into released handlers.
-    std::unique_ptr<TerminationValidator> validator_;
-    std::unique_ptr<TerminationHook> hook_;
-    aeron_driver_context_t* context_;
-    aeron_driver_t* driver_;
-    bool manual_ = false;
-    std::deque<std::string> strings_; // destroyed after the driver and context are closed
-};
 
 // Workarounds for two upstream bugs in the 1.53.3 C++ wrapper, calling the C
 // functions the C++ methods are meant to call:
@@ -864,7 +803,6 @@ inline rust::String defaultAeronPath() { return rust::String::lossy(aeron::Conte
 // Factory functions that cxx can safely bind to
 std::unique_ptr<ContextWrapper> create_context();
 std::unique_ptr<AeronWrapper> create_aeron(std::unique_ptr<ContextWrapper> context);
-std::unique_ptr<MediaDriverWrapper> create_media_driver();
 
 
 } // namespace aeron_rs

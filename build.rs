@@ -27,6 +27,7 @@ fn main() {
     let aeron_dir = aeron_source(&aeron_version, &out_dir);
 
     let archive_enabled = env::var("CARGO_FEATURE_ARCHIVE").is_ok();
+    let driver_enabled = env::var("CARGO_FEATURE_DRIVER").is_ok();
 
     // Build Aeron C++ using CMake
     let mut config = Config::new(&aeron_dir);
@@ -35,7 +36,10 @@ fn main() {
         // (e.g. the "Aeron software" counter label). The extracted tarball is not a
         // repository, so stop git from finding the enclosing project's instead.
         .env("GIT_CEILING_DIRECTORIES", &out_dir)
-        .define("BUILD_AERON_DRIVER", "ON")
+        .define(
+            "BUILD_AERON_DRIVER",
+            if driver_enabled { "ON" } else { "OFF" },
+        )
         .define(
             "BUILD_AERON_ARCHIVE_API",
             if archive_enabled { "ON" } else { "OFF" },
@@ -72,9 +76,19 @@ fn main() {
     let driver_include_path = aeron_dir.join("aeron-driver/src/main/c");
 
     // Build the cxx bridge(s)
-    let mut bridge_sources: Vec<&str> = vec!["src/lib.rs", "src/driver_gen.rs"];
-    println!("cargo:rerun-if-changed=src/driver_gen.rs");
-    println!("cargo:rerun-if-changed=src/driver_gen.h");
+    let mut bridge_sources: Vec<&str> = vec!["src/lib.rs"];
+    if driver_enabled {
+        bridge_sources.extend(["src/driver.rs", "src/driver_gen.rs"]);
+    }
+    for file in [
+        "src/driver.rs",
+        "src/driver_gen.rs",
+        "src/driver_gen.h",
+        "src/driver_shim.h",
+        "src/driver_shim.cc",
+    ] {
+        println!("cargo:rerun-if-changed={file}");
+    }
     if archive_enabled {
         bridge_sources.push("src/archive/mod.rs");
         for file in [
@@ -91,7 +105,6 @@ fn main() {
         .file("src/shim.cc")
         .include(&include_path)
         .include(&c_client_include_path)
-        .include(&driver_include_path)
         .include("src")
         // C++17 for guaranteed copy elision: aeron::CncFileReader is copyable but
         // closes its mapping in its destructor, so it must never be copied.
@@ -99,6 +112,11 @@ fn main() {
         .flag_if_supported("/std:c++17")
         .flag_if_supported("-Wno-unused-parameter");
 
+    if driver_enabled {
+        builder
+            .file("src/driver_shim.cc")
+            .include(&driver_include_path);
+    }
     if archive_enabled {
         builder.file("src/archive_shim.cc");
         let archive_cpp_path = aeron_dir.join("aeron-archive/src/main/cpp_wrapper");
@@ -116,7 +134,9 @@ fn main() {
     if archive_enabled {
         println!("cargo:rustc-link-lib=static=aeron_archive_c_client_static");
     }
-    println!("cargo:rustc-link-lib=static=aeron_driver_static");
+    if driver_enabled {
+        println!("cargo:rustc-link-lib=static=aeron_driver_static");
+    }
     println!("cargo:rustc-link-lib=static=aeron_static");
 
     // OS-specific dependencies of the target (not the host running build.rs).

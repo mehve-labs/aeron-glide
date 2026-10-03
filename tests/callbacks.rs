@@ -1,3 +1,4 @@
+#![cfg(feature = "driver")]
 mod common;
 
 use common::{TestDriver, offer, poll_n, wait_connected, wait_until};

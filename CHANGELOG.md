@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** cargo features. `driver` (default) builds the embedded media
+  driver; without it only the client is built and linked. The `mediadriver`
+  binary needs the `bin` feature (`cargo install aeron-glide --features bin`),
+  so library users no longer depend on `ctrlc`, `serde` and the deprecated
+  `serde_yaml`; the binary reads its YAML with `serde_norway`.
 - The build script downloads Aeron with `ureq` (rustls) instead of `reqwest`,
   so builds no longer need OpenSSL; it verifies the tarball's SHA-256
   (`AERON_SHA256` overrides it), extracts atomically (an interrupted build no

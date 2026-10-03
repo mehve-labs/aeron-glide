@@ -46,7 +46,7 @@ pub(crate) mod ffi {
     unsafe extern "C++" {
         include!("driver_gen.h");
 
-        type MediaDriverWrapper = crate::ffi::MediaDriverWrapper;
+        type MediaDriverWrapper = crate::driver::ffi::MediaDriverWrapper;
 
         fn driver_set_dir(driver: Pin<&mut MediaDriverWrapper>, value: &str) -> Result<()>;
         fn driver_set_dir_warn_if_exists(

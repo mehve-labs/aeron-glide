@@ -2,6 +2,34 @@
 
 use super::*;
 
+#[cxx::bridge(namespace = "aeron_rs")]
+pub(crate) mod ffi {
+    unsafe extern "C++" {
+        include!("driver_shim.h");
+
+        type MediaDriverWrapper;
+
+        fn create_media_driver() -> Result<UniquePtr<MediaDriverWrapper>>;
+        fn start(self: Pin<&mut MediaDriverWrapper>, manual_main_loop: bool) -> Result<()>;
+        fn doWork(self: &MediaDriverWrapper) -> Result<i32>;
+        fn idle(self: &MediaDriverWrapper, work_count: i32) -> Result<()>;
+        fn setTerminationValidator(
+            self: Pin<&mut MediaDriverWrapper>,
+            validator: fn(usize, &[u8]) -> bool,
+            release: fn(usize),
+            ctx: usize,
+        ) -> Result<()>;
+        fn setTerminationHook(
+            self: Pin<&mut MediaDriverWrapper>,
+            hook: fn(usize),
+            release: fn(usize),
+            ctx: usize,
+        ) -> Result<()>;
+
+        fn setThreadingMode(self: Pin<&mut MediaDriverWrapper>, mode: i32) -> Result<()>;
+    }
+}
+
 /// Threading model for the embedded media driver.
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

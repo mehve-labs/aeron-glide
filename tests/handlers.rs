@@ -1,3 +1,4 @@
+#![cfg(feature = "driver")]
 mod common;
 
 use aeron_glide::{Context, ImageEvent};

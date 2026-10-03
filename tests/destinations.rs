@@ -1,3 +1,4 @@
+#![cfg(feature = "driver")]
 mod common;
 
 use common::{TestDriver, free_udp_port, poll_n, wait_connected, wait_until};

@@ -83,7 +83,10 @@ pub mod concurrent;
 mod context;
 pub mod counter_types;
 mod counters;
+#[cfg(feature = "driver")]
+#[cfg_attr(docsrs, doc(cfg(feature = "driver")))]
 mod driver;
+#[cfg(feature = "driver")]
 mod driver_gen;
 mod error;
 mod handlers;
@@ -98,7 +101,9 @@ pub use context::Context;
 pub use counters::{
     CncConstants, CncFile, Counter, CounterView, CountersReader, ErrorLogEntry, heartbeat_timestamp,
 };
+#[cfg(feature = "driver")]
 pub use driver::{IdleStrategy, MediaDriver, MediaDriverBuilder, ThreadingMode};
+#[cfg(feature = "driver")]
 pub use driver_gen::{InferableBoolean, ThreadNaming};
 pub use error::{Error, ErrorKind, OfferError, Result};
 pub use handlers::{
@@ -203,7 +208,6 @@ pub(crate) mod ffi {
         type PublicationWrapper;
         type ExclusivePublicationWrapper;
         type SubscriptionWrapper;
-        type MediaDriverWrapper;
         type CountersReaderWrapper;
         type CounterWrapper;
         type CncFileWrapper;
@@ -282,7 +286,6 @@ pub(crate) mod ffi {
             ctx: usize,
         );
         fn create_aeron(context: UniquePtr<ContextWrapper>) -> Result<UniquePtr<AeronWrapper>>;
-        fn create_media_driver() -> Result<UniquePtr<MediaDriverWrapper>>;
 
         fn isClosed(self: &AeronWrapper) -> bool;
         fn addPublication(self: &AeronWrapper, channel: &str, stream_id: i32) -> Result<i64>;
@@ -360,24 +363,6 @@ pub(crate) mod ffi {
         ) -> Result<i64>;
         fn removeCloseClientHandler(self: &AeronWrapper, registration_id: i64) -> Result<()>;
         fn countersReader(self: &AeronWrapper) -> UniquePtr<CountersReaderWrapper>;
-
-        fn start(self: Pin<&mut MediaDriverWrapper>, manual_main_loop: bool) -> Result<()>;
-        fn doWork(self: &MediaDriverWrapper) -> Result<i32>;
-        fn idle(self: &MediaDriverWrapper, work_count: i32) -> Result<()>;
-        fn setTerminationValidator(
-            self: Pin<&mut MediaDriverWrapper>,
-            validator: fn(usize, &[u8]) -> bool,
-            release: fn(usize),
-            ctx: usize,
-        ) -> Result<()>;
-        fn setTerminationHook(
-            self: Pin<&mut MediaDriverWrapper>,
-            hook: fn(usize),
-            release: fn(usize),
-            ctx: usize,
-        ) -> Result<()>;
-
-        fn setThreadingMode(self: Pin<&mut MediaDriverWrapper>, mode: i32) -> Result<()>;
 
         fn offer(self: &PublicationWrapper, buffer: &[u8]) -> Result<i64>;
         fn offerParts(
@@ -654,6 +639,7 @@ pub(crate) mod ffi {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "driver")]
     #[test]
     fn driver_builder_reports_first_error() {
         let err = MediaDriver::builder()
@@ -674,6 +660,7 @@ mod tests {
         send_sync::<Counter>();
         send_sync::<CounterView>();
         send_sync::<CncFile>();
+        #[cfg(feature = "driver")]
         send_sync::<MediaDriver>();
         send::<ExclusivePublication>();
         send::<Subscription>();
@@ -705,7 +692,9 @@ mod tests {
         debug::<CounterView>();
         debug::<CountersReader>();
         debug::<CncFile>();
+        #[cfg(feature = "driver")]
         debug::<MediaDriver>();
+        #[cfg(feature = "driver")]
         debug::<MediaDriverBuilder>();
         debug::<Error>();
         debug::<OfferError>();

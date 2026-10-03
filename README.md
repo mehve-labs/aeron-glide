@@ -25,6 +25,14 @@ The result is a fast, safe, and significantly cleaner Aeron client for Rust.
 aeron-glide = "0.3"
 ```
 
+## Features
+
+| Feature | Default | What it adds |
+|---|---|---|
+| `driver` | yes | The embedded C media driver (`MediaDriver`). Without it, run a driver separately and only the client is built. |
+| `archive` | no | The Aeron Archive client (needs Java 17+ to build). |
+| `bin` | no | The `mediadriver` binary (`cargo install aeron-glide --features bin`). |
+
 ## Prerequisites
 
 - **CMake 3.30+** (Aeron 1.53 requires it; older distributions such as Debian 12 ship 3.25 — install a newer one from cmake.org or pip)
@@ -70,7 +78,7 @@ sub1.poll(10, |data, _| {
 All examples require a running Aeron Media Driver. You can start one with:
 
 ```bash
-cargo run --bin mediadriver
+cargo run --features bin --bin mediadriver
 ```
 
 This launches an embedded C media driver that manages shared memory buffers and handles publication/subscription matching. Keep it running in a dedicated terminal, then use any of the examples below in separate terminals.
@@ -78,7 +86,7 @@ This launches an embedded C media driver that manages shared memory buffers and 
 You can optionally pass a YAML config file to tune driver settings (threading mode, buffer sizes, idle strategies, etc.):
 
 ```bash
-cargo run --bin mediadriver -- examples/mediadriver.yaml
+cargo run --features bin --bin mediadriver -- examples/mediadriver.yaml
 ```
 
 ### Ping / Pong
