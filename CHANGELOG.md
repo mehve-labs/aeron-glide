@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `AeronArchive` methods take `&self` (it is `Send + Sync`). `start_replay`
   takes `&ReplayParams` instead of a position and a length.
   `RecordingDescriptor` gains `source_identity` and is `#[non_exhaustive]`.
+  `AeronArchive::poll_for_error_response` returns `Option<String>`.
   `ReplayMerge::new` borrows the archive client mutably for the merge's life
   (the C merge uses its connection without the archive's lock), and rejects a
   replay destination without a UDP endpoint (the C merge dereferences it).
@@ -105,6 +106,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `archive::NULL_POSITION` / `NULL_LENGTH` were `i64::MIN`; Aeron's null value
   is -1, so replays "from the start" or "to the end" used invalid values.
 - `ReplayMerge`'s default progress timeout is the C++ 5 seconds (was 10).
+- Archive requests on a closed client (e.g. after a driver timeout) fail with
+  `IllegalState` instead of waiting forever in upstream loops without a
+  deadline; so do connects and `PersistentSubscription` polls. Listings of 0
+  entries return at once and negative counts are refused (the archive never
+  completes them, blocking the session's later listings). With an agent
+  invoker client, `AsyncConnect::poll` runs the conductor. Huge message
+  timeouts are clamped (the C client overflowed). `ArchiveErrorCode::of`
+  recognises the positive codes errors handlers receive.
 - Archive requests from inside a client or archive handler fail with
   `Reentrant` instead of hanging. Dropping a pending `AsyncConnect` releases it
   (upstream leaks it), and polling it after a failure is an error (upstream
@@ -297,7 +306,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `context()` (`ContextInfo`), `AsyncConnect`, `archive::recording_pos`
   (recording position counters), `PersistentSubscription` /
   `PersistentSubscriptionBuilder`, `ReplayMerge::with_progress_timeout`, and
-  `ArchiveErrorCode` (`ArchiveErrorCode::of(&error)`).
+  `ArchiveErrorCode` (`ArchiveErrorCode::of(&error)`), and
+  `archive::REPLAY_ALL_AND_STOP`.
 - `Debug` for every public type (clients, publications, subscriptions, images,
   counters, contexts, the media driver and archive types); `ChannelBuilder`
   is also `Clone`.

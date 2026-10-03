@@ -106,9 +106,10 @@ impl AeronArchive {
     }
 
     /// Poll for an error response from the archive, e.g. for an asynchronous
-    /// request. Returns the error message, empty if there is none.
-    pub fn poll_for_error_response(&self) -> Result<String> {
-        Ok(self.request()?.pollForErrorResponse()?)
+    /// request: the error message, if there is one.
+    pub fn poll_for_error_response(&self) -> Result<Option<String>> {
+        let message = self.request()?.pollForErrorResponse()?;
+        Ok((!message.is_empty()).then_some(message))
     }
 
     /// Fail with the archive's error if an error response is waiting.
@@ -207,7 +208,10 @@ impl AeronArchive {
             .tryStopRecordingByChannelAndStream(channel, stream_id)?)
     }
 
-    /// Stop a recording by its recording ID. Returns `false` if it was not active.
+    /// Stop a recording by its recording ID. Returns `false` if it was not
+    /// active; fails with [`ArchiveErrorCode::UnknownRecording`](super::ArchiveErrorCode::UnknownRecording)
+    /// if there is no such recording. Its recording subscription is removed (as
+    /// in Java), even if it records other sessions.
     pub fn try_stop_recording_by_identity(&self, recording_id: i64) -> Result<bool> {
         Ok(self.request()?.tryStopRecordingByIdentity(recording_id)?)
     }
@@ -311,6 +315,9 @@ impl AeronArchive {
     where
         F: FnMut(RecordingDescriptor),
     {
+        if !check_count(record_count)? {
+            return Ok(0);
+        }
         let mut cb = Callback::new(handler);
         let result = self.request()?.listRecordings(
             from_recording_id,
@@ -334,6 +341,9 @@ impl AeronArchive {
     where
         F: FnMut(RecordingDescriptor),
     {
+        if !check_count(record_count)? {
+            return Ok(0);
+        }
         let mut cb = Callback::new(handler);
         let result = self.request()?.listRecordingsForUri(
             from_recording_id,
@@ -361,6 +371,9 @@ impl AeronArchive {
     where
         F: FnMut(RecordingSubscriptionDescriptor),
     {
+        if !check_count(subscription_count)? {
+            return Ok(0);
+        }
         let mut cb = Callback::new(handler);
         let result = self.request()?.listRecordingSubscriptions(
             pseudo_index,
@@ -397,9 +410,12 @@ impl AeronArchive {
         )?)
     }
 
-    /// Subscribe to a replay of a recording and start it (C++ `replay`). Also
-    /// works with a response channel (`control-mode=response`), where the
-    /// archive replays to this subscription only.
+    /// Subscribe to a replay of a recording and start it (C++ `replay`).
+    ///
+    /// With a response channel (`control-mode=response`) the archive would
+    /// replay to this subscription only, but the C archive client of Aeron
+    /// 1.53.3 fails to set that up (a session ID clash); this fails until it is
+    /// fixed upstream.
     pub fn replay(
         &self,
         recording_id: i64,
@@ -505,20 +521,36 @@ impl AeronArchive {
     }
 
     /// The position of the start of the segment file containing `position`, for
-    /// a recording starting at `start_position`.
+    /// a recording starting at `start_position` (C++
+    /// `segmentFileBasePosition`). The lengths are powers of two.
     pub fn segment_file_base_position(
         start_position: i64,
         position: i64,
         term_buffer_length: i32,
         segment_file_length: i32,
     ) -> i64 {
-        ffi::segmentFileBasePosition(
-            start_position,
-            position,
-            term_buffer_length,
-            segment_file_length,
-        )
+        // As the C function, with wrapping arithmetic (it overflows for bad
+        // lengths in C).
+        let start_term_base = start_position
+            .wrapping_sub(start_position & i64::from(term_buffer_length.wrapping_sub(1)));
+        let from_base = position.wrapping_sub(start_term_base);
+        let segments =
+            from_base.wrapping_sub(from_base & i64::from(segment_file_length.wrapping_sub(1)));
+        start_term_base.wrapping_add(segments)
     }
+}
+
+/// Listings of 0 entries are answered without asking the archive (which never
+/// answers them); negative counts are refused (the archive's listing would
+/// never end, blocking later listings of the session).
+fn check_count(count: i32) -> Result<bool> {
+    if count < 0 {
+        return Err(crate::Error::new(
+            crate::ErrorKind::IllegalArgument,
+            format!("negative listing count: {count}"),
+        ));
+    }
+    Ok(count > 0)
 }
 
 /// An archive connection in progress, from
@@ -528,7 +560,8 @@ impl AeronArchive {
 /// publication and subscription then stay open until the client closes.
 ///
 /// After [`poll`](Self::poll) fails, the connection is over: polling again
-/// returns an error (upstream would use freed memory).
+/// returns an error (upstream would use freed memory). With an agent invoker
+/// client, `poll` also runs the client's conductor.
 pub struct AsyncConnect {
     inner: cxx::UniquePtr<ffi::ArchiveAsyncConnectWrapper>,
     done: bool,

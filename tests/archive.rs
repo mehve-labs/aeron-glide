@@ -252,7 +252,7 @@ fn archive_errors_carry_codes() {
         Some(ArchiveErrorCode::UnknownRecording),
         "{err}"
     );
-    assert_eq!(archive.poll_for_error_response().unwrap(), "");
+    assert_eq!(archive.poll_for_error_response().unwrap(), None);
     archive.check_for_error_response().unwrap();
 
     for code in 200..=216 {
@@ -892,7 +892,7 @@ fn error_responses_with_tiny_buffers_and_handler_requests() {
         .max_error_message_length(0)
         .connect()
         .unwrap();
-    assert_eq!(archive.poll_for_error_response().unwrap(), "");
+    assert_eq!(archive.poll_for_error_response().unwrap(), None);
 
     // Archive requests from a client handler fail instead of hanging.
     let shared = Arc::new(archive);
@@ -916,4 +916,123 @@ fn error_responses_with_tiny_buffers_and_handler_requests() {
     client.remove_available_counter_handler(id).unwrap();
     let err = result.lock().unwrap().take().unwrap().unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Reentrant, "{err}");
+}
+
+#[test]
+fn listing_counts_and_reentrant_handlers() {
+    let driver = archive_or_skip!();
+    let client = driver.client();
+    let reentrant = Arc::new(Mutex::new(Vec::new()));
+    let sink = reentrant.clone();
+    let archive: Arc<Mutex<Option<Arc<AeronArchive>>>> = Arc::new(Mutex::new(None));
+    let inner = archive.clone();
+    let connected = Arc::new(
+        driver
+            .context(&client)
+            .recording_signal_consumer(move |_| {
+                if let Some(archive) = inner.lock().unwrap().as_ref() {
+                    sink.lock()
+                        .unwrap()
+                        .push(archive.list_recordings(0, 10, |_| {}).unwrap_err().kind());
+                }
+            })
+            .connect()
+            .unwrap(),
+    );
+    *archive.lock().unwrap() = Some(connected.clone());
+    let (recording_id, _) = record(&connected, 22, 1);
+    wait_until("a signal", || {
+        connected.poll_for_recording_signals().unwrap();
+        !reentrant.lock().unwrap().is_empty()
+    });
+    assert!(
+        reentrant
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|k| *k == ErrorKind::Reentrant)
+    );
+    archive.lock().unwrap().take();
+
+    // Zero and negative counts don't reach the archive; listing still works.
+    let start = Instant::now();
+    assert_eq!(connected.list_recordings(0, 0, |_| {}).unwrap(), 0);
+    assert_eq!(
+        connected
+            .list_recordings_for_uri(0, 0, "ipc", 22, |_| {})
+            .unwrap(),
+        0
+    );
+    assert!(start.elapsed() < std::time::Duration::from_secs(1));
+    for err in [
+        connected.list_recordings(0, -1, |_| {}).unwrap_err(),
+        connected
+            .list_recordings_for_uri(0, -1, "ipc", 22, |_| {})
+            .unwrap_err(),
+        connected
+            .list_recording_subscriptions(0, -1, "ipc", 22, true, |_| {})
+            .unwrap_err(),
+    ] {
+        assert_eq!(err.kind(), ErrorKind::IllegalArgument, "{err}");
+    }
+    assert_eq!(
+        connected.list_recordings(recording_id, 10, |_| {}).unwrap(),
+        1
+    );
+
+    // Replay what is recorded, then stop.
+    let mut replay = connected
+        .replay(
+            recording_id,
+            "aeron:ipc",
+            23,
+            &ReplayParams::new().length(archive::REPLAY_ALL_AND_STOP),
+        )
+        .unwrap();
+    poll_n(&mut replay, 1, |_| {});
+}
+
+#[test]
+fn closed_clients_fail_instead_of_hanging() {
+    let driver = archive_or_skip!();
+    let client = aeron_glide::AeronClient::connect(
+        Context::new()
+            .aeron_dir(&driver.aeron_dir)
+            .use_conductor_agent_invoker(true)
+            .driver_timeout(std::time::Duration::from_secs(1))
+            .error_handler(|_| {}),
+    )
+    .unwrap();
+    // Asynchronous connect drives the invoker client's conductor itself.
+    let mut pending = driver.context(&client).connect_async().unwrap();
+    let mut archive = None;
+    wait_until("the archive to connect", || {
+        archive = pending.poll().unwrap();
+        archive.is_some()
+    });
+    let archive = archive.unwrap();
+
+    // Stop the driver: the client times out and closes.
+    let (connect, connect_async) = (driver.context(&client), driver.context(&client));
+    drop(driver);
+    wait_until("the client to close", || {
+        client.invoke().ok();
+        client.is_closed()
+    });
+    let start = Instant::now();
+    for err in [
+        archive
+            .add_recorded_publication("aeron:ipc", 24)
+            .map(drop)
+            .unwrap_err(),
+        archive
+            .replay(0, "aeron:ipc", 25, &ReplayParams::new())
+            .map(drop)
+            .unwrap_err(),
+        connect.connect().map(drop).unwrap_err(),
+        connect_async.connect_async().map(drop).unwrap_err(),
+    ] {
+        assert_eq!(err.kind(), ErrorKind::IllegalState, "{err}");
+    }
+    assert!(start.elapsed() < std::time::Duration::from_secs(2));
 }

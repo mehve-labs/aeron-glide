@@ -1,15 +1,19 @@
 //! Archive value types: descriptors, signals, parameters and error codes.
 
 use super::ffi;
-use crate::{Error, ErrorKind};
+use crate::Error;
 
 /// The null position (C++ `NULL_POSITION`, `aeron::NULL_VALUE`), e.g. the stop
 /// position of an active recording.
 pub const NULL_POSITION: i64 = -1;
 
 /// The null length (C++ `NULL_LENGTH`): replay to the end of the recording and
-/// follow it while it is active.
+/// follow it while it is active (C `ARCHIVE_REPLAY_ALL_AND_FOLLOW`).
 pub const NULL_LENGTH: i64 = -1;
+
+/// A replay length that replays what is recorded when the replay starts, then
+/// stops, even if the recording is active (C `ARCHIVE_REPLAY_ALL_AND_STOP`).
+pub const REPLAY_ALL_AND_STOP: i64 = -2;
 
 /// Where the recorded stream comes from, relative to the archive.
 #[repr(i32)]
@@ -231,7 +235,8 @@ impl ReplayParams {
     }
 
     /// How much to replay ([`NULL_LENGTH`], the default: to the end, following
-    /// an active recording; `i64::MAX` to follow it forever).
+    /// an active recording; [`REPLAY_ALL_AND_STOP`] to stop at the recorded end;
+    /// `i64::MAX` to follow it forever).
     pub fn length(mut self, length: i64) -> Self {
         self.length = length;
         self
@@ -260,7 +265,9 @@ impl ReplayParams {
 
     /// The registration ID of the subscription to replay to, for a response
     /// channel replay started with
-    /// [`AeronArchive::start_replay`](super::AeronArchive::start_replay).
+    /// [`AeronArchive::start_replay`](super::AeronArchive::start_replay) (which
+    /// the C archive client of Aeron 1.53.3 fails to set up, see
+    /// [`AeronArchive::replay`](super::AeronArchive::replay)).
     pub fn subscription_registration_id(mut self, registration_id: i64) -> Self {
         self.subscription_registration_id = registration_id;
         self
@@ -448,9 +455,13 @@ impl ReplicationParams {
 
 /// The error codes an archive returns (C++ `archive::client::error`).
 ///
-/// An archive's error response fails the request with an [`Error`] whose
+/// An archive's error response fails a request with an [`Error`] whose
 /// [`code`](Error::code) is the negated [`code`](Self::code) (e.g. -205 for
-/// [`UnknownRecording`](Self::UnknownRecording)); [`of`](Self::of) recovers it.
+/// [`UnknownRecording`](Self::UnknownRecording)); errors passed to an error
+/// handler, or a persistent subscription's `on_error`, carry it positive.
+/// [`of`](Self::of) recovers it from both. (A listing request rejected by the
+/// archive reports the archive's raw code, 0 to 16, which `of` does not
+/// recognise.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ArchiveErrorCode {
@@ -524,9 +535,53 @@ impl ArchiveErrorCode {
 
     /// The archive error code of a failed request, if the archive rejected it.
     pub fn of(error: &Error) -> Option<Self> {
-        if !matches!(error.kind(), ErrorKind::Archive | ErrorKind::Aeron) {
-            return None;
+        Self::from_code(error.code().checked_abs()?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ErrorKind;
+
+    #[test]
+    fn error_code_conventions() {
+        let error = |kind, code| Error::new(kind, "x").with_code(code);
+        // Request errors carry the code negated, handler errors positive.
+        for e in [
+            error(ErrorKind::Archive, -205),
+            error(ErrorKind::Aeron, 205),
+        ] {
+            assert_eq!(
+                ArchiveErrorCode::of(&e),
+                Some(ArchiveErrorCode::UnknownRecording)
+            );
         }
-        Self::from_code(error.code().checked_neg()?)
+        assert_eq!(
+            ArchiveErrorCode::of(&error(ErrorKind::IllegalState, 5)),
+            None
+        );
+        assert_eq!(
+            ArchiveErrorCode::of(&error(ErrorKind::Aeron, i32::MIN)),
+            None
+        );
+        for code in 200..=216 {
+            assert_eq!(ArchiveErrorCode::from_code(code).unwrap().code(), code);
+        }
+    }
+
+    #[test]
+    fn segment_file_base_position_matches_c() {
+        use super::super::AeronArchive;
+        assert_eq!(
+            AeronArchive::segment_file_base_position(0, 300_000, 65536, 262144),
+            262144
+        );
+        assert_eq!(
+            AeronArchive::segment_file_base_position(65536 + 32, 65536 + 300_000, 65536, 262144),
+            65536 + 262144
+        );
+        // Invalid lengths do not overflow.
+        let _ = AeronArchive::segment_file_base_position(i64::MIN, i64::MAX, i32::MIN, i32::MIN);
     }
 }

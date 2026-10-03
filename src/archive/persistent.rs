@@ -224,11 +224,7 @@ impl PersistentSubscriptionBuilder {
         F: Fn() + Send + Sync + 'static,
     {
         self.set(move |ctx| {
-            Ok(ctx.setOnLiveJoined(
-                handlers::close_client::<F>,
-                release::<F>,
-                into_ctx(callback),
-            )?)
+            Ok(ctx.setOnLiveJoined(live_trampoline::<F>, release::<F>, into_ctx(callback))?)
         })
     }
 
@@ -238,11 +234,7 @@ impl PersistentSubscriptionBuilder {
         F: Fn() + Send + Sync + 'static,
     {
         self.set(move |ctx| {
-            Ok(ctx.setOnLiveLeft(
-                handlers::close_client::<F>,
-                release::<F>,
-                into_ctx(callback),
-            )?)
+            Ok(ctx.setOnLiveLeft(live_trampoline::<F>, release::<F>, into_ctx(callback))?)
         })
     }
 
@@ -265,6 +257,10 @@ impl PersistentSubscriptionBuilder {
             inner: ffi::create_persistent_subscription(self.inner?)?,
         })
     }
+}
+
+fn live_trampoline<F: Fn() + Send + Sync + 'static>(ctx: usize) {
+    handlers::invoke::<F>(ctx, "persistent subscription live", |f| f());
 }
 
 fn error_trampoline<F: Fn(&Error) + Send + Sync + 'static>(ctx: usize, code: i32, message: &[u8]) {

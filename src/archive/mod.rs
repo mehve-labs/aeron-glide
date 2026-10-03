@@ -8,7 +8,7 @@
 //!
 //! # fn main() -> aeron_glide::Result<()> {
 //! let client = AeronClient::new()?;
-//! let mut archive = archive::Context::new()
+//! let archive = archive::Context::new()
 //!     .aeron(&client)
 //!     .control_request_channel("aeron:udp?endpoint=localhost:8010")
 //!     .control_response_channel("aeron:udp?endpoint=localhost:0")
@@ -16,8 +16,8 @@
 //!
 //! let publication = archive.add_recorded_publication("aeron:ipc", 10)?;
 //! // ... offer ...
-//! # let _ = publication;
-//! let recording_id = archive.find_last_matching_recording(0, "aeron:ipc", 10, -1)?;
+//! let recording_id =
+//!     archive.find_last_matching_recording(0, "aeron:ipc", 10, publication.session_id())?;
 //! let mut replay = archive.replay(
 //!     recording_id,
 //!     "aeron:udp?endpoint=localhost:20123",
@@ -41,9 +41,9 @@ pub use context::{Context, ContextInfo};
 pub use persistent::{PersistentSubscription, PersistentSubscriptionBuilder};
 pub use replay_merge::{REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT_MS, ReplayMerge};
 pub use types::{
-    ArchiveErrorCode, NULL_LENGTH, NULL_POSITION, RecordingDescriptor, RecordingSignal,
-    RecordingSignalCode, RecordingSubscriptionDescriptor, ReplayParams, ReplicationParams,
-    SourceLocation,
+    ArchiveErrorCode, NULL_LENGTH, NULL_POSITION, REPLAY_ALL_AND_STOP, RecordingDescriptor,
+    RecordingSignal, RecordingSignalCode, RecordingSubscriptionDescriptor, ReplayParams,
+    ReplicationParams, SourceLocation,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -360,13 +360,6 @@ pub(crate) mod ffi {
             src_recording_id: i64,
             dst_recording_id: i64,
         ) -> Result<i64>;
-        fn segmentFileBasePosition(
-            start_position: i64,
-            position: i64,
-            term_buffer_length: i32,
-            segment_file_length: i32,
-        ) -> i64;
-
         fn recordingPosFindCounterIdByRecordingId(
             reader: &CountersReaderWrapper,
             recording_id: i64,

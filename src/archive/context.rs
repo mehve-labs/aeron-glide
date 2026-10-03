@@ -12,8 +12,8 @@ use std::time::Duration;
 /// connected with [`connect`](Self::connect) or [`connect_async`](Self::connect_async).
 ///
 /// The handlers run on the thread calling the archive client, while it waits
-/// for the archive (they need `Send + Sync`). Calling the archive client from
-/// them fails.
+/// for the archive (they need `Send + Sync`). Archive requests from them, or
+/// from client handlers, fail with [`ErrorKind::Reentrant`](crate::ErrorKind::Reentrant).
 ///
 /// Settings are applied as they are set; the first invalid one is reported by
 /// `connect`.
@@ -149,7 +149,10 @@ impl Context {
 
     /// How long to wait for a response (C++ `messageTimeoutNs`).
     pub fn message_timeout(self, timeout: Duration) -> Self {
-        let ns = i64::try_from(timeout.as_nanos()).unwrap_or(i64::MAX);
+        // The C client adds it to the clock: clamp far below overflow.
+        let ns = i64::try_from(timeout.as_nanos())
+            .unwrap_or(i64::MAX)
+            .min(i64::MAX / 4);
         self.set(move |ctx| Ok(ctx.setMessageTimeoutNs(ns)?))
     }
 
@@ -185,7 +188,7 @@ impl Context {
     {
         self.set(move |ctx| {
             Ok(ctx.setDelegatingInvoker(
-                handlers::close_client::<F>,
+                invoker_trampoline::<F>,
                 release::<F>,
                 into_ctx(invoker),
             )?)
@@ -193,8 +196,10 @@ impl Context {
     }
 
     /// Handle errors the archive reports asynchronously, e.g. error responses to
-    /// requests that are no longer awaited. Without a handler they are printed
-    /// to stderr.
+    /// requests that are no longer awaited. Without a handler they are dropped
+    /// (only [`AeronArchive::poll_for_error_response`] and
+    /// [`check_for_error_response`](AeronArchive::check_for_error_response)
+    /// report them).
     pub fn error_handler<F>(self, handler: F) -> Self
     where
         F: Fn(&Error) + Send + Sync + 'static,
@@ -256,6 +261,10 @@ impl Context {
             self.build()?,
         )?))
     }
+}
+
+fn invoker_trampoline<F: Fn() + Send + Sync + 'static>(ctx: usize) {
+    handlers::invoke::<F>(ctx, "archive delegating invoker", |f| f());
 }
 
 fn idle_trampoline<F: Fn(i32) + Send + Sync + 'static>(ctx: usize, work_count: i32) {

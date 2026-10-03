@@ -118,6 +118,15 @@ struct CCounterTag {
 };
 template struct PrivateMember<CCounterTag, &aeron::concurrent::AtomicCounter::m_counter>;
 
+// Some archive client loops wait for the client without a deadline or a closed
+// check (upstream): fail first if the client is closed. (It can still close
+// while one runs; then the client's own timeouts apply.)
+void ensureOpen(const std::shared_ptr<aeron::Aeron> &aeron) {
+    if (aeron && aeron->isClosed()) {
+        throw aeron::util::IllegalStateException("the Aeron client is closed", SOURCEINFO, EPERM);
+    }
+}
+
 rust::String lossyOrEmpty(const char *s) { return s ? rust::String::lossy(s) : rust::String(); }
 
 std::string aeronDirectoryName(const arc::Context &context) {
@@ -230,6 +239,7 @@ std::unique_ptr<ArchiveWrapper> wrapArchive(std::shared_ptr<arc::AeronArchive> a
 
 std::unique_ptr<ArchiveWrapper> archive_connect(ArchiveContextWrapper &context) {
     context.conclude();
+    ensureOpen(context.ctx->aeron());
     ConductorLock::Guard guard(context.lock);
     return wrapArchive(arc::AeronArchive::connect(*context.ctx), context);
 }
@@ -239,6 +249,7 @@ std::unique_ptr<ArchiveWrapper> archive_connect(ArchiveContextWrapper &context) 
 ArchiveAsyncConnectWrapper::ArchiveAsyncConnectWrapper(std::unique_ptr<ArchiveContextWrapper> context)
     : context_(std::move(context)) {
     context_->conclude();
+    ensureOpen(context_->ctx->aeron());
     ConductorLock::Guard guard(context_->lock);
     async_ = arc::AeronArchive::asyncConnect(*context_->ctx);
 }
@@ -260,6 +271,12 @@ std::unique_ptr<ArchiveWrapper> ArchiveAsyncConnectWrapper::poll() {
     aeron_archive_async_connect_t *&pending = (*async_).*member(CAsyncConnectTag());
     if (pending == nullptr) {
         throw aeron::util::IllegalStateException("the archive connection already completed", SOURCEINFO, EPERM);
+    }
+    const auto &aeron = context_->ctx->aeron();
+    ensureOpen(aeron);
+    if (aeron->usesAgentInvoker()) {
+        // The blocking connect runs the conductor while it waits; so does poll.
+        aeron->conductorAgentInvoker().invoke();
     }
     std::shared_ptr<arc::AeronArchive> archive;
     try {
@@ -319,7 +336,8 @@ int32_t ArchiveWrapper::pollForRecordingSignals() const {
 // overreads a zero-length one.
 rust::String ArchiveWrapper::pollForErrorResponse() const {
     ConductorLock::Guard guard(lock_);
-    std::vector<char> buffer(std::max<std::uint32_t>(archive_->context().maxErrorMessageLength(), 1) + 1, '\0');
+    // At least the default length: a shorter buffer truncates messages to nothing.
+    std::vector<char> buffer(std::max<std::uint32_t>(archive_->context().maxErrorMessageLength(), 1000) + 1, '\0');
     if (aeron_archive_poll_for_error_response((*archive_).*member(CArchiveTag()), buffer.data(), buffer.size() - 1) < 0) {
         using namespace aeron::util;
         ARCHIVE_MAP_ERRNO_TO_SOURCED_EXCEPTION_AND_THROW;
@@ -333,6 +351,7 @@ void ArchiveWrapper::checkForErrorResponse() const {
 }
 
 std::unique_ptr<PublicationWrapper> ArchiveWrapper::addRecordedPublication(rust::Str channel, int32_t stream_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     auto publication = archive_->addRecordedPublication(str(channel), stream_id);
     return std::unique_ptr<PublicationWrapper>(new PublicationWrapper(std::move(publication), lock_));
@@ -340,6 +359,7 @@ std::unique_ptr<PublicationWrapper> ArchiveWrapper::addRecordedPublication(rust:
 
 std::unique_ptr<ExclusivePublicationWrapper> ArchiveWrapper::addRecordedExclusivePublication(
     rust::Str channel, int32_t stream_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     auto publication = archive_->addRecordedExclusivePublication(str(channel), stream_id);
     return std::unique_ptr<ExclusivePublicationWrapper>(new ExclusivePublicationWrapper(std::move(publication), lock_));
@@ -507,6 +527,7 @@ arc::ReplayParams replayParams(int64_t position, int64_t length, int32_t boundin
 int64_t ArchiveWrapper::startReplay(int64_t recording_id, rust::Str channel, int32_t stream_id, int64_t position,
                                     int64_t length, int32_t bounding_limit_counter_id, int32_t file_io_max_length,
                                     int64_t replay_token, int64_t subscription_registration_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     auto params = replayParams(position, length, bounding_limit_counter_id, file_io_max_length, replay_token,
                                subscription_registration_id);
@@ -517,6 +538,7 @@ std::unique_ptr<SubscriptionWrapper> ArchiveWrapper::replay(
     int64_t recording_id, rust::Str channel, int32_t stream_id, int64_t position, int64_t length,
     int32_t bounding_limit_counter_id, int32_t file_io_max_length, int64_t replay_token,
     int64_t subscription_registration_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     auto params = replayParams(position, length, bounding_limit_counter_id, file_io_max_length, replay_token,
                                subscription_registration_id);
@@ -594,11 +616,6 @@ int64_t ArchiveWrapper::migrateSegments(int64_t src_recording_id, int64_t dst_re
     return archive_->migrateSegments(src_recording_id, dst_recording_id);
 }
 
-int64_t segmentFileBasePosition(int64_t start_position, int64_t position, int32_t term_buffer_length,
-                                int32_t segment_file_length) {
-    return arc::AeronArchive::segmentFileBasePosition(start_position, position, term_buffer_length,
-                                                      segment_file_length);
-}
 
 // RecordingPos
 
@@ -843,6 +860,7 @@ PersistentSubscriptionWrapper::~PersistentSubscriptionWrapper() {
 }
 
 int PersistentSubscriptionWrapper::poll(int fragment_limit, FragmentFn handler, size_t ctx) {
+    ensureOpen(context_->client);
     ConductorLock::Guard guard(context_->lock);
     auto fragment_handler = [&](const aeron::AtomicBuffer &buffer, aeron::util::index_t offset,
                                 aeron::util::index_t length, aeron::Header &header) {
@@ -853,6 +871,7 @@ int PersistentSubscriptionWrapper::poll(int fragment_limit, FragmentFn handler, 
 }
 
 int PersistentSubscriptionWrapper::controlledPoll(int fragment_limit, ControlledFragmentFn handler, size_t ctx) {
+    ensureOpen(context_->client);
     ConductorLock::Guard guard(context_->lock);
     auto fragment_handler = [&](const aeron::AtomicBuffer &buffer, aeron::util::index_t offset,
                                 aeron::util::index_t length, aeron::Header &header) {

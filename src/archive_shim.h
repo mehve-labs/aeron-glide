@@ -216,8 +216,6 @@ private:
 
 std::unique_ptr<ArchiveAsyncConnectWrapper> archive_async_connect(std::unique_ptr<ArchiveContextWrapper> context);
 
-int64_t segmentFileBasePosition(int64_t start_position, int64_t position, int32_t term_buffer_length,
-                                int32_t segment_file_length);
 
 // RecordingPos (A10).
 int32_t recordingPosFindCounterIdByRecordingId(const CountersReaderWrapper &reader, int64_t recording_id);
