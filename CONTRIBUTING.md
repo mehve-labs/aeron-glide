@@ -53,15 +53,10 @@ wait with `common::wait_until` (it has a deadline) rather than open-ended loops.
   exceptions into `ErrorKind`. Errors from the C API (e.g. the media driver)
   should go through `AERON_MAP_TO_SOURCED_EXCEPTION_AND_THROW` so they get a
   kind and an error code too.
-- **C++ first, C where needed.** Bind the official Aeron C++ wrapper. Where it
-  has no equivalent for a C API, call the C function on the raw handle the C++
-  object exposes (`Aeron::aeron()`, `Publication::publication()`,
-  `Subscription::subscription()`, `CountersReader::countersReader()`, ...).
-  The archive classes `aeron::archive::client::Context` and
-  `PersistentSubscription` keep their handles private, so `build.rs` patches
-  their headers to add a public `aeronGlideCHandle()` getter. Keep that patch
-  minimal: it must be re-checked on every Aeron upgrade (the build fails if
-  its anchors disappear).
+- **C++ API only.** Bind what the official Aeron C++ wrapper exposes. Functions
+  only the C API exposes are not bound unless a concrete use case needs them
+  (see the C extras list in the roadmap); the media driver, which has no C++
+  API, is the exception.
 - **Generated code.** `src/driver_gen.rs` and `src/driver_gen.h` (media driver
   settings) are generated from Aeron's `aeronmd.h` by
   `scripts/gen_driver_context.py` and checked in. Don't edit them; rerun the

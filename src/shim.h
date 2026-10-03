@@ -364,10 +364,6 @@ private:
     std::unique_ptr<aeron::archive::client::ReplayMerge> merge_;
 };
 
-// F9 prototype: sets a C-only archive context setting through the C handle that
-// build.rs exposes, and reads it back. Replaced by the ArchiveContext builder (A1).
-size_t probeArchiveControlMtuLength(size_t control_mtu_length);
-
 std::unique_ptr<ArchiveWrapper> connect_archive(
     ::rust::Str control_request_channel, int32_t control_request_stream_id,
     ::rust::Str control_response_channel, int32_t control_response_stream_id);

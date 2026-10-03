@@ -18,9 +18,8 @@ fn main() {
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-    // Configurable Aeron version. The generated src/driver_gen.{rs,h} and the
-    // archive header patch target the default; other versions may need
-    // `scripts/gen_driver_context.py` rerun.
+    // Configurable Aeron version. The generated src/driver_gen.{rs,h} target the
+    // default; other versions may need `scripts/gen_driver_context.py` rerun.
     let aeron_version = env::var("AERON_VERSION").unwrap_or_else(|_| "1.53.3".to_string());
     println!("cargo:rerun-if-env-changed=AERON_VERSION");
 
@@ -36,9 +35,6 @@ fn main() {
     }
 
     let archive_enabled = env::var("CARGO_FEATURE_ARCHIVE").is_ok();
-    if archive_enabled {
-        patch_archive_cpp_wrapper(&aeron_dir);
-    }
 
     // Build Aeron C++ using CMake
     let mut config = Config::new(&aeron_dir);
@@ -125,45 +121,6 @@ fn main() {
     }
 
     builder.compile("aeron_rs_cxx");
-}
-
-/// The archive C++ wrapper keeps its C handles private, so C-only archive APIs
-/// (e.g. `aeron_archive_context_set_control_mtu_length`) are unreachable. Add a
-/// public getter for each handle. Panics if an Aeron upgrade moves the anchors.
-fn patch_archive_cpp_wrapper(aeron_dir: &std::path::Path) {
-    let dir = aeron_dir.join("aeron-archive/src/main/cpp_wrapper/client/archive");
-    let patches = [
-        (
-            "ArchiveContext.h",
-            "    aeron_archive_context_t *m_aeron_archive_ctx_t = nullptr; // backing C struct",
-            "aeron_archive_context_t *aeronGlideCHandle() const { return m_aeron_archive_ctx_t; }",
-        ),
-        (
-            "PersistentSubscription.h",
-            "    aeron_archive_persistent_subscription_t *m_persistent_subscription_t = nullptr;",
-            "aeron_archive_persistent_subscription_t *aeronGlideCHandle() const { return m_persistent_subscription_t; }",
-        ),
-    ];
-    for (file, anchor, getter) in patches {
-        let path = dir.join(file);
-        println!("cargo:rerun-if-changed={}", path.display());
-        let source = std::fs::read_to_string(&path).expect("read archive C++ header");
-        if source.contains("aeronGlideCHandle") {
-            continue;
-        }
-        assert!(
-            source.contains(anchor),
-            "aeron-glide: cannot patch {file}: anchor not found (did the Aeron archive C++ wrapper change?)"
-        );
-        let patched = source.replacen(
-            anchor,
-            &format!(
-                "public:\n    // Added by aeron-glide's build.rs: access to C-only archive APIs.\n    {getter}\nprivate:\n{anchor}"
-            ),
-            1,
-        );
-        std::fs::write(&path, patched).expect("write archive C++ header");
-    }
 }
 
 fn download_and_extract(url: &str, dest_dir: &PathBuf) {

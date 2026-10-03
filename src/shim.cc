@@ -559,16 +559,6 @@ int64_t ArchiveWrapper::controlSessionId() const {
     return archive_->controlSessionId();
 }
 
-size_t probeArchiveControlMtuLength(size_t control_mtu_length) {
-    using namespace aeron::util;
-    aeron::archive::client::Context ctx;
-    aeron_archive_context_t *c_ctx = ctx.aeronGlideCHandle();
-    if (aeron_archive_context_set_control_mtu_length(c_ctx, control_mtu_length) < 0) {
-        AERON_MAP_ERRNO_TO_SOURCED_EXCEPTION_AND_THROW;
-    }
-    return aeron_archive_context_get_control_mtu_length(c_ctx);
-}
-
 std::unique_ptr<ArchiveWrapper> connect_archive(
     ::rust::Str control_request_channel, int32_t control_request_stream_id,
     ::rust::Str control_response_channel, int32_t control_response_stream_id) {

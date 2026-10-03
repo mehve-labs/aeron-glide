@@ -10,9 +10,6 @@ pub mod ffi {
 
         type ArchiveWrapper;
 
-        /// F9 prototype for C-only archive APIs; see `probeArchiveControlMtuLength` in shim.h.
-        fn probeArchiveControlMtuLength(control_mtu_length: usize) -> Result<usize>;
-
         fn connect_archive(
             control_request_channel: &str,
             control_request_stream_id: i32,
@@ -553,13 +550,3 @@ impl<'a> ReplayMerge<'a> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn c_only_archive_context_setting_round_trips() {
-        assert_eq!(
-            super::ffi::probeArchiveControlMtuLength(4096).unwrap(),
-            4096
-        );
-    }
-}
