@@ -54,31 +54,61 @@ subscription.poll(10, |data, _header| {
 ## How it differs from rusteron
 
 [rusteron](https://github.com/gsrxyz/rusteron) is the other complete Aeron
-binding for Rust. It is generated from Aeron's C API, is used in production at
-GSR, and exposes nearly every C function with little abstraction. Its README
-warns that misuse (for example using a publication after its client is closed)
-is undefined behaviour.
+binding for Rust. It is generated from Aeron's C API, exposes nearly every C
+function with little abstraction, and is used in production at GSR. Its README
+is upfront that the API "operates in an `unsafe` context": misuse, such as
+using a publication after its client is closed, is undefined behaviour.
 
-aeron-glide is hand-written, so it makes a different trade-off:
+aeron-glide takes the opposite approach: a hand-written API where that misuse
+cannot be expressed in safe code. Performance is the same (both spend their
+time in the same Aeron C code; see [Benchmarks](#benchmarks)), so the
+difference is in what the API guarantees.
+
+**Where aeron-glide is stronger**
+
+- **Safe by construction.** Publications, subscriptions and counters keep
+  their client alive; borrowed objects (images, `ReplayMerge`, buffer claims)
+  carry lifetimes; closing is dropping, in any order.
+- **Thread safety in the types.** `Send` and `Sync` follow Aeron's documented
+  rules out of the box: a client and a concurrent publication are `Sync`,
+  subscriptions and exclusive publications are `Send` only. rusteron makes its
+  handles `Sync` only with its `multi-threaded` feature.
+- **Handlers that can't take the process down.** A panic in a handler is
+  caught and resumed after the poll, or reported; in rusteron, callbacks are
+  `extern "C"`, so a panic aborts. Handlers may drop what they own, including
+  the client, and calls Aeron cannot make from a handler fail with an error
+  instead of deadlocking.
+- **Hardened against Aeron's own bugs.** Writing the bindings turned up bugs
+  in Aeron's C++ wrapper, C client and archive client: a counter
+  use-after-free, a `compareAndSet` that can succeed without writing on ARM,
+  timeouts that overflow, an archive connect that can hang forever, readers
+  that trust lengths from corrupt files, and more. The shim works around them
+  and the tests check each workaround. Several are in Aeron's C client (the
+  timeouts, the archive hang, the file readers), so code calling it directly,
+  rusteron included, is exposed to those.
+- **Rust-shaped API.** `&str` channels, builders that validate, one `Error`
+  type with Aeron's error codes, idle strategies and agents, and documentation
+  on every public item.
+
+**Where rusteron is stronger**
+
+- **Breadth.** Being generated, it covers nearly all of the C API, including
+  the driver's pluggable flow control, congestion control and interceptors,
+  which aeron-glide does not expose yet. If you need a C function we don't
+  wrap, rusteron probably has it (and please open an issue).
+- **Builds.** Optional precompiled static libraries on macOS, so no CMake;
+  aeron-glide always builds Aeron from source and needs a C++17 compiler and
+  CMake 3.30+.
+- **Maturity.** Years of production use; aeron-glide 0.4 is new.
 
 | | aeron-glide | rusteron |
 |---|---|---|
 | Binds | Aeron's C++ API through `cxx`, and the C API where C++ lacks a call or has a bug | Aeron's C API, generated with `bindgen` and its own code generator |
-| Safety | Safe API: handles keep their client alive, borrowed objects (images, `ReplayMerge`) carry lifetimes, `Send`/`Sync` follow Aeron's thread-safety rules, and calls Aeron cannot make from a handler fail instead of deadlocking | Thin wrappers; the README documents which uses are undefined behaviour |
+| Misuse | Rejected by the compiler or returned as an error | Undefined behaviour, as its README documents |
+| Panics in callbacks | Caught, then resumed or reported | Abort the process |
 | Errors | `Error` with an `ErrorKind` and Aeron's error code, `OfferError`, typed archive error codes | `AeronCError` with an `AeronErrorType`, `AeronOfferError` |
-| Panics | Caught at the FFI boundary and resumed or reported (see below) | Callbacks are `extern "C"`, so a panic in one aborts the process |
-| API surface | Curated, every function documented; gaps are added by hand | Nearly all of the C API, generated |
-| Build | One crate with features; needs a C++17 compiler and CMake 3.30+ | Several crates; optional precompiled static libraries on macOS |
-
-If you need a C function that aeron-glide does not expose yet, rusteron
-probably has it; please open an issue. aeron-glide does not aim to be faster
-than rusteron: both call the same Aeron code on the hot path (see
-[Benchmarks](#benchmarks)).
-
-Writing the bindings turned up bugs in Aeron's C++ wrapper, C client and
-archive client (for example a counter use-after-free and a `compareAndSet` that
-can succeed without writing on ARM). The shim works around them, and the tests
-check the workarounds.
+| API surface | Curated and documented; gaps added by hand | Nearly all of the C API |
+| Performance | Same | Same |
 
 ## Installation
 
