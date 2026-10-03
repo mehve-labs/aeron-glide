@@ -37,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   remaining fragments of a plain poll are consumed without delivery; a
   panicking claim is aborted.
 - **Breaking:** `CountersReader::for_each` returns `Result<()>`.
+- **Breaking:** `AeronClient::add_publication`, `add_exclusive_publication` and
+  `add_subscription`, and `Publication::offer` / `try_claim`, take `&self`.
+- **Breaking:** `ReplayMerge` is now `ReplayMerge<'a>` and keeps the
+  `&mut Subscription` passed to `ReplayMerge::new` borrowed while it is alive.
 - **Breaking:** `Image` is now `Image<'a>`, borrowing its `Subscription` /
   `ReplayMerge`. `Subscription::image_by_index` and `image_by_session_id` take
   `&self`.
@@ -53,6 +57,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Thread-safety markers matching Aeron: `AeronClient`, `Publication` and
+  `CountersReader` are `Send + Sync`; `ExclusivePublication` and `Subscription`
+  are `Send`. Share one client per process instead of one per thread.
 - `OfferError` (`NotConnected`, `BackPressured`, `AdminAction`, `Closed`,
   `MaxPositionExceeded`, `Error`) with `is_retryable()` and `is_back_pressured()`.
 

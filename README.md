@@ -42,16 +42,20 @@ use aeron_glide::AeronClient;
 let mut client = AeronClient::new()?;
 client.start();
 
-let mut pub1 = client.add_publication("aeron:ipc", 1001)?;
+let pub1 = client.add_publication("aeron:ipc", 1001)?;
 let mut sub1 = client.add_subscription("aeron:ipc", 1001)?;
 
-// Publish
-while pub1.offer(b"hello aeron").is_err() {}
+// Publish (retry while not connected / back pressured)
+while let Err(e) = pub1.offer(b"hello aeron") {
+    if !e.is_retryable() {
+        return Err(e.into());
+    }
+}
 
 // Subscribe
 sub1.poll(10, |data| {
-    println!("Received: {}", std::str::from_utf8(data).unwrap());
-});
+    println!("Received: {}", String::from_utf8_lossy(data));
+})?;
 ```
 
 ## Running the Examples

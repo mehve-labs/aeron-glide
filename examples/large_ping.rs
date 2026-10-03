@@ -19,7 +19,7 @@ fn main() {
     let mut client = AeronClient::new().expect("Failed to start Aeron");
     client.start();
 
-    let mut publ = client.add_publication(CHANNEL, PING_STREAM_ID).unwrap();
+    let publ = client.add_publication(CHANNEL, PING_STREAM_ID).unwrap();
     let mut sub = client.add_subscription(CHANNEL, PONG_STREAM_ID).unwrap();
 
     println!("Waiting for large_pong subscriber...");

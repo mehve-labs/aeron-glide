@@ -167,12 +167,12 @@ PublicationWrapper::PublicationWrapper(std::shared_ptr<aeron::Publication> pub) 
 
 PublicationWrapper::~PublicationWrapper() {}
 
-int64_t PublicationWrapper::offer(rust::Slice<const uint8_t> buffer) {
+int64_t PublicationWrapper::offer(rust::Slice<const uint8_t> buffer) const {
     aeron::AtomicBuffer atomic_buffer(const_cast<uint8_t*>(buffer.data()), buffer.size());
     return pub->offer(atomic_buffer);
 }
 
-int64_t PublicationWrapper::tryClaim(size_t length, ClaimFn handler, size_t ctx) {
+int64_t PublicationWrapper::tryClaim(size_t length, ClaimFn handler, size_t ctx) const {
     aeron::concurrent::logbuffer::BufferClaim bufferClaim;
     int64_t position = pub->tryClaim(static_cast<aeron::util::index_t>(length), bufferClaim);
     if (position > 0) {
@@ -395,7 +395,7 @@ void CountersReaderWrapper::forEach(CounterFn handler, size_t ctx) const {
     });
 }
 
-std::unique_ptr<PublicationWrapper> AeronWrapper::addPublication(rust::Str channel, int32_t stream_id) {
+std::unique_ptr<PublicationWrapper> AeronWrapper::addPublication(rust::Str channel, int32_t stream_id) const {
     int64_t reg_id = aeron->addPublication(std::string(channel.data(), channel.size()), stream_id);
     
     // We must poll for the publication to be created
@@ -407,7 +407,7 @@ std::unique_ptr<PublicationWrapper> AeronWrapper::addPublication(rust::Str chann
     return std::unique_ptr<PublicationWrapper>(new PublicationWrapper(pub));
 }
 
-std::unique_ptr<ExclusivePublicationWrapper> AeronWrapper::addExclusivePublication(rust::Str channel, int32_t stream_id) {
+std::unique_ptr<ExclusivePublicationWrapper> AeronWrapper::addExclusivePublication(rust::Str channel, int32_t stream_id) const {
     int64_t reg_id = aeron->addExclusivePublication(std::string(channel.data(), channel.size()), stream_id);
 
     std::shared_ptr<aeron::ExclusivePublication> pub;
@@ -418,7 +418,7 @@ std::unique_ptr<ExclusivePublicationWrapper> AeronWrapper::addExclusivePublicati
     return std::unique_ptr<ExclusivePublicationWrapper>(new ExclusivePublicationWrapper(pub));
 }
 
-std::unique_ptr<SubscriptionWrapper> AeronWrapper::addSubscription(rust::Str channel, int32_t stream_id) {
+std::unique_ptr<SubscriptionWrapper> AeronWrapper::addSubscription(rust::Str channel, int32_t stream_id) const {
     int64_t reg_id = aeron->addSubscription(std::string(channel.data(), channel.size()), stream_id);
     
     std::shared_ptr<aeron::Subscription> sub;

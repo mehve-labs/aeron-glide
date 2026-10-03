@@ -84,7 +84,7 @@ fn run_pong(
 
     // Pong subscribes to pong channel (receives pings) and publishes to ping channel (sends pongs)
     let mut pong_sub = client.add_subscription(pong_channel, PONG_STREAM_ID)?;
-    let mut ping_pub = client.add_publication(ping_channel, PING_STREAM_ID)?;
+    let ping_pub = client.add_publication(ping_channel, PING_STREAM_ID)?;
 
     let deadline = Instant::now() + Duration::from_secs(5);
     while !ping_pub.is_connected() && Instant::now() < deadline {

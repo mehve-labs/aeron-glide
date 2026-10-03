@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut client = AeronClient::new()?;
     client.start();
 
-    let mut publ = client.add_publication(RECORDING_CHANNEL, RECORDING_STREAM_ID)?;
+    let publ = client.add_publication(RECORDING_CHANNEL, RECORDING_STREAM_ID)?;
 
     println!("Waiting for publication to connect...");
     while !publ.is_connected() {

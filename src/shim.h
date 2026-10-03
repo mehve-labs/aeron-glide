@@ -148,8 +148,9 @@ public:
     PublicationWrapper(std::shared_ptr<aeron::Publication> pub);
     ~PublicationWrapper();
     
-    int64_t offer(rust::Slice<const uint8_t> buffer);
-    int64_t tryClaim(size_t length, ClaimFn handler, size_t ctx);
+    // const: a concurrent publication may be used from several threads at once.
+    int64_t offer(rust::Slice<const uint8_t> buffer) const;
+    int64_t tryClaim(size_t length, ClaimFn handler, size_t ctx) const;
     bool isConnected() const;
     int32_t sessionId() const;
 
@@ -256,9 +257,10 @@ public:
     void start();
     bool isClosed() const;
     
-    std::unique_ptr<PublicationWrapper> addPublication(rust::Str channel, int32_t stream_id);
-    std::unique_ptr<ExclusivePublicationWrapper> addExclusivePublication(rust::Str channel, int32_t stream_id);
-    std::unique_ptr<SubscriptionWrapper> addSubscription(rust::Str channel, int32_t stream_id);
+    // const: aeron::Aeron is thread-safe for adding resources.
+    std::unique_ptr<PublicationWrapper> addPublication(rust::Str channel, int32_t stream_id) const;
+    std::unique_ptr<ExclusivePublicationWrapper> addExclusivePublication(rust::Str channel, int32_t stream_id) const;
+    std::unique_ptr<SubscriptionWrapper> addSubscription(rust::Str channel, int32_t stream_id) const;
     std::unique_ptr<CountersReaderWrapper> countersReader() const;
     
 private:

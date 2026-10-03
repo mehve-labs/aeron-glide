@@ -155,6 +155,7 @@ pub mod ffi {
 
 use crate::Result;
 use crate::callback::{self, Callback};
+use std::marker::PhantomData;
 
 /// Source location for recording — whether the stream being recorded originates
 /// locally (via a spy subscription) or remotely (via network subscription).
@@ -447,11 +448,26 @@ pub const REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT_MS: i64 = 10_000;
 /// UDP only — does not work with IPC channels.
 ///
 /// Requires a subscription created with `control-mode=manual`.
-pub struct ReplayMerge {
+///
+/// The merge mutably borrows the subscription for its whole life: the C++
+/// `ReplayMerge` polls the same subscription internally, so the subscription
+/// cannot be moved to another thread while the merge is alive.
+///
+/// ```compile_fail,E0505
+/// # use aeron_glide::{AeronClient, archive::{AeronArchive, ReplayMerge}};
+/// # let client = AeronClient::new().unwrap();
+/// # let mut archive = AeronArchive::connect("", 0, "", 0).unwrap();
+/// let mut sub = client.add_subscription("aeron:udp?control-mode=manual", 1).unwrap();
+/// let mut merge = ReplayMerge::new(&mut sub, &mut archive, "", "", "", 0, 0).unwrap();
+/// std::thread::spawn(move || sub.poll(10, |_| {})); // error: `sub` is borrowed
+/// merge.do_work().unwrap();
+/// ```
+pub struct ReplayMerge<'a> {
     inner: cxx::UniquePtr<ffi::ReplayMergeWrapper>,
+    _subscription: PhantomData<&'a mut crate::Subscription>,
 }
 
-impl ReplayMerge {
+impl<'a> ReplayMerge<'a> {
     /// Create a new ReplayMerge.
     ///
     /// - `subscription`: Must use `control-mode=manual` in its channel URI.
@@ -462,7 +478,7 @@ impl ReplayMerge {
     /// - `recording_id`: The archive recording ID to replay from.
     /// - `start_position`: Position within the recording to start replay.
     pub fn new(
-        subscription: &mut crate::Subscription,
+        subscription: &'a mut crate::Subscription,
         archive: &mut AeronArchive,
         replay_channel: &str,
         replay_destination: &str,
@@ -480,7 +496,10 @@ impl ReplayMerge {
             start_position,
             REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT_MS,
         )?;
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            _subscription: PhantomData,
+        })
     }
 
     /// Drive the replay merge state machine. Call this regularly in your event loop.

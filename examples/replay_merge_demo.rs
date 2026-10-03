@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         CONTROL_ENDPOINT
     );
 
-    let mut pub1 = client.add_publication(&pub_channel, STREAM_ID)?;
+    let pub1 = client.add_publication(&pub_channel, STREAM_ID)?;
 
     // Session ID is available immediately (assigned by media driver on creation).
     let pub_session_id = pub1.session_id();

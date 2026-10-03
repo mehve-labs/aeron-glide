@@ -13,7 +13,7 @@
 //! let mut client = AeronClient::new().unwrap();
 //! client.start();
 //!
-//! let mut pub1 = client.add_publication("aeron:ipc", 1001).unwrap();
+//! let pub1 = client.add_publication("aeron:ipc", 1001).unwrap();
 //! let mut sub1 = client.add_subscription("aeron:ipc", 1001).unwrap();
 //!
 //! // Publish
@@ -21,8 +21,9 @@
 //!
 //! // Subscribe
 //! sub1.poll(10, |data| {
-//!     println!("Received: {}", std::str::from_utf8(data).unwrap());
-//! });
+//!     println!("Received: {}", String::from_utf8_lossy(data));
+//! })
+//! .unwrap();
 //! ```
 //!
 //! # Features
@@ -35,6 +36,33 @@
 //! - **Counters** reader for real-time driver statistics
 //! - **Embedded media driver** ([`MediaDriver`]) with full configuration
 //! - **Archive client** (behind the `archive` feature flag): recording, replay, listing, and `ReplayMerge`
+//!
+//! # Thread safety
+//!
+//! | Type | `Send` | `Sync` |
+//! |---|---|---|
+//! | [`AeronClient`], [`Publication`], [`CountersReader`] | yes | yes |
+//! | [`ExclusivePublication`], [`Subscription`] | yes | no |
+//! | [`Image`] (borrows its `Subscription`) | no | no |
+//!
+//! Share one client per process and add resources from any thread; offer on a
+//! concurrent [`Publication`] from several threads; move exclusive publications
+//! and subscriptions to the thread that uses them.
+//!
+//! ```compile_fail,E0277
+//! fn sync<T: Sync>() {}
+//! sync::<aeron_glide::Subscription>();
+//! ```
+//!
+//! ```compile_fail,E0277
+//! fn sync<T: Sync>() {}
+//! sync::<aeron_glide::ExclusivePublication>();
+//! ```
+//!
+//! ```compile_fail,E0277
+//! fn send<T: Send>() {}
+//! send::<aeron_glide::Image<'static>>();
+//! ```
 //!
 //! # Prerequisites
 //!
@@ -73,17 +101,17 @@ pub mod ffi {
         fn start(self: Pin<&mut AeronWrapper>);
         fn isClosed(self: &AeronWrapper) -> bool;
         fn addPublication(
-            self: Pin<&mut AeronWrapper>,
+            self: &AeronWrapper,
             channel: &str,
             stream_id: i32,
         ) -> Result<UniquePtr<PublicationWrapper>>;
         fn addExclusivePublication(
-            self: Pin<&mut AeronWrapper>,
+            self: &AeronWrapper,
             channel: &str,
             stream_id: i32,
         ) -> Result<UniquePtr<ExclusivePublicationWrapper>>;
         fn addSubscription(
-            self: Pin<&mut AeronWrapper>,
+            self: &AeronWrapper,
             channel: &str,
             stream_id: i32,
         ) -> Result<UniquePtr<SubscriptionWrapper>>;
@@ -109,9 +137,9 @@ pub mod ffi {
         fn setSenderCpuAffinity(self: Pin<&mut MediaDriverWrapper>, cpu_id: i32) -> Result<()>;
         fn setReceiverCpuAffinity(self: Pin<&mut MediaDriverWrapper>, cpu_id: i32) -> Result<()>;
 
-        fn offer(self: Pin<&mut PublicationWrapper>, buffer: &[u8]) -> Result<i64>;
+        fn offer(self: &PublicationWrapper, buffer: &[u8]) -> Result<i64>;
         fn tryClaim(
-            self: Pin<&mut PublicationWrapper>,
+            self: &PublicationWrapper,
             length: usize,
             handler: fn(usize, &mut [u8]) -> bool,
             ctx: usize,
@@ -184,11 +212,18 @@ pub mod ffi {
 
 /// Aeron client — the main entry point for creating publications and subscriptions.
 ///
-/// Each client maintains its own connection to the media driver. You can create
-/// multiple clients in the same process (e.g., one per thread).
+/// The client is `Send + Sync`: share one per process (e.g. in an `Arc`) and add
+/// publications and subscriptions from any thread.
 pub struct AeronClient {
     inner: cxx::UniquePtr<ffi::AeronWrapper>,
 }
+
+// SAFETY: aeron::Aeron is thread-safe: resource registration goes through the C
+// client's command queue and the C++ wrapper's `m_adminLock`. The wrapper only
+// holds a `shared_ptr<aeron::Aeron>` (atomic reference count), and every method
+// bridged as `&self` is a const C++ method.
+unsafe impl Send for AeronClient {}
+unsafe impl Sync for AeronClient {}
 
 impl AeronClient {
     /// Create a new Aeron client connected to the media driver.
@@ -211,28 +246,25 @@ impl AeronClient {
 
     /// Add a concurrent publication on the given channel and stream ID.
     /// Multiple publishers can share the same channel+stream.
-    pub fn add_publication(&mut self, channel: &str, stream_id: i32) -> Result<Publication> {
-        let pub_inner = self.inner.pin_mut().addPublication(channel, stream_id)?;
+    pub fn add_publication(&self, channel: &str, stream_id: i32) -> Result<Publication> {
+        let pub_inner = self.inner.addPublication(channel, stream_id)?;
         Ok(Publication { inner: pub_inner })
     }
 
     /// Add an exclusive publication on the given channel and stream ID.
     /// Only one publisher is allowed per session — lower overhead than concurrent.
     pub fn add_exclusive_publication(
-        &mut self,
+        &self,
         channel: &str,
         stream_id: i32,
     ) -> Result<ExclusivePublication> {
-        let pub_inner = self
-            .inner
-            .pin_mut()
-            .addExclusivePublication(channel, stream_id)?;
+        let pub_inner = self.inner.addExclusivePublication(channel, stream_id)?;
         Ok(ExclusivePublication { inner: pub_inner })
     }
 
     /// Add a subscription on the given channel and stream ID.
-    pub fn add_subscription(&mut self, channel: &str, stream_id: i32) -> Result<Subscription> {
-        let sub_inner = self.inner.pin_mut().addSubscription(channel, stream_id)?;
+    pub fn add_subscription(&self, channel: &str, stream_id: i32) -> Result<Subscription> {
+        let sub_inner = self.inner.addSubscription(channel, stream_id)?;
         Ok(Subscription { inner: sub_inner })
     }
 
@@ -245,35 +277,37 @@ impl AeronClient {
 }
 
 /// A concurrent publication for sending messages on a channel+stream.
+///
+/// `Send + Sync`: several threads may `offer` / `try_claim` on the same
+/// publication concurrently (e.g. through an `Arc<Publication>`).
 pub struct Publication {
     inner: cxx::UniquePtr<ffi::PublicationWrapper>,
 }
+
+// SAFETY: a concurrent publication is designed for use from multiple threads:
+// aeron_publication_offer / try_claim are thread-safe, the other bridged methods
+// only read state, and every method bridged as `&self` is a const C++ method.
+unsafe impl Send for Publication {}
+unsafe impl Sync for Publication {}
 
 impl Publication {
     /// Publish a message. Returns the new stream position on success.
     ///
     /// On failure, [`OfferError::is_retryable`] tells whether retrying can succeed
     /// (not connected, back pressured, admin action).
-    pub fn offer(&mut self, buffer: &[u8]) -> std::result::Result<i64, OfferError> {
-        error::offer_result(self.inner.pin_mut().offer(buffer)?)
+    pub fn offer(&self, buffer: &[u8]) -> std::result::Result<i64, OfferError> {
+        error::offer_result(self.inner.offer(buffer)?)
     }
 
     /// Zero-copy publish: claims a region of the log buffer, calls `handler` with a mutable
     /// slice pointing directly into shared memory, then commits or aborts based on the return value.
     /// Returns the new stream position if the claim succeeded.
-    pub fn try_claim<F>(
-        &mut self,
-        length: usize,
-        handler: F,
-    ) -> std::result::Result<i64, OfferError>
+    pub fn try_claim<F>(&self, length: usize, handler: F) -> std::result::Result<i64, OfferError>
     where
         F: FnMut(&mut [u8]) -> bool,
     {
         let mut cb = Callback::new(handler);
-        let result = self
-            .inner
-            .pin_mut()
-            .tryClaim(length, callback::claim::<F>, cb.ctx());
+        let result = self.inner.tryClaim(length, callback::claim::<F>, cb.ctx());
         error::offer_result(cb.finish(result)?)
     }
 
@@ -289,9 +323,16 @@ impl Publication {
 }
 
 /// An exclusive publication — single-writer, lower overhead than [`Publication`].
+///
+/// `Send` but not `Sync`: it can move to another thread, but only one thread may
+/// use it at a time.
 pub struct ExclusivePublication {
     inner: cxx::UniquePtr<ffi::ExclusivePublicationWrapper>,
 }
+
+// SAFETY: an exclusive publication has no thread affinity; it only requires a
+// single writer at a time, which `&mut self` on every mutating method enforces.
+unsafe impl Send for ExclusivePublication {}
 
 impl ExclusivePublication {
     /// Publish a message. Returns the new stream position on success.
@@ -363,9 +404,20 @@ impl PollAction for ControlledAction {
 }
 
 /// A subscription for receiving messages on a channel+stream.
+///
+/// `Send` but not `Sync`: it can move to another thread, but polling is
+/// single-threaded. [`Image`]s borrow the subscription, so they stay on its thread.
 pub struct Subscription {
     inner: cxx::UniquePtr<ffi::SubscriptionWrapper>,
 }
+
+// SAFETY: a subscription has no thread affinity; polling only requires a single
+// thread at a time, which `&mut self` on `poll` enforces. The image list is
+// published by the client conductor with atomics, so reading it from the owning
+// thread is fine. A `ReplayMerge` that shares the C++ subscription holds a
+// `&mut Subscription` borrow for its whole life, so the subscription cannot be
+// moved to another thread while the merge polls it.
+unsafe impl Send for Subscription {}
 
 impl Subscription {
     /// Poll for new messages, calling `handler` for each fragment received.
@@ -547,10 +599,16 @@ impl Image<'_> {
 /// Reader for the media driver's CNC (Command and Control) counters.
 ///
 /// Provides access to real-time statistics like bytes sent/received, NAKs,
-/// errors, and heartbeats.
+/// errors, and heartbeats. `Send + Sync`.
 pub struct CountersReader {
     inner: cxx::UniquePtr<ffi::CountersReaderWrapper>,
 }
+
+// SAFETY: the reader only reads the counters' shared memory (written by the media
+// driver with ordered stores), and holds a `shared_ptr<aeron::Aeron>` (atomic
+// reference count). All bridged methods are const.
+unsafe impl Send for CountersReader {}
+unsafe impl Sync for CountersReader {}
 
 impl CountersReader {
     /// The highest counter ID currently allocated.
@@ -887,7 +945,7 @@ mod tests {
         assert!(!client.is_closed());
 
         // 3. Test Pub/Sub creation
-        let mut publ = client
+        let publ = client
             .add_publication("aeron:ipc", 10)
             .expect("add pub failed");
         let mut sub = client
@@ -952,7 +1010,7 @@ mod tests {
         }
 
         // Handlers can poll other subscriptions (no shared handler registry).
-        let mut publ2 = client.add_publication("aeron:ipc", 11).unwrap();
+        let publ2 = client.add_publication("aeron:ipc", 11).unwrap();
         let mut sub2 = client.add_subscription("aeron:ipc", 11).unwrap();
         while !sub2.is_connected() {
             std::thread::yield_now();
@@ -1012,6 +1070,33 @@ mod tests {
             other => panic!("expected IllegalArgument, got {other:?}"),
         }
 
+        // A shared client and a shared concurrent publication work from several threads.
+        let client = std::sync::Arc::new(client);
+        let shared = std::sync::Arc::new(client.add_publication("aeron:ipc", 12).unwrap());
+        let mut sub3 = client.add_subscription("aeron:ipc", 12).unwrap();
+        while !sub3.is_connected() {
+            std::thread::yield_now();
+        }
+        let workers: Vec<_> = (0..4u8)
+            .map(|i| {
+                let (client, shared) = (client.clone(), shared.clone());
+                std::thread::spawn(move || {
+                    client.add_publication("aeron:ipc", 100 + i as i32).unwrap();
+                    for _ in 0..100 {
+                        while shared.offer(&[i]).is_err() {}
+                    }
+                })
+            })
+            .collect();
+        let mut got = [0u32; 4];
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while got.iter().sum::<u32>() < 400 && std::time::Instant::now() < deadline {
+            sub3.poll(100, |data| got[data[0] as usize] += 1).unwrap();
+        }
+        workers.into_iter().for_each(|w| w.join().unwrap());
+        assert_eq!(got, [100; 4]);
+        let client = std::sync::Arc::try_unwrap(client).ok().expect("sole owner");
+
         // An image stays usable after the client that created it is dropped:
         // the subscription it borrows keeps the client alive.
         while publ.offer(b"last").is_err() {}
@@ -1019,6 +1104,17 @@ mod tests {
         drop(client);
         assert!(image.position().is_ok());
         assert!(!image.is_closed());
+    }
+
+    #[test]
+    fn thread_safety_markers() {
+        fn send_sync<T: Send + Sync>() {}
+        fn send<T: Send>() {}
+        send_sync::<AeronClient>();
+        send_sync::<Publication>();
+        send_sync::<CountersReader>();
+        send::<ExclusivePublication>();
+        send::<Subscription>();
     }
 
     #[test]
