@@ -292,6 +292,32 @@ pub mod ffi {
         ) -> Result<i32>;
         fn isConnected(self: &SubscriptionWrapper) -> bool;
         fn deleteSessionBuffer(self: Pin<&mut SubscriptionWrapper>, session_id: i32) -> bool;
+        fn controlledPoll(
+            self: Pin<&mut SubscriptionWrapper>,
+            fragment_limit: i32,
+            handler: fn(usize, &[u8], &Header) -> i32,
+            ctx: usize,
+        ) -> Result<i32>;
+        fn blockPoll(
+            self: Pin<&mut SubscriptionWrapper>,
+            block_length_limit: i32,
+            handler: fn(usize, &[u8], i32, i32),
+            ctx: usize,
+        ) -> Result<i64>;
+        fn channel(self: &SubscriptionWrapper) -> String;
+        fn streamId(self: &SubscriptionWrapper) -> i32;
+        fn registrationId(self: &SubscriptionWrapper) -> i64;
+        fn channelStatusId(self: &SubscriptionWrapper) -> i32;
+        fn channelStatus(self: &SubscriptionWrapper) -> Result<i64>;
+        fn isClosed(self: &SubscriptionWrapper) -> bool;
+        fn localSocketAddresses(self: &SubscriptionWrapper) -> Result<Vec<String>>;
+        fn resolvedEndpoint(self: &SubscriptionWrapper) -> Result<String>;
+        fn tryResolveChannelEndpointPort(self: &SubscriptionWrapper) -> Result<String>;
+        fn copyOfImageList(self: &SubscriptionWrapper) -> UniquePtr<ImageListWrapper>;
+
+        type ImageListWrapper;
+        fn count(self: &ImageListWrapper) -> usize;
+        fn get(self: &ImageListWrapper, index: usize) -> UniquePtr<ImageWrapper>;
         fn addDestination(self: &SubscriptionWrapper, endpoint: &str) -> Result<i64>;
         fn removeDestination(self: &SubscriptionWrapper, endpoint: &str) -> Result<i64>;
         fn findDestinationResponse(self: &SubscriptionWrapper, correlation_id: i64)

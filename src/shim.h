@@ -106,6 +106,8 @@ namespace aeron_rs {
 using FragmentFn = rust::Fn<void(size_t, rust::Slice<const uint8_t>, const aeron::concurrent::logbuffer::Header &)>;
 using ControlledFragmentFn = rust::Fn<int32_t(size_t, rust::Slice<const uint8_t>, const aeron::concurrent::logbuffer::Header &)>;
 using ClaimFn = rust::Fn<bool(size_t, rust::Slice<uint8_t>)>;
+// (ctx, block of frames, session id, term id)
+using BlockFn = rust::Fn<void(size_t, rust::Slice<const uint8_t>, int32_t, int32_t)>;
 // (ctx, frame) -> reserved value for the frame header.
 using ReservedValueFn = rust::Fn<int64_t(size_t, rust::Slice<const uint8_t>)>;
 struct OfferPart; // shared with Rust (lib.rs)
@@ -243,6 +245,20 @@ using ExclusivePublicationWrapper = PublicationWrapperT<aeron::ExclusivePublicat
 
 class ImageWrapper; // forward declaration
 
+// A snapshot of a subscription's images (Subscription::copyOfImageList).
+class ImageListWrapper {
+public:
+    ImageListWrapper(std::shared_ptr<std::vector<std::shared_ptr<aeron::Image>>> images,
+                     std::shared_ptr<aeron::Subscription> subscription)
+        : images_(std::move(images)), subscription_(std::move(subscription)) {}
+    size_t count() const { return images_ ? images_->size() : 0; }
+    std::unique_ptr<ImageWrapper> get(size_t index) const;
+
+private:
+    std::shared_ptr<std::vector<std::shared_ptr<aeron::Image>>> images_;
+    std::shared_ptr<aeron::Subscription> subscription_;
+};
+
 class SubscriptionWrapper {
 public:
     SubscriptionWrapper(std::shared_ptr<aeron::Subscription> sub);
@@ -250,8 +266,28 @@ public:
 
     int poll(int fragment_limit, FragmentFn handler, size_t ctx);
     int controlledPollAssembled(int fragment_limit, ControlledFragmentFn handler, size_t ctx);
+    int controlledPoll(int fragment_limit, ControlledFragmentFn handler, size_t ctx);
+    int64_t blockPoll(int block_length_limit, BlockFn handler, size_t ctx);
     bool isConnected() const;
     bool deleteSessionBuffer(int32_t session_id);
+
+    // Accessors (P7)
+    rust::String channel() const { return rust::String::lossy(sub->channel()); }
+    int32_t streamId() const { return sub->streamId(); }
+    int64_t registrationId() const { return sub->registrationId(); }
+    int32_t channelStatusId() const { return sub->channelStatusId(); }
+    int64_t channelStatus() const { return sub->channelStatus(); }
+    bool isClosed() const { return sub->isClosed(); }
+    rust::Vec<rust::String> localSocketAddresses() const {
+        rust::Vec<rust::String> addresses;
+        for (const auto &address : sub->localSocketAddresses()) {
+            addresses.push_back(rust::String::lossy(address));
+        }
+        return addresses;
+    }
+    rust::String resolvedEndpoint() const { return rust::String::lossy(sub->resolvedEndpoint()); }
+    rust::String tryResolveChannelEndpointPort() const { return rust::String::lossy(sub->tryResolveChannelEndpointPort()); }
+    std::unique_ptr<ImageListWrapper> copyOfImageList() const;
 
     // Multi-destination subscriptions (P5).
     int64_t addDestination(rust::Str endpoint) const { return sub->addDestination(std::string(endpoint)); }

@@ -243,6 +243,34 @@ int SubscriptionWrapper::controlledPollAssembled(int fragment_limit, ControlledF
     return sub->controlledPoll(controlled_assembler_.handler(), fragment_limit);
 }
 
+int SubscriptionWrapper::controlledPoll(int fragment_limit, ControlledFragmentFn handler, size_t ctx) {
+    auto fragment_handler = [&](const aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
+        rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
+        return static_cast<aeron::ControlledPollAction>(handler(ctx, slice, header));
+    };
+    return sub->controlledPoll(fragment_handler, fragment_limit);
+}
+
+int64_t SubscriptionWrapper::blockPoll(int block_length_limit, BlockFn handler, size_t ctx) {
+    auto block_handler = [&](aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length,
+                             int32_t session_id, int32_t term_id) {
+        rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
+        handler(ctx, slice, session_id, term_id);
+    };
+    return sub->blockPoll(block_handler, block_length_limit);
+}
+
+std::unique_ptr<ImageListWrapper> SubscriptionWrapper::copyOfImageList() const {
+    return std::unique_ptr<ImageListWrapper>(new ImageListWrapper(sub->copyOfImageList(), sub));
+}
+
+std::unique_ptr<ImageWrapper> ImageListWrapper::get(size_t index) const {
+    if (!images_ || index >= images_->size()) {
+        return nullptr;
+    }
+    return std::unique_ptr<ImageWrapper>(new ImageWrapper((*images_)[index], subscription_));
+}
+
 bool SubscriptionWrapper::isConnected() const {
     return sub->isConnected();
 }

@@ -106,6 +106,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `offer_vectored` (several buffers as one message, no copy),
   `offer_with_reserved_value` and `offer_vectored_with_reserved_value` (a
   supplier sets each fragment header's reserved value).
+- `Subscription` accessors and polling: `channel`, `stream_id`,
+  `registration_id`, `channel_status`, `channel_status_id`, `is_closed`,
+  `local_socket_addresses`, `resolved_endpoint`,
+  `try_resolve_channel_endpoint_port`, `controlled_poll` (flow-controlled,
+  without reassembly), `block_poll`, `images` and `for_each_image`.
 - Multi-destination support: `add_destination`, `remove_destination` and
   `find_destination_response` on `Publication`, `ExclusivePublication` and
   `Subscription`, plus `remove_destination_by_id` on publications.

@@ -104,6 +104,116 @@ impl Subscription {
         Ok(cb.finish(result)?)
     }
 
+    /// Poll for fragments without reassembly, with flow control: the handler returns
+    /// `()` (continue) or a [`ControlledAction`] (abort to re-deliver, break, commit).
+    ///
+    /// # Panics
+    ///
+    /// If `handler` panics, the panic is resumed once Aeron returns from the poll;
+    /// the fragment being handled is aborted and delivered again by the next poll.
+    pub fn controlled_poll<R, F>(&mut self, limit: i32, handler: F) -> Result<i32>
+    where
+        R: PollAction,
+        F: FnMut(&[u8], &Header) -> R,
+    {
+        let mut cb = Callback::new(handler);
+        let result = self.inner.pin_mut().controlledPoll(
+            limit,
+            callback::controlled_fragment::<F, R>,
+            cb.ctx(),
+        );
+        Ok(cb.finish(result)?)
+    }
+
+    /// Poll each image for a block of whole frames (headers included) of up to
+    /// `block_length_limit` bytes, calling `handler(block, session_id, term_id)`.
+    /// Returns the number of bytes consumed.
+    ///
+    /// For relaying or recording streams without parsing individual fragments.
+    pub fn block_poll<F>(&mut self, block_length_limit: i32, handler: F) -> Result<i64>
+    where
+        F: FnMut(&[u8], i32, i32),
+    {
+        let mut cb = Callback::new(handler);
+        let result =
+            self.inner
+                .pin_mut()
+                .blockPoll(block_length_limit, callback::block::<F>, cb.ctx());
+        Ok(cb.finish(result)?)
+    }
+
+    /// The channel URI this subscription was added with.
+    pub fn channel(&self) -> String {
+        self.inner.channel()
+    }
+
+    /// The stream ID this subscription was added with.
+    pub fn stream_id(&self) -> i32 {
+        self.inner.streamId()
+    }
+
+    /// The registration ID of this subscription with the media driver.
+    pub fn registration_id(&self) -> i64 {
+        self.inner.registrationId()
+    }
+
+    /// The status of the subscription's channel endpoint.
+    pub fn channel_status(&self) -> Result<ChannelStatus> {
+        Ok(ChannelStatus::from_c(self.inner.channelStatus()?))
+    }
+
+    /// The counter ID of the channel status, for reading it from a
+    /// [`CountersReader`](crate::CountersReader).
+    pub fn channel_status_id(&self) -> i32 {
+        self.inner.channelStatusId()
+    }
+
+    /// Returns `true` once the subscription has been closed.
+    pub fn is_closed(&self) -> bool {
+        self.inner.isClosed()
+    }
+
+    /// The local socket addresses the channel is bound to (several for a
+    /// multi-destination subscription). Empty unless the channel is active.
+    pub fn local_socket_addresses(&self) -> Result<Vec<String>> {
+        Ok(self.inner.localSocketAddresses()?)
+    }
+
+    /// The endpoint the subscription is bound to, with a wildcard port (`:0`)
+    /// resolved, or `None` if it is not bound yet.
+    pub fn resolved_endpoint(&self) -> Result<Option<String>> {
+        let endpoint = self.inner.resolvedEndpoint()?;
+        Ok((!endpoint.is_empty()).then_some(endpoint))
+    }
+
+    /// The channel URI with a wildcard endpoint port (`:0`) replaced by the bound
+    /// port, e.g. to hand to publishers. Returns `None` while the port is not bound
+    /// yet; channels without a wildcard port are returned unchanged.
+    pub fn try_resolve_channel_endpoint_port(&self) -> Result<Option<String>> {
+        let channel = self.inner.tryResolveChannelEndpointPort()?;
+        Ok((!channel.is_empty()).then_some(channel))
+    }
+
+    /// A snapshot of the subscription's current images (C++ `copyOfImageList`).
+    /// Each image borrows this subscription.
+    pub fn images(&self) -> Vec<Image<'_>> {
+        let list = self.inner.copyOfImageList();
+        (0..list.count())
+            .filter_map(|i| Image::from_raw(list.get(i)))
+            .collect()
+    }
+
+    /// Call `f` for each of the subscription's current images (C++ `forEachImage`).
+    /// Returns the number of images visited.
+    pub fn for_each_image<F>(&self, mut f: F) -> usize
+    where
+        F: FnMut(&Image<'_>),
+    {
+        let images = self.images();
+        images.iter().for_each(&mut f);
+        images.len()
+    }
+
     /// Returns `true` if there is at least one publisher connected to this subscription.
     pub fn is_connected(&self) -> bool {
         self.inner.isConnected()

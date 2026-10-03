@@ -124,6 +124,18 @@ where
     })
 }
 
+/// Block handler: `(block of frames, session_id, term_id)`.
+pub(crate) fn block<F: FnMut(&[u8], i32, i32)>(
+    ctx: usize,
+    block: &[u8],
+    session_id: i32,
+    term_id: i32,
+) {
+    // SAFETY: as in `fragment`.
+    let cb = unsafe { Callback::<F>::from_ctx(ctx) };
+    cb.call((), |f| f(block, session_id, term_id));
+}
+
 /// Reserved value supplier: called with each frame (header and payload), returns
 /// the value written into the frame header. A panic writes 0.
 pub(crate) fn reserved_value<F: FnMut(&[u8]) -> i64>(ctx: usize, frame: &[u8]) -> i64 {
