@@ -22,7 +22,7 @@ The result is a fast, safe, and significantly cleaner Aeron client for Rust.
 
 ```toml
 [dependencies]
-aeron-glide = "0.1"
+aeron-glide = "0.3"
 ```
 
 ## Prerequisites
