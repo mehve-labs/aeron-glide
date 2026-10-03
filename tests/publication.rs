@@ -238,3 +238,46 @@ fn buffer_claim_commit_abort_and_header_fields() {
     received.sort();
     assert_eq!(received, [b"commit".to_vec(), b"exclusive".to_vec()]);
 }
+
+#[test]
+fn exclusive_and_ipc_channel_status_and_addresses() {
+    let driver = TestDriver::start();
+    let client = driver.client();
+    // IPC: no channel status counter and no socket.
+    let ipc = client.add_exclusive_publication("aeron:ipc", 20).unwrap();
+    assert_eq!(ipc.channel_status().unwrap(), ChannelStatus::NoStatus);
+    assert!(ipc.local_socket_addresses().unwrap().is_empty());
+    let shared = client.add_publication("aeron:ipc", 20).unwrap();
+    assert_eq!(shared.channel_status().unwrap(), ChannelStatus::NoStatus);
+    assert!(shared.local_socket_addresses().unwrap().is_empty());
+    assert!(ipc.is_original());
+
+    // UDP exclusive publication: links and reports its status and address.
+    let channel = format!("aeron:udp?endpoint=127.0.0.1:{}", free_udp_port());
+    let udp = client.add_exclusive_publication(&channel, 21).unwrap();
+    wait_until("the channel to become active", || {
+        udp.channel_status().unwrap() == ChannelStatus::Active
+    });
+    assert_eq!(udp.local_socket_addresses().unwrap().len(), 1);
+}
+
+#[test]
+fn buffer_claim_flags_and_header_type() {
+    let driver = TestDriver::start();
+    let client = driver.client();
+    let publication = client.add_publication("aeron:ipc", 22).unwrap();
+    let sub = client.add_subscription("aeron:ipc", 22).unwrap();
+    wait_connected(&sub);
+    let mut claim = loop {
+        match publication.try_claim(4) {
+            Ok(claim) => break claim,
+            Err(e) => assert!(e.is_retryable(), "{e}"),
+        }
+    };
+    // Unfragmented data frame defaults.
+    assert_eq!((claim.flags(), claim.header_type()), (0xC0, 1));
+    claim.set_flags(0xC1).set_header_type(1);
+    assert_eq!((claim.flags(), claim.header_type()), (0xC1, 1));
+    claim.buffer_mut().copy_from_slice(b"flag");
+    claim.commit();
+}

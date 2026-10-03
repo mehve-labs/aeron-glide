@@ -101,9 +101,12 @@ macro_rules! publication_accessors {
             self.inner.channelStatusId()
         }
 
-        /// The status of the publication's channel endpoint.
+        /// The status of the publication's channel endpoint;
+        /// [`ChannelStatus::NoStatus`] for IPC channels and closed publications.
         pub fn channel_status(&self) -> Result<ChannelStatus> {
-            Ok(ChannelStatus::from_c(self.inner.channelStatus()?))
+            let status = self.inner.channelStatus()?;
+            let unavailable = self.channel_status_id() < 0 || self.is_closed();
+            Ok(ChannelStatus::from_c(status, unavailable))
         }
 
         /// Add a destination to a multi-destination-cast publication (channel with
@@ -138,9 +141,8 @@ macro_rules! publication_accessors {
             Ok(self.inner.findDestinationResponse(correlation_id)?)
         }
 
-        /// The local socket address(es) the channel is bound to, e.g. to find a
-        /// port the driver chose for `endpoint=host:0`. Empty unless the channel
-        /// status is [`ChannelStatus::Active`].
+        /// The local socket address the channel is bound to, e.g. to find a port
+        /// the driver chose. Empty for IPC and while the channel is not active.
         pub fn local_socket_addresses(&self) -> Result<Vec<String>> {
             Ok(self.inner.localSocketAddresses()?)
         }
@@ -151,6 +153,10 @@ macro_rules! publication_accessors {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ChannelStatus {
+    /// There is no status: the channel has no status counter (IPC) or the
+    /// publication or subscription is closed. (Aeron reports these with the same
+    /// value as [`Errored`](Self::Errored).)
+    NoStatus,
     /// The endpoint is being set up.
     Initializing,
     /// The endpoint is active.
@@ -164,8 +170,10 @@ pub enum ChannelStatus {
 }
 
 impl ChannelStatus {
-    pub(crate) fn from_c(value: i64) -> Self {
+    /// `unavailable`: the channel has no status counter, or its owner is closed.
+    pub(crate) fn from_c(value: i64, unavailable: bool) -> Self {
         match value {
+            -1 if unavailable => Self::NoStatus,
             0 => Self::Initializing,
             1 => Self::Active,
             2 => Self::Closing,
@@ -190,7 +198,8 @@ impl Drop for Publication {
 }
 
 // SAFETY: a concurrent publication is designed for use from multiple threads:
-// aeron_publication_offer / try_claim are thread-safe, the other bridged methods
+// offer / offerv / try_claim are thread-safe in the C client, the destination
+// methods serialise on the C++ wrapper's `m_adminLock`, the other bridged methods
 // only read state, and every method bridged as `&self` is a const C++ method.
 unsafe impl Send for Publication {}
 unsafe impl Sync for Publication {}
@@ -215,6 +224,9 @@ impl Publication {
     ///
     /// `supplier` is called once per fragment with the frame (header and payload)
     /// before it is published; subscribers read the value from the fragment header.
+    ///
+    /// If `supplier` panics, the message is still published (with 0 as the
+    /// reserved value from then on) and the panic is resumed afterwards.
     pub fn offer_with_reserved_value<F>(
         &self,
         buffer: &[u8],
@@ -278,6 +290,7 @@ impl Drop for ExclusivePublication {
 
 // SAFETY: an exclusive publication has no thread affinity; it only requires a
 // single writer at a time, which `&mut self` on every mutating method enforces.
+// It is not `Sync`: its destination methods (`&self`) use an unlocked map.
 unsafe impl Send for ExclusivePublication {}
 
 impl ExclusivePublication {
@@ -300,6 +313,9 @@ impl ExclusivePublication {
     ///
     /// `supplier` is called once per fragment with the frame (header and payload)
     /// before it is published; subscribers read the value from the fragment header.
+    ///
+    /// If `supplier` panics, the message is still published (with 0 as the
+    /// reserved value from then on) and the panic is resumed afterwards.
     pub fn offer_with_reserved_value<F>(
         &mut self,
         buffer: &[u8],
@@ -338,6 +354,12 @@ impl ExclusivePublication {
         Ok(BufferClaim::new(frame, position))
     }
 
+    /// Always `true`: an exclusive publication never shares its log (C++
+    /// `ExclusivePublication::isOriginal`).
+    pub fn is_original(&self) -> bool {
+        true
+    }
+
     /// Revoke and close the publication now: subscribers see the stream end
     /// immediately, without the usual linger, and their images report
     /// `is_publication_revoked`.
@@ -360,7 +382,8 @@ impl ExclusivePublication {
 /// Write the message into [`buffer_mut`](Self::buffer_mut), optionally set header
 /// fields, then [`commit`](Self::commit). Dropping the claim without committing
 /// aborts it, so subscribers skip it. Commit or abort promptly: later messages on
-/// the publication wait behind an open claim.
+/// the publication wait behind an open claim, and the media driver pads over a
+/// claim left open longer than its `publication_unblock_timeout`.
 #[must_use = "a claim is aborted when dropped; call `commit` to publish it"]
 pub struct BufferClaim<'a> {
     frame: ffi::ClaimFrame,

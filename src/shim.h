@@ -174,6 +174,24 @@ private:
     std::deque<std::string> strings_; // destroyed after the driver and context are closed
 };
 
+// Workarounds for two upstream bugs in the 1.53.3 C++ wrapper, calling the C
+// functions the C++ methods are meant to call:
+// - Publication/ExclusivePublication::localSocketAddresses() build a string from an
+//   uninitialised buffer when the C call returns no address (e.g. IPC).
+// - ExclusivePublication::channelStatus() is declared but never defined.
+namespace detail {
+inline int localSockaddrs(aeron::Publication &p, aeron_iovec_t *iov, size_t count) {
+    return aeron_publication_local_sockaddrs(p.publication(), iov, count);
+}
+inline int localSockaddrs(aeron::ExclusivePublication &p, aeron_iovec_t *iov, size_t count) {
+    return aeron_exclusive_publication_local_sockaddrs(p.publication(), iov, count);
+}
+inline int64_t channelStatus(aeron::Publication &p) { return p.channelStatus(); }
+inline int64_t channelStatus(aeron::ExclusivePublication &p) {
+    return aeron_exclusive_publication_channel_status(p.publication());
+}
+} // namespace detail
+
 // One wrapper for both publication types. Members that exist on only one of them
 // (isOriginal, revoke, ...) are only instantiated for the type that uses them.
 // All members are const: a concurrent publication is used from several threads,
@@ -215,7 +233,7 @@ public:
     int32_t publicationLimitId() const { return pub->publicationLimitId(); }
     int64_t availableWindow() const { return pub->availableWindow(); }
     int32_t channelStatusId() const { return pub->channelStatusId(); }
-    int64_t channelStatus() const { return pub->channelStatus(); }
+    int64_t channelStatus() const { return detail::channelStatus(*pub); }
     // Multi-destination-cast (P5). Each returns a correlation id; poll
     // findDestinationResponse until the driver has applied the change.
     int64_t addDestination(rust::Str endpoint) const { return pub->addDestination(std::string(endpoint)); }
@@ -228,10 +246,20 @@ public:
     void revoke() const { pub->revoke(); }
     void revokeOnClose() const { pub->revokeOnClose(); }
 
+    // Publications have at most one local address.
     rust::Vec<rust::String> localSocketAddresses() const {
+        char buffer[AERON_CLIENT_MAX_LOCAL_ADDRESS_STR_LEN] = {0};
+        aeron_iovec_t iov;
+        iov.iov_base = reinterpret_cast<uint8_t *>(buffer);
+        iov.iov_len = sizeof(buffer) - 1;
+        int count = detail::localSockaddrs(*pub, &iov, 1);
+        if (count < 0) {
+            using namespace aeron::util;
+            AERON_MAP_ERRNO_TO_SOURCED_EXCEPTION_AND_THROW;
+        }
         rust::Vec<rust::String> addresses;
-        for (const auto &address : pub->localSocketAddresses()) {
-            addresses.push_back(rust::String::lossy(address));
+        if (count > 0) {
+            addresses.push_back(rust::String::lossy(buffer));
         }
         return addresses;
     }

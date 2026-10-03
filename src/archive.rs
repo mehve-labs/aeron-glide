@@ -1,6 +1,6 @@
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 #[cxx::bridge(namespace = "aeron_rs")]
-pub mod ffi {
+pub(crate) mod ffi {
     unsafe extern "C++" {
         include!("shim.h");
 

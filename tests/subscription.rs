@@ -15,6 +15,8 @@ fn subscription_accessors() {
     assert!(!sub.is_connected());
     assert_eq!(sub.image_count(), 0);
     assert!(sub.images().is_empty());
+    assert_eq!(sub.channel_status().unwrap(), ChannelStatus::NoStatus);
+    assert!(sub.local_socket_addresses().unwrap().is_empty());
 }
 
 #[test]

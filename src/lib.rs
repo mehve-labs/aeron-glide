@@ -104,7 +104,7 @@ use std::marker::PhantomData;
 pub use subscription::{ControlledAction, PollAction, Subscription};
 
 #[cxx::bridge(namespace = "aeron_rs")]
-pub mod ffi {
+pub(crate) mod ffi {
     /// One part of a vectored offer: the address and length of a byte slice.
     #[derive(Clone, Copy)]
     struct OfferPart {

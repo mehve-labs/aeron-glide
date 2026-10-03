@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** the cxx bridge module `aeron_glide::ffi` is private. It exposed
+  raw, unchecked C++ calls (e.g. committing a forged buffer claim) to safe code.
 - **Breaking:** fallible APIs return `aeron_glide::Result<T>` with a typed
   `aeron_glide::Error` (`kind()`, `code()`, `message()`, `is_fatal()`) instead
   of `Box<dyn Error>`. `Error` is `Send + Sync + 'static`. Aeron C++ exceptions
@@ -71,6 +73,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `ExclusivePublication::channel_status` failed to link (Aeron 1.53.3 declares
+  the C++ method but never defines it), and `local_socket_addresses` on
+  publications read an uninitialised buffer for IPC or inactive channels (an
+  upstream C++ wrapper bug). Both now call the C functions directly.
 - `ControlledAction` used the wrong values (0–3 instead of Aeron's 1–4), so
   every action returned from a `poll_assembled` handler did the next one's job:
   `Abort` continued, `Break` aborted, `Commit` broke off and `Continue`
@@ -101,7 +107,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `max_payload_length`, `term_buffer_length`, `position_bits_to_shift`,
   `is_closed`, `max_possible_position`, `position`, `publication_limit`,
   `publication_limit_id`, `available_window`, `channel_status` (new
-  `ChannelStatus` enum), `channel_status_id`, `local_socket_addresses`.
+  `ChannelStatus` enum, with `NoStatus` for IPC and closed channels),
+  `channel_status_id`, `local_socket_addresses`.
 - Vectored and reserved-value offers on both publication types:
   `offer_vectored` (several buffers as one message, no copy),
   `offer_with_reserved_value` and `offer_vectored_with_reserved_value` (a

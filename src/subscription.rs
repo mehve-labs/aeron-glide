@@ -157,9 +157,12 @@ impl Subscription {
         self.inner.registrationId()
     }
 
-    /// The status of the subscription's channel endpoint.
+    /// The status of the subscription's channel endpoint;
+    /// [`ChannelStatus::NoStatus`] for IPC channels and closed subscriptions.
     pub fn channel_status(&self) -> Result<ChannelStatus> {
-        Ok(ChannelStatus::from_c(self.inner.channelStatus()?))
+        let status = self.inner.channelStatus()?;
+        let unavailable = self.channel_status_id() < 0 || self.is_closed();
+        Ok(ChannelStatus::from_c(status, unavailable))
     }
 
     /// The counter ID of the channel status, for reading it from a
