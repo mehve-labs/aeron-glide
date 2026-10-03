@@ -39,6 +39,9 @@ cargo run --release --example throughput
 |---|---|---|
 | Messages per second | 35.5M | 58.0M |
 
+(Measured before `offer` called Aeron's C function directly, which raised 0.4
+to about 41M in the comparison below.)
+
 This number measures the publisher and subscriber racing over the same cache
 lines more than it measures the bindings, so read it with care:
 
@@ -64,10 +67,26 @@ of tests with the media driver inside the process.
 
 ## rusteron
 
-These results are not compared with rusteron: it builds Aeron 1.52.2, and a
-fair comparison needs the same Aeron version and the same harness. Both crates
-call the same Aeron C code for `offer` and `poll`, so differences come from
-the few calls each makes around it.
+Measured in a separate session (the absolute latency differs from the tables
+above, so compare only within this table). Both clients ran against the same
+`mediadriver` (Aeron 1.53.3); rusteron 0.2.10 builds Aeron 1.52.2 and was linked
+statically, as its README recommends. aeron-glide ran its `throughput` and
+`latency` examples, rusteron its `embedded_exclusive_ipc_throughput` and
+`embedded_ping_pong` examples, which do the same work: 32-byte messages on an
+exclusive IPC publication with a poll limit of 32, and a UDP ping-pong on the
+same ports with a fragment limit of 10 (its 10M round trips changed to 1M, like ours). Three
+alternating rounds, medians:
+
+| | aeron-glide 0.4 | rusteron 0.2.10 |
+|---|---|---|
+| IPC throughput | 41.0M msgs/sec | 39.9M msgs/sec |
+| UDP round trip p50 | 50.7 µs | 51.7 µs |
+| UDP round trip p99 | 85.4 µs | 87.6 µs |
+| UDP round trip p99.9 | 137.1 µs | 143.2 µs |
+
+The two are equivalent: both spend their time in the same Aeron C code. One
+difference in the harnesses: rusteron's throughput example uses one client for
+both ends, ours one client per end. The throughput caveats above apply to both.
 
 ## Reproducing
 
