@@ -113,16 +113,66 @@ MediaDriverWrapper::~MediaDriverWrapper() {
     if (context_) { aeron_driver_context_close(context_); context_ = nullptr; }
 }
 
-void MediaDriverWrapper::start() {
+void MediaDriverWrapper::start(bool manual_main_loop) {
     if (driver_ != nullptr) {
         throw aeron::util::IllegalStateException("media driver already started", SOURCEINFO, EPERM);
     }
     if (aeron_driver_init(&driver_, context_) < 0) {
         throwDriverError("Failed to init driver");
     }
-    if (aeron_driver_start(driver_, false) < 0) {
+    if (aeron_driver_start(driver_, manual_main_loop) < 0) {
         throwDriverError("Failed to start driver");
     }
+    manual_ = manual_main_loop;
+}
+
+int32_t MediaDriverWrapper::doWork() const {
+    if (driver_ == nullptr || !manual_) {
+        throw aeron::util::IllegalStateException(
+            "the media driver is not run manually (ThreadingMode::Invoker)", SOURCEINFO, EPERM);
+    }
+    int work = aeron_driver_main_do_work(driver_);
+    if (work < 0) {
+        throwDriverError("Media driver duty cycle failed");
+    }
+    return work;
+}
+
+void MediaDriverWrapper::idle(int32_t work_count) const {
+    if (driver_ == nullptr || !manual_) {
+        throw aeron::util::IllegalStateException(
+            "the media driver is not run manually (ThreadingMode::Invoker)", SOURCEINFO, EPERM);
+    }
+    aeron_driver_main_idle_strategy(driver_, work_count);
+}
+
+namespace {
+bool terminationValidator(void *state, uint8_t *buffer, int32_t length) noexcept {
+    auto *v = static_cast<MediaDriverWrapper::TerminationValidator *>(state);
+    return v->validator(v->owner.ctx(), rust::Slice<const uint8_t>(buffer, length < 0 ? 0 : length));
+}
+void terminationHook(void *state) noexcept {
+    auto *h = static_cast<MediaDriverWrapper::TerminationHook *>(state);
+    h->hook(h->owner.ctx());
+}
+} // namespace
+
+void MediaDriverWrapper::setTerminationValidator(TerminationValidatorFn validator, ReleaseFn release, size_t ctx) {
+    auto owned = std::unique_ptr<TerminationValidator>(new TerminationValidator{validator, RustOwned(release, ctx)});
+    ensureNotStarted();
+    if (aeron_driver_context_set_driver_termination_validator(context_, terminationValidator, owned.get()) < 0) {
+        throwDriverError("Failed to set the termination validator");
+    }
+    validator_ = std::move(owned);
+}
+
+void MediaDriverWrapper::setTerminationHook(CloseClientFn hook, ReleaseFn release, size_t ctx) {
+    auto owned = std::unique_ptr<TerminationHook>(new TerminationHook{hook, RustOwned(release, ctx)});
+    ensureNotStarted();
+    if (aeron_driver_context_set_driver_termination_hook(context_, terminationHook, owned.get()) < 0) {
+        throwDriverError("Failed to set the termination hook");
+    }
+    hook_ = std::move(owned);
 }
 
 void MediaDriverWrapper::setThreadingMode(int32_t mode) {

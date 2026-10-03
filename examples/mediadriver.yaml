@@ -33,3 +33,7 @@ print_configuration: true
 # conductor_cpu_affinity: -1
 # sender_cpu_affinity: -1
 # receiver_cpu_affinity: -1
+
+# Shut down when a termination request with this token arrives
+# (Context::request_driver_termination). Unset: requests are rejected.
+# termination_token: "let me stop"

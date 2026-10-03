@@ -233,12 +233,26 @@ public:
 [[noreturn]] void throwDriverError(const char *what);
 
 // Settings are applied by the generated driver_gen.h functions.
+// (ctx, token) -> whether to terminate.
+using TerminationValidatorFn = rust::Fn<bool(size_t, rust::Slice<const uint8_t>)>;
+
 class MediaDriverWrapper {
 public:
     MediaDriverWrapper();
     ~MediaDriverWrapper();
 
-    void start();
+    // `manual_main_loop`: the caller runs the conductor with doWork (required in
+    // the INVOKER threading mode).
+    void start(bool manual_main_loop);
+    // One duty cycle of a manually run driver (aeron_driver_main_do_work).
+    // const: the Rust side serialises calls; the driver is reached through a pointer.
+    int32_t doWork() const;
+    // Its idle strategy (aeron_driver_main_idle_strategy).
+    void idle(int32_t work_count) const;
+    // Termination requests (D3), called on the driver conductor thread. Each
+    // takes ownership of its ctx, released after the driver is closed.
+    void setTerminationValidator(TerminationValidatorFn validator, ReleaseFn release, size_t ctx);
+    void setTerminationHook(CloseClientFn hook, ReleaseFn release, size_t ctx);
     // Throws IllegalStateException once started: the driver's threads read the context.
     void ensureNotStarted() const;
     aeron_driver_context_t *context() const { return context_; }
@@ -251,9 +265,22 @@ public:
 
     void setThreadingMode(int32_t mode);
 
+    struct TerminationValidator {
+        TerminationValidatorFn validator;
+        RustOwned owner;
+    };
+    struct TerminationHook {
+        CloseClientFn hook;
+        RustOwned owner;
+    };
 private:
+    // Destroyed after the driver and context are closed (members outlive the
+    // destructor's body), so the driver never calls into released handlers.
+    std::unique_ptr<TerminationValidator> validator_;
+    std::unique_ptr<TerminationHook> hook_;
     aeron_driver_context_t* context_;
     aeron_driver_t* driver_;
+    bool manual_ = false;
     std::deque<std::string> strings_; // destroyed after the driver and context are closed
 };
 

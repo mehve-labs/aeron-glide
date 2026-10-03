@@ -317,6 +317,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PersistentSubscriptionBuilder`, `ReplayMerge::with_progress_timeout`, and
   `ArchiveErrorCode` (`ArchiveErrorCode::of(&error)`), and
   `archive::REPLAY_ALL_AND_STOP`.
+- Media driver invoker mode: `ThreadingMode::Invoker` starts a driver without
+  threads, run with `MediaDriver::do_work` and `MediaDriver::idle` (C
+  `aeron_driver_main_do_work` / `main_idle_strategy`). The `mediadriver`
+  binary runs it in that mode.
+- Driver termination: `MediaDriverBuilder::termination_validator` (accept or
+  reject `Context::request_driver_termination` tokens) and
+  `termination_hook`. The `mediadriver` binary shuts down on requests carrying
+  its configured `termination_token`.
 - `Debug` for every public type (clients, publications, subscriptions, images,
   counters, contexts, the media driver and archive types); `ChannelBuilder`
   is also `Clone`.

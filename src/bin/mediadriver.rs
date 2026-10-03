@@ -24,6 +24,9 @@ struct Config {
     conductor_cpu_affinity: Option<i32>,
     sender_cpu_affinity: Option<i32>,
     receiver_cpu_affinity: Option<i32>,
+    /// Accept termination requests carrying this token (e.g. from
+    /// `Context::request_driver_termination`) and shut down.
+    termination_token: Option<String>,
 }
 
 fn parse_threading_mode(s: &str) -> Result<ThreadingMode, String> {
@@ -125,12 +128,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         builder = builder.receiver_cpu_affinity(v);
     }
 
+    let running = Arc::new(AtomicBool::new(true));
+    if let Some(token) = config.termination_token.clone() {
+        let r = running.clone();
+        builder = builder
+            .termination_validator(move |request| request == token.as_bytes())
+            .termination_hook(move || {
+                println!("\nTermination requested, shutting down Media Driver...");
+                r.store(false, Ordering::SeqCst);
+            });
+    }
+
+    let invoker = matches!(config.threading_mode.as_deref(), Some("invoker"));
     let driver = builder.start()?;
     println!("Media Driver started in {}", driver.dir());
     println!("Media Driver started successfully.");
     println!("Press Ctrl+C to shut down...");
 
-    let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
 
     ctrlc::set_handler(move || {
@@ -140,7 +154,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .expect("Error setting Ctrl-C handler");
 
     while running.load(Ordering::SeqCst) {
-        thread::sleep(Duration::from_millis(100));
+        if invoker {
+            // No driver threads: run its duty cycle here.
+            let work = driver.do_work()?;
+            driver.idle(work)?;
+        } else {
+            thread::sleep(Duration::from_millis(100));
+        }
     }
 
     println!("Media Driver stopped.");

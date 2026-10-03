@@ -72,8 +72,14 @@ impl IdleStrategy {
 /// println!("driver running in {}", driver.dir());
 /// # Ok::<(), aeron_glide::Error>(())
 /// ```
+///
+/// With [`ThreadingMode::Invoker`] the driver has no threads: run its duty
+/// cycle on your own thread with [`do_work`](Self::do_work) (and
+/// [`idle`](Self::idle) between cycles).
 pub struct MediaDriver {
     pub(crate) inner: cxx::UniquePtr<ffi::MediaDriverWrapper>,
+    /// Serialises the duty cycle of a driver in invoker mode.
+    pub(crate) duty_cycle: std::sync::Mutex<()>,
 }
 
 // SAFETY: a started driver runs on its own threads; the Rust handle only reads
@@ -99,6 +105,38 @@ impl MediaDriver {
     /// Start a media driver with default settings.
     pub fn launch() -> Result<Self> {
         Self::builder().start()
+    }
+
+    /// Run one duty cycle of a driver started with [`ThreadingMode::Invoker`]
+    /// (C `aeron_driver_main_do_work`): its conductor, sender and receiver
+    /// work. Returns the amount of work done. Call it regularly, e.g. alongside
+    /// [`AeronClient::invoke`](crate::AeronClient::invoke) for a client in agent
+    /// invoker mode.
+    ///
+    /// Fails with [`ErrorKind::IllegalState`] for a driver in another threading
+    /// mode, or while another call runs (e.g. from a termination handler).
+    pub fn do_work(&self) -> Result<i32> {
+        let _cycle = self.cycle()?;
+        Ok(self.inner.doWork()?)
+    }
+
+    /// Idle after a duty cycle with the driver's shared idle strategy (C
+    /// `aeron_driver_main_idle_strategy`): returns at once if `work_count` is
+    /// positive, otherwise backs off. Same failures as [`do_work`](Self::do_work).
+    pub fn idle(&self, work_count: i32) -> Result<()> {
+        let _cycle = self.cycle()?;
+        Ok(self.inner.idle(work_count)?)
+    }
+
+    fn cycle(&self) -> Result<std::sync::MutexGuard<'_, ()>> {
+        match self.duty_cycle.try_lock() {
+            Ok(guard) => Ok(guard),
+            Err(std::sync::TryLockError::Poisoned(e)) => Ok(e.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) => Err(Error::new(
+                ErrorKind::IllegalState,
+                "the driver's duty cycle is already running: run it from one thread",
+            )),
+        }
     }
 }
 
@@ -156,18 +194,56 @@ impl MediaDriverBuilder {
 
     /// Start the media driver. Fails with the first invalid setting, if any.
     ///
-    /// [`ThreadingMode::Invoker`] is not supported yet: it needs an API to run
-    /// the driver's duty cycle, which this crate does not expose.
+    /// With [`ThreadingMode::Invoker`] it starts no threads: run it with
+    /// [`MediaDriver::do_work`].
     pub fn start(self) -> Result<MediaDriver> {
         let mut inner = self.inner?;
-        if self.threading_mode == ThreadingMode::Invoker {
-            return Err(Error::new(
-                ErrorKind::UnsupportedOperation,
-                "ThreadingMode::Invoker is not supported yet",
-            ));
-        }
-        inner.pin_mut().start()?;
-        Ok(MediaDriver { inner })
+        inner
+            .pin_mut()
+            .start(self.threading_mode == ThreadingMode::Invoker)?;
+        Ok(MediaDriver {
+            inner,
+            duty_cycle: std::sync::Mutex::new(()),
+        })
+    }
+
+    /// Decide whether a termination request (e.g. from
+    /// [`Context::request_driver_termination`](crate::Context::request_driver_termination))
+    /// is accepted: `validator` gets the request's token (C
+    /// `aeron_driver_context_set_driver_termination_validator`). The default
+    /// rejects every request.
+    ///
+    /// It runs on the driver's conductor thread. A panic is caught and printed,
+    /// and rejects the request.
+    pub fn termination_validator<F>(self, validator: F) -> Self
+    where
+        F: Fn(&[u8]) -> bool + Send + Sync + 'static,
+    {
+        self.apply(move |w| {
+            w.setTerminationValidator(
+                termination_validator::<F>,
+                crate::handlers::release::<F>,
+                crate::handlers::into_ctx(validator),
+            )
+        })
+    }
+
+    /// Called when a termination request is accepted (C
+    /// `aeron_driver_context_set_driver_termination_hook`), on the driver's
+    /// conductor thread: e.g. signal your program to drop the [`MediaDriver`]
+    /// (the driver keeps running until then). Dropping the driver from the
+    /// hook itself is not possible, as the hook runs inside it.
+    pub fn termination_hook<F>(self, hook: F) -> Self
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        self.apply(move |w| {
+            w.setTerminationHook(
+                termination_hook::<F>,
+                crate::handlers::release::<F>,
+                crate::handlers::into_ctx(hook),
+            )
+        })
     }
 
     /// Threading model of the driver's conductor, sender and receiver.
@@ -178,4 +254,17 @@ impl MediaDriverBuilder {
         self.threading_mode = mode;
         self.apply(|w| w.setThreadingMode(mode as i32))
     }
+}
+
+fn termination_validator<F: Fn(&[u8]) -> bool + Send + Sync + 'static>(
+    ctx: usize,
+    token: &[u8],
+) -> bool {
+    let mut accepted = false;
+    crate::handlers::invoke::<F>(ctx, "termination validator", |f| accepted = f(token));
+    accepted
+}
+
+fn termination_hook<F: Fn() + Send + Sync + 'static>(ctx: usize) {
+    crate::handlers::invoke::<F>(ctx, "termination hook", |f| f());
 }

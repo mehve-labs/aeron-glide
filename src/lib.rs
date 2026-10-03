@@ -340,7 +340,21 @@ pub(crate) mod ffi {
         fn removeCloseClientHandler(self: &AeronWrapper, registration_id: i64) -> Result<()>;
         fn countersReader(self: &AeronWrapper) -> UniquePtr<CountersReaderWrapper>;
 
-        fn start(self: Pin<&mut MediaDriverWrapper>) -> Result<()>;
+        fn start(self: Pin<&mut MediaDriverWrapper>, manual_main_loop: bool) -> Result<()>;
+        fn doWork(self: &MediaDriverWrapper) -> Result<i32>;
+        fn idle(self: &MediaDriverWrapper, work_count: i32) -> Result<()>;
+        fn setTerminationValidator(
+            self: Pin<&mut MediaDriverWrapper>,
+            validator: fn(usize, &[u8]) -> bool,
+            release: fn(usize),
+            ctx: usize,
+        ) -> Result<()>;
+        fn setTerminationHook(
+            self: Pin<&mut MediaDriverWrapper>,
+            hook: fn(usize),
+            release: fn(usize),
+            ctx: usize,
+        ) -> Result<()>;
 
         fn setThreadingMode(self: Pin<&mut MediaDriverWrapper>, mode: i32) -> Result<()>;
 
@@ -622,10 +636,11 @@ mod tests {
     #[test]
     fn driver_builder_reports_first_error() {
         let err = MediaDriver::builder()
-            .threading_mode(ThreadingMode::Invoker)
+            .mtu_length(7)
+            .threading_mode(ThreadingMode::Shared)
             .start()
-            .expect_err("invoker mode is rejected");
-        assert_eq!(err.kind(), ErrorKind::UnsupportedOperation);
+            .expect_err("invalid MTU");
+        assert_eq!(err.kind(), ErrorKind::IllegalArgument, "{err}");
     }
 
     #[test]
