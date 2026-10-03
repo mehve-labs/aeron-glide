@@ -103,6 +103,13 @@ pub use subscription::{ControlledAction, PollAction, Subscription};
 
 #[cxx::bridge(namespace = "aeron_rs")]
 pub mod ffi {
+    /// One part of a vectored offer: the address and length of a byte slice.
+    #[derive(Clone, Copy)]
+    struct OfferPart {
+        ptr: usize,
+        len: usize,
+    }
+
     unsafe extern "C++" {
         include!("shim.h");
 
@@ -154,6 +161,13 @@ pub mod ffi {
         fn setThreadingMode(self: Pin<&mut MediaDriverWrapper>, mode: i32) -> Result<()>;
 
         fn offer(self: &PublicationWrapper, buffer: &[u8]) -> Result<i64>;
+        fn offerParts(
+            self: &PublicationWrapper,
+            parts: &[OfferPart],
+            supplier: fn(usize, &[u8]) -> i64,
+            ctx: usize,
+            use_supplier: bool,
+        ) -> Result<i64>;
         fn tryClaim(
             self: &PublicationWrapper,
             length: usize,
@@ -182,6 +196,13 @@ pub mod ffi {
         fn localSocketAddresses(self: &PublicationWrapper) -> Result<Vec<String>>;
         fn isOriginal(self: &PublicationWrapper) -> bool;
         fn offer(self: &ExclusivePublicationWrapper, buffer: &[u8]) -> Result<i64>;
+        fn offerParts(
+            self: &ExclusivePublicationWrapper,
+            parts: &[OfferPart],
+            supplier: fn(usize, &[u8]) -> i64,
+            ctx: usize,
+            use_supplier: bool,
+        ) -> Result<i64>;
         fn tryClaim(
             self: &ExclusivePublicationWrapper,
             length: usize,

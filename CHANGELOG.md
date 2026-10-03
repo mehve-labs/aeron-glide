@@ -86,6 +86,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `is_closed`, `max_possible_position`, `position`, `publication_limit`,
   `publication_limit_id`, `available_window`, `channel_status` (new
   `ChannelStatus` enum), `channel_status_id`, `local_socket_addresses`.
+- Vectored and reserved-value offers on both publication types:
+  `offer_vectored` (several buffers as one message, no copy),
+  `offer_with_reserved_value` and `offer_vectored_with_reserved_value` (a
+  supplier sets each fragment header's reserved value).
 - `ExclusivePublication::revoke` (consumes the publication) and
   `revoke_on_close`: end the stream for subscribers without lingering.
 - Every scalar media driver setting is available on `MediaDriverBuilder`

@@ -106,6 +106,9 @@ namespace aeron_rs {
 using FragmentFn = rust::Fn<void(size_t, rust::Slice<const uint8_t>)>;
 using ControlledFragmentFn = rust::Fn<int32_t(size_t, rust::Slice<const uint8_t>)>;
 using ClaimFn = rust::Fn<bool(size_t, rust::Slice<uint8_t>)>;
+// (ctx, frame) -> reserved value for the frame header.
+using ReservedValueFn = rust::Fn<int64_t(size_t, rust::Slice<const uint8_t>)>;
+struct OfferPart; // shared with Rust (lib.rs)
 using CounterFn = rust::Fn<void(size_t, int32_t, int32_t, rust::Slice<const uint8_t>, rust::Slice<const uint8_t>)>;
 // Long-lived handler: (ctx, encoded exception). The release function frees ctx.
 using ErrorFn = rust::Fn<void(size_t, rust::Slice<const uint8_t>)>;
@@ -171,6 +174,10 @@ public:
         aeron::AtomicBuffer atomic_buffer(const_cast<uint8_t *>(buffer.data()), buffer.size());
         return pub->offer(atomic_buffer);
     }
+
+    // Offer `parts` as one message (vectored offer), optionally with a reserved
+    // value supplier. Up to 16 parts are wrapped on the stack.
+    int64_t offerParts(rust::Slice<const OfferPart> parts, ReservedValueFn supplier, size_t ctx, bool useSupplier) const;
 
     int64_t tryClaim(size_t length, ClaimFn handler, size_t ctx) const {
         aeron::concurrent::logbuffer::BufferClaim bufferClaim;

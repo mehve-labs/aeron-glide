@@ -1,5 +1,7 @@
 #include "shim.h"
+#include <array>
 #include <iostream>
+#include <vector>
 #include <thread>
 #include "aeron-glide/src/lib.rs.h"
 
@@ -8,6 +10,35 @@ extern "C" {
 }
 
 namespace aeron_rs {
+
+template <typename P>
+int64_t PublicationWrapperT<P>::offerParts(
+    rust::Slice<const OfferPart> parts, ReservedValueFn supplier, size_t ctx, bool useSupplier) const {
+    std::array<aeron::AtomicBuffer, 16> stackBuffers;
+    std::vector<aeron::AtomicBuffer> heapBuffers;
+    aeron::AtomicBuffer *buffers = stackBuffers.data();
+    if (parts.size() > stackBuffers.size()) {
+        heapBuffers.resize(parts.size());
+        buffers = heapBuffers.data();
+    }
+    for (size_t i = 0; i < parts.size(); i++) {
+        buffers[i].wrap(reinterpret_cast<uint8_t *>(parts[i].ptr), parts[i].len);
+    }
+    if (!useSupplier) {
+        return pub->offer(buffers, parts.size());
+    }
+    aeron::on_reserved_value_supplier_t reservedValue =
+        [&](aeron::AtomicBuffer &termBuffer, aeron::util::index_t termOffset, aeron::util::index_t length) {
+            return supplier(ctx, rust::Slice<const uint8_t>(termBuffer.buffer() + termOffset, length));
+        };
+    return pub->offer(buffers, parts.size(), reservedValue);
+}
+
+// Defined here because it needs OfferPart from the generated bridge header.
+template int64_t PublicationWrapperT<aeron::Publication>::offerParts(
+    rust::Slice<const OfferPart>, ReservedValueFn, size_t, bool) const;
+template int64_t PublicationWrapperT<aeron::ExclusivePublication>::offerParts(
+    rust::Slice<const OfferPart>, ReservedValueFn, size_t, bool) const;
 
 // Throws the Aeron exception matching aeron_errcode(), prefixed with `what`.
 [[noreturn]] void throwDriverError(const char *what) {

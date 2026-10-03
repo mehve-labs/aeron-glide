@@ -171,6 +171,41 @@ impl Publication {
         error::offer_result(self.inner.offer(buffer)?)
     }
 
+    /// Publish `parts` as one message, without first copying them into one buffer
+    /// (C++ vectored `offer`). Returns the new stream position on success.
+    pub fn offer_vectored(&self, parts: &[&[u8]]) -> std::result::Result<i64, OfferError> {
+        offer_parts(&*self.inner, parts, None::<fn(&[u8]) -> i64>)
+    }
+
+    /// Publish a message, letting `supplier` choose the 64-bit reserved value
+    /// written into each fragment's header (e.g. a checksum or timestamp).
+    ///
+    /// `supplier` is called once per fragment with the frame (header and payload)
+    /// before it is published; subscribers read the value from the fragment header.
+    pub fn offer_with_reserved_value<F>(
+        &self,
+        buffer: &[u8],
+        supplier: F,
+    ) -> std::result::Result<i64, OfferError>
+    where
+        F: FnMut(&[u8]) -> i64,
+    {
+        offer_parts(&*self.inner, &[buffer], Some(supplier))
+    }
+
+    /// [`offer_vectored`](Self::offer_vectored) with a reserved value supplier, as in
+    /// [`offer_with_reserved_value`](Self::offer_with_reserved_value).
+    pub fn offer_vectored_with_reserved_value<F>(
+        &self,
+        parts: &[&[u8]],
+        supplier: F,
+    ) -> std::result::Result<i64, OfferError>
+    where
+        F: FnMut(&[u8]) -> i64,
+    {
+        offer_parts(&*self.inner, parts, Some(supplier))
+    }
+
     /// Zero-copy publish: claims a region of the log buffer, calls `handler` with a mutable
     /// slice pointing directly into shared memory, then commits or aborts based on the return value.
     /// Returns the new stream position if the claim succeeded.
@@ -220,6 +255,41 @@ impl ExclusivePublication {
         error::offer_result(self.inner.offer(buffer)?)
     }
 
+    /// Publish `parts` as one message, without first copying them into one buffer
+    /// (C++ vectored `offer`). Returns the new stream position on success.
+    pub fn offer_vectored(&mut self, parts: &[&[u8]]) -> std::result::Result<i64, OfferError> {
+        offer_parts(&*self.inner, parts, None::<fn(&[u8]) -> i64>)
+    }
+
+    /// Publish a message, letting `supplier` choose the 64-bit reserved value
+    /// written into each fragment's header (e.g. a checksum or timestamp).
+    ///
+    /// `supplier` is called once per fragment with the frame (header and payload)
+    /// before it is published; subscribers read the value from the fragment header.
+    pub fn offer_with_reserved_value<F>(
+        &mut self,
+        buffer: &[u8],
+        supplier: F,
+    ) -> std::result::Result<i64, OfferError>
+    where
+        F: FnMut(&[u8]) -> i64,
+    {
+        offer_parts(&*self.inner, &[buffer], Some(supplier))
+    }
+
+    /// [`offer_vectored`](Self::offer_vectored) with a reserved value supplier, as in
+    /// [`offer_with_reserved_value`](Self::offer_with_reserved_value).
+    pub fn offer_vectored_with_reserved_value<F>(
+        &mut self,
+        parts: &[&[u8]],
+        supplier: F,
+    ) -> std::result::Result<i64, OfferError>
+    where
+        F: FnMut(&[u8]) -> i64,
+    {
+        offer_parts(&*self.inner, parts, Some(supplier))
+    }
+
     /// Zero-copy publish: claims a region of the log buffer, calls `handler` with a mutable
     /// slice pointing directly into shared memory, then commits or aborts based on the return value.
     /// Returns the new stream position if the claim succeeded.
@@ -253,12 +323,85 @@ impl ExclusivePublication {
     publication_accessors!();
 }
 
+/// The two publication wrappers, for the shared vectored-offer helper.
+trait OfferParts {
+    fn offer_parts(
+        &self,
+        parts: &[ffi::OfferPart],
+        supplier: fn(usize, &[u8]) -> i64,
+        ctx: usize,
+        use_supplier: bool,
+    ) -> std::result::Result<i64, cxx::Exception>;
+}
+
+impl OfferParts for ffi::PublicationWrapper {
+    fn offer_parts(
+        &self,
+        parts: &[ffi::OfferPart],
+        supplier: fn(usize, &[u8]) -> i64,
+        ctx: usize,
+        use_supplier: bool,
+    ) -> std::result::Result<i64, cxx::Exception> {
+        self.offerParts(parts, supplier, ctx, use_supplier)
+    }
+}
+
+impl OfferParts for ffi::ExclusivePublicationWrapper {
+    fn offer_parts(
+        &self,
+        parts: &[ffi::OfferPart],
+        supplier: fn(usize, &[u8]) -> i64,
+        ctx: usize,
+        use_supplier: bool,
+    ) -> std::result::Result<i64, cxx::Exception> {
+        self.offerParts(parts, supplier, ctx, use_supplier)
+    }
+}
+
+/// Vectored offer with an optional reserved value supplier.
+fn offer_parts<W, F>(
+    wrapper: &W,
+    parts: &[&[u8]],
+    supplier: Option<F>,
+) -> std::result::Result<i64, OfferError>
+where
+    W: OfferParts,
+    F: FnMut(&[u8]) -> i64,
+{
+    const STACK_PARTS: usize = 16;
+    let mut stack = [ffi::OfferPart { ptr: 0, len: 0 }; STACK_PARTS];
+    let mut heap = Vec::new();
+    let raw: &mut [ffi::OfferPart] = if parts.len() <= STACK_PARTS {
+        &mut stack[..parts.len()]
+    } else {
+        heap.resize(parts.len(), ffi::OfferPart { ptr: 0, len: 0 });
+        &mut heap
+    };
+    for (raw, part) in raw.iter_mut().zip(parts) {
+        // Aeron buffer lengths are `int32`; reject longer parts instead of truncating them.
+        claim_length(part.len())?;
+        *raw = ffi::OfferPart {
+            ptr: part.as_ptr() as usize,
+            len: part.len(),
+        };
+    }
+    let result = match supplier {
+        None => wrapper.offer_parts(raw, callback::reserved_value::<F>, 0, false),
+        Some(supplier) => {
+            let mut cb = Callback::new(supplier);
+            let result = wrapper.offer_parts(raw, callback::reserved_value::<F>, cb.ctx(), true);
+            cb.finish(result)
+        }
+    };
+    error::offer_result(result?)
+}
+
 /// Aeron claim lengths are `int32`; reject longer ones instead of truncating them.
 fn claim_length(length: usize) -> std::result::Result<usize, OfferError> {
     if length > i32::MAX as usize {
         return Err(OfferError::Error(Error::new(
             ErrorKind::IllegalArgument,
-            format!("claim length {length} exceeds the maximum of {}", i32::MAX),
+            format!("length {length} exceeds the maximum of {}", i32::MAX),
         )));
     }
     Ok(length)

@@ -114,3 +114,74 @@ fn revoke_on_close_ends_the_stream_when_dropped() {
     drop(publication);
     wait_until("the image to go away", || sub.image_count() == 0);
 }
+
+#[test]
+fn vectored_offer_publishes_one_message() {
+    let driver = TestDriver::start();
+    let client = driver.client();
+    let publication = client.add_publication("aeron:ipc", 12).unwrap();
+    let mut exclusive = client.add_exclusive_publication("aeron:ipc", 12).unwrap();
+    let mut sub = client.add_subscription("aeron:ipc", 12).unwrap();
+    wait_connected(&sub);
+    wait_until("exclusive to connect", || exclusive.is_connected());
+
+    while let Err(e) = publication.offer_vectored(&[b"he", b"ll", b"o"]) {
+        assert!(e.is_retryable(), "{e}");
+    }
+    // More parts than fit on the stack.
+    let bytes: Vec<[u8; 1]> = (0..20u8).map(|i| [i]).collect();
+    let parts: Vec<&[u8]> = bytes.iter().map(|b| &b[..]).collect();
+    while let Err(e) = exclusive.offer_vectored(&parts) {
+        assert!(e.is_retryable(), "{e}");
+    }
+
+    let mut received = Vec::new();
+    common::poll_n(&mut sub, 2, |data| received.push(data.to_vec()));
+    received.sort();
+    let twenty: Vec<u8> = (0..20).collect();
+    assert!(received.contains(&b"hello".to_vec()), "{received:?}");
+    assert!(received.contains(&twenty), "{received:?}");
+}
+
+#[test]
+fn reserved_value_supplier_sees_every_frame() {
+    let driver = TestDriver::start();
+    let client = driver.client();
+    let publication = client.add_publication("aeron:ipc", 13).unwrap();
+    let sub = client.add_subscription("aeron:ipc", 13).unwrap();
+    wait_connected(&sub);
+
+    // A message spanning several fragments: the supplier runs once per fragment.
+    let message = vec![1u8; 4 * publication.max_payload_length()];
+    let mut frames = Vec::new();
+    loop {
+        frames.clear();
+        match publication.offer_with_reserved_value(&message, |frame| {
+            frames.push(frame.len());
+            frame.len() as i64
+        }) {
+            Ok(_) => break,
+            Err(e) => assert!(e.is_retryable(), "{e}"),
+        }
+    }
+    const HEADER: usize = 32;
+    assert_eq!(frames.len(), 4, "{frames:?}");
+    assert_eq!(frames.iter().sum::<usize>(), message.len() + 4 * HEADER);
+}
+
+#[test]
+fn reserved_value_supplier_panic_unwinds() {
+    let driver = TestDriver::start();
+    let client = driver.client();
+    let publication = client.add_publication("aeron:ipc", 14).unwrap();
+    let sub = client.add_subscription("aeron:ipc", 14).unwrap();
+    wait_connected(&sub);
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = publication
+            .offer_vectored_with_reserved_value(&[b"a", b"b"], |_| panic!("supplier panic"));
+    }));
+    let payload = result.expect_err("the supplier panic propagates");
+    assert_eq!(payload.downcast_ref::<&str>(), Some(&"supplier panic"));
+    offer(&publication, b"after");
+}
