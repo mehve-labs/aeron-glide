@@ -230,17 +230,19 @@ jar).
 
 ## Benchmarks
 
-On an Apple M4 Pro with Aeron 1.53.3, a 32-byte UDP ping-pong over localhost
-has a median round trip of 20.8 µs (p99 30.9 µs), the same as 0.3.1. IPC
-throughput is 35M to 65M messages per second, depending mostly on how the
-publisher and subscriber threads share cache lines. See
-[BENCHMARKS.md](BENCHMARKS.md) for the method and why that number moves.
+aeron-glide performs the same as rusteron: both spend their time in the same
+Aeron C code. On an Apple M4 Pro, against one shared media driver (Aeron
+1.53.3), median of three alternating rounds:
 
-```bash
-cargo run --release --example throughput   # IPC throughput (needs a driver)
-cargo run --release --example latency      # UDP ping-pong latency
-cargo run --release --example embedded_ping_pong
-```
+| | IPC throughput | UDP round trip p50 | p99 | p99.9 |
+|---|---|---|---|---|
+| aeron-glide 0.4 | 39.7M msgs/sec | 19.8 µs | 29.6 µs | 43.1 µs |
+| rusteron 0.2.10 | 39.9M msgs/sec | 20.1 µs | 29.8 µs | 46.4 µs |
+
+**[BENCHMARKS.md](BENCHMARKS.md)** has the method, a run pinned with
+`taskset` on Linux, the comparison with 0.3.1, why throughput numbers like
+these move so much, and how to reproduce them with
+[`scripts/benchmark.py`](scripts/benchmark.py).
 
 ## Documentation
 

@@ -1,98 +1,136 @@
 # Benchmarks
 
-Measured on an Apple M4 Pro (12 cores, 48 GB), macOS 27, Rust 1.99, Aeron
-1.53.3, with release builds. The driver is the `mediadriver` binary with its
-default settings, shared by every run. Each benchmark ran three times,
-alternating with the same examples built from the previous release (0.3.1,
-also on Aeron 1.53.3), and the tables give the median.
+How aeron-glide performs, compared with [rusteron](https://github.com/gsrxyz/rusteron)
+and with aeron-glide 0.3.1, and how the numbers were measured. In short:
+aeron-glide and rusteron perform the same, since both spend their time in the
+same Aeron C code. aeron-glide's latency tail was slightly lower in these runs.
 
-## UDP latency (ping-pong)
+## Method
 
-32-byte messages over localhost UDP, 1M round trips after 100K warm-up.
+- **One media driver for everyone.** Every contender connects to the same
+  running media driver: this crate's `mediadriver` binary, Aeron 1.53.3, with
+  its default settings. Only the client libraries differ.
+- **The same work on both sides.** aeron-glide runs its `throughput` and
+  `latency` examples, and rusteron its `embedded_exclusive_ipc_throughput` and
+  `embedded_ping_pong` examples. Despite their names, these also connect to an
+  external driver through `AERON_DIR`. The pairs do the same thing:
+  - **Throughput:** 32-byte messages on an exclusive IPC publication. A
+    publisher thread offers as fast as it can, and a subscriber thread polls
+    up to 32 fragments at a time. We take the median of the per-second rates
+    over 12 seconds, after 2 seconds of warm-up.
+  - **Latency:** a UDP ping-pong on `localhost:20123/20124` with 32-byte
+    messages and a fragment limit of 10, measuring 1M round trips after 100K of
+    warm-up. rusteron's example measures 10M; we changed that constant to 1M to
+    match.
+- **One client or two.** rusteron's throughput example uses one client for
+  both ends. aeron-glide's uses one client per end by default, and
+  `--shared-client` uses one for both, so both setups are measured.
+- **Rounds.** The contenders run one after another, in alternating order each
+  round, with nothing else running on the machine. Each table gives the median
+  of three rounds.
+- **Builds.**
+  - aeron-glide 0.4.0: release build, Rust 1.99.
+  - rusteron 0.2.10: release build with its `static` feature, as its README
+    recommends, using its pinned Rust 1.95 and its bundled Aeron 1.52.2
+    client.
+- **Script.** [`scripts/benchmark.py`](scripts/benchmark.py) runs all of this;
+  see [Reproducing](#reproducing).
 
-```
-cargo run --release --example latency
-```
+## Results on macOS
 
-| Round trip | 0.4 | 0.3.1 |
-|---|---|---|
-| min | 10.4 µs | 10.3 µs |
-| p50 | 20.8 µs | 20.8 µs |
-| p99 | 30.9 µs | 29.9 µs |
-| p99.9 | 43.8 µs | 43.0 µs |
-| p99.99 | 71.0 µs | 71.6 µs |
-| mean | 21.0 µs | 21.0 µs |
+Apple M4 Pro (8 performance and 4 efficiency cores, 48 GB), macOS 27.
 
-Latency is unchanged: the round trip is dominated by the kernel's UDP path,
-not by the bindings.
+| | Throughput | p50 | p99 | p99.9 | p99.99 |
+|---|---|---|---|---|---|
+| aeron-glide 0.4 | 39.7M msgs/sec | 19.8 µs | 29.6 µs | 43.1 µs | 81.3 µs |
+| aeron-glide 0.4, one client | 39.9M msgs/sec | | | | |
+| rusteron 0.2.10 | 39.9M msgs/sec | 20.1 µs | 29.8 µs | 46.4 µs | 118.7 µs |
 
-## IPC throughput
+macOS cannot pin threads to cores: `taskset` does not exist, Apple Silicon
+ignores thread affinity hints, and `taskpolicy` can only lower a process's
+priority. The benchmarks ran as ordinary foreground processes. Busy-spinning
+threads at that priority run on the performance cores in practice, but the
+scheduler decides.
 
-32-byte messages on an exclusive IPC publication, one publisher thread and one
-subscriber thread, each with its own client.
+## Results on Linux, pinned
 
-```
-cargo run --release --example throughput
-```
+The same benchmarks in a Debian 12 container (arm64) under Docker Desktop on
+the same Mac, with 12 virtual CPUs and `--shm-size=2g`. With `taskset`, the
+driver runs on CPU 1, and each benchmark process (publisher and subscriber, or
+ping and pong) runs on CPUs 2 and 3, the same for every contender. These are
+the virtual machine's CPUs, which macOS still schedules onto physical cores.
+That is why both libraries show the same 4 ms p99.99: the virtual machine
+pausing, not either library.
 
-| | 0.4 | 0.3.1 |
-|---|---|---|
-| Messages per second | 35.5M | 58.0M |
+| | Throughput | p50 | p99 | p99.9 | p99.99 |
+|---|---|---|---|---|---|
+| aeron-glide 0.4 | 41.5M msgs/sec | 22.4 µs | 33.2 µs | 62.8 µs | 4.0 ms |
+| aeron-glide 0.4, one client | 41.4M msgs/sec | | | | |
+| rusteron 0.2.10 | 41.8M msgs/sec | 22.4 µs | 33.2 µs | 83.1 µs | 4.0 ms |
 
-(Measured before `offer` called Aeron's C function directly, which raised 0.4
-to about 41M in the comparison below.)
+On a Linux host, pin to isolated physical cores (e.g. `isolcpus`) for numbers
+that hold for production.
 
-This number measures the publisher and subscriber racing over the same cache
-lines more than it measures the bindings, so read it with care:
+## Compared with aeron-glide 0.3.1
 
-- The publisher is the bottleneck in both versions: back pressure is almost
-  zero (about one offer in a million in 0.4).
-- 0.4's subscriber does less work per poll (0.3.1 looked its handler up in a
-  thread-local registry on every poll), so it follows the publisher
-  more closely and reads each cache line right after it is written. The
-  publisher's copy into the log buffer then waits for those lines to come
-  back: in a profile, `memmove` takes 38% of the publisher's time in 0.4 and
-  23% in 0.3.1, with the same code around it.
-- Slowing 0.4's subscriber down by a 200 ns spin after each poll raises the
-  rate to about 65M messages per second, above 0.3.1.
-- Run to run, 0.3.1 ranged from 40M to 58M on the same machine.
+Measured on macOS, against the 0.3.1 release built with the same Aeron 1.53.3
+(its examples are equivalent).
 
-For comparable numbers, measure your own message sizes and threading, ideally
-with both ends on separate cores.
+| | Throughput, per round | p50 | p99 | p99.9 |
+|---|---|---|---|---|
+| 0.4 | 39.7M, 39.6M, 39.4M | 20.0 µs | 29.4 µs | 42.0 µs |
+| 0.3.1 | 79.3M, 49.5M, 40.4M | 20.3 µs | 29.8 µs | 43.8 µs |
 
-## Other benchmarks
+Latency is the same. 0.3.1's throughput is not higher, it is unstable.
 
-`embedded_ping_pong` and `embedded_exclusive_ipc_throughput` run the same kind
-of tests with the media driver inside the process.
+- Back pressure is close to zero in both versions, so the publisher sets the
+  pace, and the rate depends on how its thread and the subscriber's share cache
+  lines.
+- 0.4's subscriber does less work per poll: 0.3.1 looked its handler up in a
+  thread-local registry each time. So it follows the publisher closely and
+  reads each cache line just after it is written, and the publisher waits for
+  those lines. In a profile, the copy into the log buffer takes 38% of the
+  publisher's time in 0.4, and 23% in 0.3.1.
+- 0.3.1's slower subscriber sometimes stays far enough behind to avoid that,
+  and sometimes not, hence 40M to 79M from one run to the next.
+- Making 0.4's subscriber wait 200 ns after each poll gives about 65M messages
+  per second.
 
-## rusteron
-
-Measured in a separate session (the absolute latency differs from the tables
-above, so compare only within this table). Both clients ran against the same
-`mediadriver` (Aeron 1.53.3); rusteron 0.2.10 builds Aeron 1.52.2 and was linked
-statically, as its README recommends. aeron-glide ran its `throughput` and
-`latency` examples, rusteron its `embedded_exclusive_ipc_throughput` and
-`embedded_ping_pong` examples, which do the same work: 32-byte messages on an
-exclusive IPC publication with a poll limit of 32, and a UDP ping-pong on the
-same ports with a fragment limit of 10 (its 10M round trips changed to 1M, like ours). Three
-alternating rounds, medians:
-
-| | aeron-glide 0.4 | rusteron 0.2.10 |
-|---|---|---|
-| IPC throughput | 41.0M msgs/sec | 39.9M msgs/sec |
-| UDP round trip p50 | 50.7 µs | 51.7 µs |
-| UDP round trip p99 | 85.4 µs | 87.6 µs |
-| UDP round trip p99.9 | 137.1 µs | 143.2 µs |
-
-The two are equivalent: both spend their time in the same Aeron C code. One
-difference in the harnesses: rusteron's throughput example uses one client for
-both ends, ours one client per end. The throughput caveats above apply to both.
+A throughput number like this measures how two threads share a cache more than
+how fast a library is. Measure your own message sizes, threads and core
+placement.
 
 ## Reproducing
 
+On macOS or Linux:
+
 ```bash
 cargo build --release --features bin --bin mediadriver --examples
-target/release/mediadriver &       # one shared driver
-target/release/examples/throughput # Ctrl-C after ~10 s
-target/release/examples/latency
+python3 scripts/benchmark.py --glide target/release --rounds 3
 ```
+
+To include rusteron, build its examples from a checkout (with its Aeron
+submodules) and pass their directory:
+
+```bash
+git clone https://github.com/gsrxyz/rusteron && cd rusteron
+git submodule update --init --depth 1 rusteron-client/aeron rusteron-media-driver/aeron
+# optional: in rusteron-client/examples/embedded_ping_pong.rs,
+# set NUMBER_OF_MESSAGES to 1_000_000 to match aeron-glide's latency example
+cargo build --release -p rusteron-client --features "examples static" \
+    --example embedded_exclusive_ipc_throughput --example embedded_ping_pong
+cd ../aeron-glide
+python3 scripts/benchmark.py --glide target/release \
+    --rusteron ../rusteron/target/release/examples
+```
+
+On Linux, add `--driver-cpus 1 --bench-cpus 2,3` to pin with `taskset`. In a
+container, give it a larger `/dev/shm` (`docker run --shm-size=2g`): Aeron's
+log buffers do not fit in the default 64 MB. rusteron's build needs libclang
+(`libclang-dev`).
+
+The script prints a table like the ones above, and `--json` writes the
+per-round results.
+
+Other benchmarks in the examples: `embedded_ping_pong` and
+`embedded_exclusive_ipc_throughput` run the driver inside the process.

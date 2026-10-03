@@ -5,11 +5,15 @@
 //! thread sends 32-byte messages flat out on `aeron:ipc`, the main thread
 //! counts them and prints the rate about once a second, until Ctrl-C.
 //!
+//! Each side has its own client, unless `--shared-client` is given: then one
+//! client serves both, as in rusteron's example.
+//!
 //! Needs a running media driver:
 //!
 //! ```text
 //! cargo run --features bin --bin mediadriver
 //! cargo run --release --example throughput
+//! cargo run --release --example throughput -- --shared-client
 //! ```
 
 use aeron_glide::{AeronClient, OfferError};
@@ -31,17 +35,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         running_ctrl.store(false, Ordering::SeqCst);
     })?;
 
+    let shared_client = std::env::args().any(|arg| arg == "--shared-client");
+    let shared = if shared_client {
+        Some(Arc::new(AeronClient::new()?))
+    } else {
+        None
+    };
+
     println!("IPC Exclusive Throughput Test");
-    println!("  message_length={} channel={}", MESSAGE_LENGTH, channel);
+    println!(
+        "  message_length={} channel={} clients={}",
+        MESSAGE_LENGTH,
+        channel,
+        if shared_client {
+            "shared"
+        } else {
+            "one per side"
+        }
+    );
     println!("  Press Ctrl-C to stop\n");
 
-    // --- Publisher thread (own client) ---
+    // --- Publisher thread (its own client, or the shared one) ---
     let running_pub = Arc::clone(&running);
     let pub_channel = channel.to_string();
+    let pub_client = shared.clone();
     let pub_thread = thread::spawn(move || {
         // Stops the subscriber loop if the publisher ends early or panics.
         let _stop = StopOnDrop(&running_pub);
-        let client = AeronClient::new().expect("Failed to create publisher client");
+        let client = match pub_client {
+            Some(client) => client,
+            None => Arc::new(AeronClient::new().expect("Failed to create publisher client")),
+        };
         let mut publication = client
             .add_exclusive_publication(&pub_channel, STREAM_ID)
             .expect("Failed to add publication");
@@ -76,8 +100,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // --- Subscriber (main thread, own client) ---
-    let client = AeronClient::new()?;
+    // --- Subscriber (main thread, its own client or the shared one) ---
+    let client = match shared {
+        Some(client) => client,
+        None => Arc::new(AeronClient::new()?),
+    };
     let mut subscription = client.add_subscription(channel, STREAM_ID)?;
 
     let mut message_count: u64 = 0;
