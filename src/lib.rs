@@ -532,6 +532,16 @@ pub(crate) mod ffi {
             handler: fn(usize, i32, i32, &[u8], &[u8]),
             ctx: usize,
         ) -> Result<()>;
+        fn findByRegistrationId(self: &CountersReaderWrapper, registration_id: i64) -> Result<i32>;
+        fn findByTypeIdAndRegistrationId(
+            self: &CountersReaderWrapper,
+            type_id: i32,
+            registration_id: i64,
+        ) -> Result<i32>;
+        fn getCounterRegistrationId(self: &CountersReaderWrapper, id: i32) -> Result<i64>;
+        fn getCounterOwnerId(self: &CountersReaderWrapper, id: i32) -> Result<i64>;
+        fn getFreeForReuseDeadline(self: &CountersReaderWrapper, id: i32) -> Result<i64>;
+        fn getCounterKey(self: &CountersReaderWrapper, id: i32) -> Result<Vec<u8>>;
         fn counter(
             self: &CountersReaderWrapper,
             registration_id: i64,

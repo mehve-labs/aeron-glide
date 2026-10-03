@@ -335,3 +335,73 @@ fn counters_in_invoker_mode() {
         state(&reader, id) != CountersReader::RECORD_ALLOCATED
     });
 }
+
+#[test]
+fn reader_lookups() {
+    let driver = TestDriver::start();
+    let client = driver.client();
+    let reader = client.counters_reader();
+    let mut key = b"the key".to_vec();
+    let counter = client.add_counter(TYPE_ID, &key, "looked up").unwrap();
+    let (id, registration_id) = (counter.id(), counter.registration_id());
+
+    assert_eq!(
+        reader.find_by_type_id_and_registration_id(TYPE_ID, registration_id),
+        Some(id)
+    );
+    assert_eq!(
+        reader.find_by_type_id_and_registration_id(TYPE_ID + 1, registration_id),
+        None
+    );
+    assert_eq!(reader.find_by_registration_id(-12345), None);
+    assert_eq!(
+        reader.get_counter_registration_id(id).unwrap(),
+        registration_id
+    );
+    assert_eq!(reader.get_counter_owner_id(id).unwrap(), client.client_id());
+    assert_eq!(
+        reader.get_free_for_reuse_deadline(id).unwrap(),
+        CountersReader::NOT_FREE_TO_REUSE
+    );
+    key.resize(CountersReader::MAX_KEY_LENGTH, 0);
+    assert_eq!(reader.get_counter_key(id).unwrap(), key);
+
+    // Registration IDs are only unique per type: the driver's system counters use
+    // their counter ID.
+    let static_counter = client
+        .add_static_counter(TYPE_ID, &[], "static", 1 << 40)
+        .unwrap();
+    assert_eq!(
+        reader.find_by_registration_id(1 << 40),
+        Some(static_counter.id())
+    );
+    assert_eq!(
+        reader
+            .get_counter_registration_id(static_counter.id())
+            .unwrap(),
+        1 << 40
+    );
+
+    drop(counter);
+    wait_until("the counter to be freed", || {
+        reader
+            .find_by_type_id_and_registration_id(TYPE_ID, registration_id)
+            .is_none()
+    });
+    assert_ne!(
+        reader.get_free_for_reuse_deadline(id).unwrap(),
+        CountersReader::NOT_FREE_TO_REUSE
+    );
+
+    let max = reader.max_counter_id();
+    assert!(reader.get_counter_key(max).is_ok());
+    for bad in [-1, max + 1] {
+        assert_eq!(
+            reader.get_counter_key(bad).unwrap_err().kind(),
+            ErrorKind::IllegalArgument
+        );
+        assert!(reader.get_counter_registration_id(bad).is_err());
+        assert!(reader.get_counter_owner_id(bad).is_err());
+        assert!(reader.get_free_for_reuse_deadline(bad).is_err());
+    }
+}

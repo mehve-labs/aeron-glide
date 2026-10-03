@@ -38,7 +38,7 @@ impl CountersReader {
     /// Maximum length of a counter key, in bytes.
     pub const MAX_KEY_LENGTH: usize = 112;
 
-    /// The highest counter ID currently allocated.
+    /// The highest valid counter ID (the counters file's capacity minus one).
     pub fn max_counter_id(&self) -> i32 {
         self.inner.maxCounterId()
     }
@@ -64,6 +64,59 @@ impl CountersReader {
         Ok(self.inner.getCounterLabel(id)?)
     }
 
+    /// The ID of the first allocated counter with this registration ID, if any
+    /// (C++ `findByRegistrationId`). Registration IDs are only unique per counter
+    /// type (the driver's system counters use their counter ID), so prefer
+    /// [`find_by_type_id_and_registration_id`](Self::find_by_type_id_and_registration_id).
+    pub fn find_by_registration_id(&self, registration_id: i64) -> Option<i32> {
+        // Only fails for an invalid ID, which iteration never produces.
+        self.inner
+            .findByRegistrationId(registration_id)
+            .ok()
+            .and_then(found)
+    }
+
+    /// The ID of the allocated counter with this type ID and registration ID, if
+    /// any.
+    pub fn find_by_type_id_and_registration_id(
+        &self,
+        type_id: i32,
+        registration_id: i64,
+    ) -> Option<i32> {
+        // Only fails for an invalid ID, which iteration never produces.
+        self.inner
+            .findByTypeIdAndRegistrationId(type_id, registration_id)
+            .ok()
+            .and_then(found)
+    }
+
+    /// The registration ID of a counter
+    /// ([`DEFAULT_REGISTRATION_ID`](Self::DEFAULT_REGISTRATION_ID) if it was
+    /// allocated without one). Fails for an out-of-range ID.
+    pub fn get_counter_registration_id(&self, id: i32) -> Result<i64> {
+        Ok(self.inner.getCounterRegistrationId(id)?)
+    }
+
+    /// The ID of the client that owns a counter (the driver's own counters have
+    /// the default owner ID). Fails for an out-of-range ID.
+    pub fn get_counter_owner_id(&self, id: i32) -> Result<i64> {
+        Ok(self.inner.getCounterOwnerId(id)?)
+    }
+
+    /// When a freed counter's record may be reused, in milliseconds since the
+    /// epoch ([`NOT_FREE_TO_REUSE`](Self::NOT_FREE_TO_REUSE) while allocated).
+    /// Fails for an out-of-range ID.
+    pub fn get_free_for_reuse_deadline(&self, id: i32) -> Result<i64> {
+        Ok(self.inner.getFreeForReuseDeadline(id)?)
+    }
+
+    /// A copy of a counter's key: the whole key region,
+    /// [`MAX_KEY_LENGTH`](Self::MAX_KEY_LENGTH) bytes (counters do not record
+    /// their key length). Fails for an out-of-range ID.
+    pub fn get_counter_key(&self, id: i32) -> Result<Vec<u8>> {
+        Ok(self.inner.getCounterKey(id)?)
+    }
+
     /// A [`Counter`] handle on the counter `counter_id`, e.g. to update a counter
     /// another client allocated (C++ `Counter(CountersReader&, registrationId,
     /// counterId)`). `registration_id` is only reported back by
@@ -77,7 +130,7 @@ impl CountersReader {
         })
     }
 
-    /// Iterate over all counters, calling `handler(counter_id, type_id, key_bytes, label)` for each.
+    /// Iterate over the allocated counters, calling `handler(counter_id, type_id, key_bytes, label)` for each.
     pub fn for_each<F>(&self, handler: F) -> Result<()>
     where
         F: FnMut(i32, i32, &[u8], &str),
@@ -86,6 +139,11 @@ impl CountersReader {
         let result = self.inner.forEach(callback::counter::<F>, cb.ctx());
         Ok(cb.finish(result)?)
     }
+}
+
+/// `NULL_COUNTER_ID` (-1) means not found.
+fn found(id: i32) -> Option<i32> {
+    (id >= 0).then_some(id)
 }
 
 /// A counter in the media driver's counters file (C++ `aeron::Counter`), added

@@ -591,6 +591,17 @@ public:
     int32_t getCounterTypeId(int32_t id) const;
     rust::String getCounterLabel(int32_t id) const;
     void forEach(CounterFn handler, size_t ctx) const;
+    // C2: the remaining CountersReader lookups. find* return NULL_COUNTER_ID (-1)
+    // when nothing matches.
+    int32_t findByRegistrationId(int64_t registration_id) const { return reader_->findByRegistrationId(registration_id); }
+    int32_t findByTypeIdAndRegistrationId(int32_t type_id, int64_t registration_id) const {
+        return reader_->findByTypeIdAndRegistrationId(type_id, registration_id);
+    }
+    int64_t getCounterRegistrationId(int32_t id) const { return reader_->getCounterRegistrationId(id); }
+    int64_t getCounterOwnerId(int32_t id) const { return reader_->getCounterOwnerId(id); }
+    int64_t getFreeForReuseDeadline(int32_t id) const { return reader_->getFreeForReuseDeadline(id); }
+    // The key region of a counter's metadata record (MAX_KEY_LENGTH bytes).
+    rust::Vec<uint8_t> getCounterKey(int32_t id) const;
     // A view of a counter (see CounterWrapper). Throws for an out-of-range id.
     std::unique_ptr<CounterWrapper> counter(int64_t registration_id, int32_t counter_id) const;
 

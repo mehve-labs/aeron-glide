@@ -633,6 +633,18 @@ void CountersReaderWrapper::validateCounterId(int32_t id) const {
     }
 }
 
+rust::Vec<uint8_t> CountersReaderWrapper::getCounterKey(int32_t id) const {
+    validateCounterId(id);
+    aeron::AtomicBuffer metadata = reader_->metaDataBuffer();
+    const auto offset = aeron::CountersReader::metadataOffset(id) + aeron::CountersReader::KEY_OFFSET;
+    rust::Vec<uint8_t> key;
+    key.reserve(aeron::CountersReader::MAX_KEY_LENGTH);
+    for (std::int32_t i = 0; i < aeron::CountersReader::MAX_KEY_LENGTH; i++) {
+        key.push_back(metadata.getUInt8(offset + i));
+    }
+    return key;
+}
+
 std::unique_ptr<CounterWrapper> CountersReaderWrapper::counter(int64_t registration_id, int32_t counter_id) const {
     validateCounterId(counter_id); // the C++ constructor does not check it
     auto view = std::make_shared<aeron::Counter>(*reader_, registration_id, counter_id);

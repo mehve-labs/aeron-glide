@@ -206,6 +206,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MAX_LABEL_LENGTH` are rejected. Works around an upstream C++ bug: a counter
   holding the last reference to its client was closed after the client had
   freed it.
+- `CountersReader` lookups: `find_by_registration_id` and
+  `find_by_type_id_and_registration_id` (returning `Option<i32>`),
+  `get_counter_registration_id`, `get_counter_owner_id`,
+  `get_free_for_reuse_deadline` and `get_counter_key`.
 - `CountersReader` constants: `RECORD_UNUSED`, `RECORD_ALLOCATED`,
   `RECORD_RECLAIMED`, `DEFAULT_REGISTRATION_ID`, `NOT_FREE_TO_REUSE`,
   `MAX_LABEL_LENGTH`, `MAX_KEY_LENGTH`.
