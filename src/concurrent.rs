@@ -24,6 +24,11 @@
 //! # Ok::<(), aeron_glide::Error>(())
 //! ```
 
+#![cfg_attr(
+    not(feature = "driver"),
+    doc = "[`MediaDriverAgent`]: https://docs.rs/aeron-glide/latest/aeron_glide/concurrent/struct.MediaDriverAgent.html"
+)]
+
 use crate::{AeronClient, Error, ErrorKind, Result};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -268,6 +273,7 @@ impl Agent for ClientAgent {
 /// [`MediaDriver::do_work`](crate::MediaDriver::do_work). Starting it fails
 /// unless the driver runs in [`ThreadingMode::Invoker`](crate::ThreadingMode::Invoker).
 #[cfg(feature = "driver")]
+#[cfg_attr(docsrs, doc(cfg(feature = "driver")))]
 #[derive(Debug, Clone)]
 pub struct MediaDriverAgent(pub Arc<crate::MediaDriver>);
 

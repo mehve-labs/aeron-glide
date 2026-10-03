@@ -182,6 +182,36 @@ pub(crate) fn error_log<F: FnMut(&crate::ErrorLogEntry<'_>)>(
     cb.call((), |f| f(&entry));
 }
 
+/// Loss report entry handler.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn loss_report<F: FnMut(&crate::LossReportEntry<'_>)>(
+    ctx: usize,
+    observation_count: i64,
+    total_bytes_lost: i64,
+    first_observation_timestamp: i64,
+    last_observation_timestamp: i64,
+    session_id: i32,
+    stream_id: i32,
+    channel: &[u8],
+    source: &[u8],
+) {
+    // SAFETY: as in `fragment`.
+    let cb = unsafe { Callback::<F>::from_ctx(ctx) };
+    let channel = String::from_utf8_lossy(channel);
+    let source = String::from_utf8_lossy(source);
+    let entry = crate::LossReportEntry {
+        observation_count,
+        total_bytes_lost,
+        first_observation_timestamp,
+        last_observation_timestamp,
+        session_id,
+        stream_id,
+        channel: &channel,
+        source: &source,
+    };
+    cb.call((), |f| f(&entry));
+}
+
 /// Counter metadata handler: `(counter_id, type_id, key, label)`.
 pub(crate) fn counter<F: FnMut(i32, i32, &[u8], &str)>(
     ctx: usize,

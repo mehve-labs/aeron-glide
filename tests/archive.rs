@@ -1030,6 +1030,9 @@ fn closed_clients_fail_instead_of_hanging() {
             .unwrap_err(),
         connect.connect().map(drop).unwrap_err(),
         connect_async.connect_async().map(drop).unwrap_err(),
+        // Control requests too, not an error from the dead connection.
+        archive.get_start_position(0).unwrap_err(),
+        archive.stop_recording(0).unwrap_err(),
     ] {
         assert_eq!(err.kind(), ErrorKind::IllegalState, "{err}");
     }

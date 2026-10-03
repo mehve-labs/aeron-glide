@@ -701,6 +701,7 @@ CncFileWrapper::CncFileWrapper(rust::Str directory, int64_t timeout_ms) {
     }
     state_ = std::make_shared<State>(cnc);
     owned.release();
+    state_->directory = dir;
 }
 
 std::unique_ptr<CountersReaderWrapper> CncFileWrapper::countersReader() const {
@@ -733,6 +734,86 @@ int32_t CncFileWrapper::readErrorLog(ErrorLogFn handler, size_t ctx, int64_t sin
     ErrorLogConsumer consumer{handler, ctx, 0};
     aeron_cnc_error_log_read(state_->cnc, errorLogCallback, &consumer, since_timestamp);
     return consumer.count;
+}
+
+// aeron_fileutil.h includes the C11 atomics header that does not compile as
+// C++ with GCC on ARM: declare the two functions used here (same layout).
+extern "C" {
+typedef struct aeron_glide_mapped_file_stct {
+    void *addr;
+    size_t length;
+} aeron_glide_mapped_file_t;
+int aeron_map_readonly_file(aeron_glide_mapped_file_t *mapped_file, const char *path);
+int aeron_unmap(aeron_glide_mapped_file_t *mapped_file);
+}
+
+namespace {
+// aeron_loss_reporter_entry_t (aeron_loss_reporter.h, packed to 4 bytes).
+#pragma pack(push, 4)
+struct LossReportEntry {
+    int64_t observation_count;
+    int64_t total_bytes_lost;
+    int64_t first_observation_timestamp;
+    int64_t last_observation_timestamp;
+    int32_t session_id;
+    int32_t stream_id;
+};
+#pragma pack(pop)
+static_assert(sizeof(LossReportEntry) == 40, "aeron_loss_reporter_entry_t layout");
+
+size_t alignUp(size_t value, size_t alignment) { return (value + alignment - 1) & ~(alignment - 1); }
+} // namespace
+
+// aeron_cnc_loss_reporter_read trusts the lengths in the file (a corrupt one is
+// read out of bounds) and steps over records with a length that ignores the
+// channel's padding, so it can land inside a record. This follows the writer
+// (aeron_loss_reporter_create_entry) and checks every length against the file.
+int32_t CncFileWrapper::readLossReport(LossReportFn handler, size_t ctx) const {
+    std::string path = (std::filesystem::path(state_->directory) / "loss-report.dat").string();
+    aeron_glide_mapped_file_t file = {nullptr, 0};
+    if (aeron_map_readonly_file(&file, path.c_str()) < 0) {
+        throw aeron::util::IOException("failed to map the loss report " + path + ": " + aeron_errmsg(), SOURCEINFO,
+                                       aeron_errcode());
+    }
+    std::unique_ptr<aeron_glide_mapped_file_t, int (*)(aeron_glide_mapped_file_t *)> mapping(&file, aeron_unmap);
+    const auto *buffer = static_cast<const uint8_t *>(file.addr);
+    const size_t capacity = file.length;
+    const auto readLength = [&](size_t offset, int32_t &length) {
+        if (offset > capacity || capacity - offset < sizeof(int32_t)) {
+            return false;
+        }
+        std::memcpy(&length, buffer + offset, sizeof(int32_t));
+        return length >= 0 && capacity - offset - sizeof(int32_t) >= static_cast<size_t>(length);
+    };
+    int32_t count = 0;
+    size_t offset = 0;
+    while (offset < capacity && capacity - offset >= sizeof(LossReportEntry)) {
+        const auto *entry = reinterpret_cast<const LossReportEntry *>(buffer + offset);
+        // Released last by the writer: the rest of the record is complete.
+        const int64_t observations = detail::loadAcquire(&entry->observation_count);
+        if (observations <= 0) {
+            break;
+        }
+        size_t position = offset + sizeof(LossReportEntry);
+        int32_t channelLength = 0, sourceLength = 0;
+        if (!readLength(position, channelLength)) {
+            break;
+        }
+        const uint8_t *channel = buffer + position + sizeof(int32_t);
+        position += alignUp(sizeof(int32_t) + static_cast<size_t>(channelLength), sizeof(int32_t));
+        if (!readLength(position, sourceLength)) {
+            break;
+        }
+        const uint8_t *source = buffer + position + sizeof(int32_t);
+        position += sizeof(int32_t) + static_cast<size_t>(sourceLength);
+        count++;
+        handler(ctx, observations, detail::loadAcquire(&entry->total_bytes_lost), entry->first_observation_timestamp,
+                detail::loadAcquire(&entry->last_observation_timestamp), entry->session_id, entry->stream_id,
+                rust::Slice<const uint8_t>(channel, static_cast<size_t>(channelLength)),
+                rust::Slice<const uint8_t>(source, static_cast<size_t>(sourceLength)));
+        offset = alignUp(position, AERON_CACHE_LINE_LENGTH);
+    }
+    return count;
 }
 
 CncConstants CncFileWrapper::constants() const {

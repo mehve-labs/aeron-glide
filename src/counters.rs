@@ -361,6 +361,29 @@ pub struct ErrorLogEntry<'a> {
     pub error: &'a str,
 }
 
+/// One stream with data loss in a media driver's loss report, passed to
+/// [`CncFile::read_loss_report`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct LossReportEntry<'a> {
+    /// How many times loss was observed.
+    pub observation_count: i64,
+    /// The total number of bytes lost.
+    pub total_bytes_lost: i64,
+    /// When loss was first observed, in milliseconds since the epoch.
+    pub first_observation_timestamp: i64,
+    /// When loss was last observed, in milliseconds since the epoch.
+    pub last_observation_timestamp: i64,
+    /// The session of the stream.
+    pub session_id: i32,
+    /// The stream ID.
+    pub stream_id: i32,
+    /// The stream's channel (invalid UTF-8 replaced with `U+FFFD`).
+    pub channel: &'a str,
+    /// The source the loss was observed from (invalid UTF-8 replaced with `U+FFFD`).
+    pub source: &'a str,
+}
+
 /// The constants of a CnC file (C `aeron_cnc_constants_t`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -510,6 +533,24 @@ impl CncFile {
         let result = self
             .inner
             .readErrorLog(callback::error_log::<F>, cb.ctx(), since_timestamp);
+        Ok(cb.finish(result)?.max(0) as usize)
+    }
+
+    /// Read the driver's loss report (`loss-report.dat`, next to the CnC file,
+    /// as Aeron's `LossStat` tool does): `consumer` is called for each stream
+    /// that lost data. Returns the number of entries read.
+    ///
+    /// The file is checked as it is read, so a corrupt one ends the report
+    /// early instead of being read out of bounds. Fails if the file cannot be
+    /// mapped (e.g. the driver is gone and its directory deleted).
+    pub fn read_loss_report<F>(&self, consumer: F) -> Result<usize>
+    where
+        F: FnMut(&LossReportEntry<'_>),
+    {
+        let mut cb = Callback::new(consumer);
+        let result = self
+            .inner
+            .readLossReport(callback::loss_report::<F>, cb.ctx());
         Ok(cb.finish(result)?.max(0) as usize)
     }
 }

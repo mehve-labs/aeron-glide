@@ -230,3 +230,89 @@ fn rejects_nul_and_corrupt_files() {
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(result.expect_err("corrupt").kind(), ErrorKind::Io);
 }
+
+/// A loss report record as the driver writes it (aeron_loss_reporter_create_entry).
+fn loss_record(
+    file: &mut [u8],
+    offset: usize,
+    observations: i64,
+    channel: &[u8],
+    source: &[u8],
+) -> usize {
+    let put = |file: &mut [u8], at: usize, bytes: &[u8]| {
+        file[at..at + bytes.len()].copy_from_slice(bytes)
+    };
+    put(file, offset, &observations.to_le_bytes());
+    put(file, offset + 8, &(observations * 100).to_le_bytes()); // bytes lost
+    put(file, offset + 16, &1_000i64.to_le_bytes()); // first observation
+    put(file, offset + 24, &2_000i64.to_le_bytes()); // last observation
+    put(file, offset + 32, &7i32.to_le_bytes()); // session
+    put(file, offset + 36, &8i32.to_le_bytes()); // stream
+    let mut at = offset + 40;
+    put(file, at, &(channel.len() as i32).to_le_bytes());
+    put(file, at + 4, channel);
+    at += (4 + channel.len()).next_multiple_of(4);
+    put(file, at, &(source.len() as i32).to_le_bytes());
+    put(file, at + 4, source);
+    (at + 4 + source.len()).next_multiple_of(64)
+}
+
+#[test]
+fn loss_report() {
+    let driver = TestDriver::start();
+    let cnc = CncFile::map_existing(&driver.dir).unwrap();
+    assert_eq!(cnc.read_loss_report(|_| panic!("no loss")).unwrap(), 0);
+
+    // A crafted report next to a copy of the CnC file. The first record's
+    // channel padding takes it past 64 bytes: Aeron's own reader steps over
+    // records without that padding and would miss the second record.
+    let dir = std::env::temp_dir().join(format!("aeron-glide-loss-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::copy(format!("{}/cnc.dat", driver.dir), dir.join("cnc.dat")).unwrap();
+    let mut file = vec![0u8; 4096];
+    let next = loss_record(&mut file, 0, 1, b"aeron", b"127.0.0.1");
+    assert_eq!(next, 128);
+    let next = loss_record(
+        &mut file,
+        next,
+        2,
+        b"aeron:udp?endpoint=localhost:1",
+        b"127.0.0.1:2",
+    );
+    // A corrupt record: its channel length runs past the end of the file.
+    file[next..next + 8].copy_from_slice(&1i64.to_le_bytes());
+    file[next + 40..next + 44].copy_from_slice(&(1i32 << 30).to_le_bytes());
+    std::fs::write(dir.join("loss-report.dat"), &file).unwrap();
+
+    let copy = CncFile::map_existing_with_timeout(dir.to_str().unwrap(), Duration::ZERO).unwrap();
+    let mut entries = Vec::new();
+    let read = copy
+        .read_loss_report(|e| {
+            entries.push((
+                e.observation_count,
+                e.total_bytes_lost,
+                e.channel.to_string(),
+                e.source.to_string(),
+            ));
+            assert_eq!((e.session_id, e.stream_id), (7, 8));
+            assert_eq!(
+                (e.first_observation_timestamp, e.last_observation_timestamp),
+                (1_000, 2_000)
+            );
+        })
+        .unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(read, 2);
+    assert_eq!(
+        entries,
+        [
+            (1, 100, "aeron".to_string(), "127.0.0.1".to_string()),
+            (
+                2,
+                200,
+                "aeron:udp?endpoint=localhost:1".to_string(),
+                "127.0.0.1:2".to_string()
+            ),
+        ]
+    );
+}

@@ -131,6 +131,8 @@ void claimSetReservedValue(ClaimFrame frame, int64_t value);
 using CounterFn = rust::Fn<void(size_t, int32_t, int32_t, rust::Slice<const uint8_t>, rust::Slice<const uint8_t>)>;
 // (ctx, observation count, first observation timestamp, last observation timestamp, encoded exception)
 using ErrorLogFn = rust::Fn<void(size_t, int32_t, int64_t, int64_t, rust::Slice<const uint8_t>)>;
+using LossReportFn = rust::Fn<void(size_t, int64_t, int64_t, int64_t, int64_t, int32_t, int32_t,
+                                   rust::Slice<const uint8_t>, rust::Slice<const uint8_t>)>;
 // Long-lived handlers, run on the client conductor thread. Each takes the opaque
 // Rust context first; the release function frees it (see RustOwned).
 using ErrorFn = rust::Fn<void(size_t, rust::Slice<const uint8_t>)>;
@@ -533,6 +535,7 @@ namespace detail {
 inline int64_t loadRelaxed(int64_t *p) { return __atomic_load_n(p, __ATOMIC_RELAXED); }
 inline void storeRelaxed(int64_t *p, int64_t v) { __atomic_store_n(p, v, __ATOMIC_RELAXED); }
 inline void storeRelease(int64_t *p, int64_t v) { __atomic_store_n(p, v, __ATOMIC_RELEASE); }
+inline int64_t loadAcquire(const int64_t *p) { return __atomic_load_n(p, __ATOMIC_ACQUIRE); }
 #else
 // MSVC: aligned 64-bit volatile accesses are single, atomic accesses on x64 and ARM64.
 inline int64_t loadRelaxed(int64_t *p) { return *static_cast<volatile int64_t *>(p); }
@@ -540,6 +543,11 @@ inline void storeRelaxed(int64_t *p, int64_t v) { *static_cast<volatile int64_t 
 inline void storeRelease(int64_t *p, int64_t v) {
     std::atomic_thread_fence(std::memory_order_release);
     *static_cast<volatile int64_t *>(p) = v;
+}
+inline int64_t loadAcquire(const int64_t *p) {
+    int64_t v = *static_cast<const volatile int64_t *>(p);
+    std::atomic_thread_fence(std::memory_order_acquire);
+    return v;
 }
 #endif
 } // namespace detail
@@ -715,6 +723,7 @@ public:
 
     std::unique_ptr<CountersReaderWrapper> countersReader() const;
     int32_t readErrorLog(ErrorLogFn handler, size_t ctx, int64_t since_timestamp) const;
+    int32_t readLossReport(LossReportFn handler, size_t ctx) const;
     int64_t toDriverHeartbeat() const { return aeron_cnc_to_driver_heartbeat(state_->cnc); }
     CncConstants constants() const;
     rust::String fileName() const { return rust::String::lossy(aeron_cnc_filename(state_->cnc)); }
@@ -727,6 +736,7 @@ private:
         State &operator=(const State &) = delete;
         aeron_cnc_t *cnc;
         aeron::CountersReader reader; // points into the mapping
+        std::string directory;
     };
     std::shared_ptr<State> state_;
 };

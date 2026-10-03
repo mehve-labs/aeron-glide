@@ -62,6 +62,12 @@ DECL = re.compile(
 )
 
 
+# Time settings whose default is Aeron's null value (u64::MAX here), with its meaning.
+NULL_VALUE_DEFAULT = {
+    "untethered_linger_timeout_ns": "`u64::MAX` (Aeron's null value, the default) uses the untethered window limit timeout.",
+}
+
+
 def find_header():
     if len(sys.argv) > 1:
         return Path(sys.argv[1])
@@ -158,6 +164,17 @@ def generate(header):
             rparams, bparams, cparams = f"value: {rt}", f"value: {bt}", f"{ct} value"
             cargs = expr.format(v="value")
             rcall = "value as i32" if bt == "i32" and rt != "i32" else "value"
+            if types[0] == "uint64_t" and name.endswith(("_ns", "_ms")):
+                # The driver adds times to its clock in signed 64-bit arithmetic:
+                # cap them like the client's timeouts so huge ones don't overflow.
+                cap = "crate::MAX_TIMEOUT_NS" if name.endswith("_ns") else "(crate::MAX_TIMEOUT_NS / 1_000_000)"
+                if name in NULL_VALUE_DEFAULT:
+                    # u64::MAX is Aeron's null value here (-1 as int64_t): keep it.
+                    rcall = f"if value == u64::MAX {{ value }} else {{ value.min({cap} as u64) }}"
+                    lines[-2:-2] = ["", NULL_VALUE_DEFAULT[name] + " Other values above about 73 years are capped: the driver adds this to its clock."]
+                else:
+                    rcall = f"value.min({cap} as u64)"
+                    lines[-2:-2] = ["", "Values above about 73 years are capped: the driver adds this to its clock."]
         else:
             not_generated.append(f"aeron_driver_context_set_{name}({', '.join(types)})")
             continue

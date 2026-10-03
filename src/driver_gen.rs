@@ -631,9 +631,13 @@ impl MediaDriverBuilder {
 
     /// Client liveness timeout in nanoseconds
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_client_liveness_timeout_ns`, environment variable `AERON_CLIENT_LIVENESS_TIMEOUT`.
     pub fn client_liveness_timeout_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_client_liveness_timeout_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_client_liveness_timeout_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+        })
     }
 
     /// Length (in bytes) of the log buffers for publication terms.
@@ -715,9 +719,16 @@ impl MediaDriverBuilder {
 
     /// Linger timeout in nanoseconds on publications.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_publication_linger_timeout_ns`, environment variable `AERON_PUBLICATION_LINGER_TIMEOUT`.
     pub fn publication_linger_timeout_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_publication_linger_timeout_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_publication_linger_timeout_ns(
+                w,
+                value.min(crate::MAX_TIMEOUT_NS as u64),
+            )
+        })
     }
 
     /// SO_RCVBUF setting on UDP sockets which must be sufficient for Bandwidth Delay Product (BDP).
@@ -750,16 +761,27 @@ impl MediaDriverBuilder {
 
     /// Status Message timeout in nanoseconds.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_rcv_status_message_timeout_ns`, environment variable `AERON_RCV_STATUS_MESSAGE_TIMEOUT`.
     pub fn rcv_status_message_timeout_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_rcv_status_message_timeout_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_rcv_status_message_timeout_ns(
+                w,
+                value.min(crate::MAX_TIMEOUT_NS as u64),
+            )
+        })
     }
 
     /// Image liveness timeout in nanoseconds
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_image_liveness_timeout_ns`, environment variable `AERON_IMAGE_LIVENESS_TIMEOUT`.
     pub fn image_liveness_timeout_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_image_liveness_timeout_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_image_liveness_timeout_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+        })
     }
 
     /// Length of the initial window which must be sufficient for Bandwidth Delay Product (BDP).
@@ -778,23 +800,41 @@ impl MediaDriverBuilder {
 
     /// Timeout for publication unblock in nanoseconds.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_publication_unblock_timeout_ns`, environment variable `AERON_PUBLICATION_UNBLOCK_TIMEOUT`.
     pub fn publication_unblock_timeout_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_publication_unblock_timeout_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_publication_unblock_timeout_ns(
+                w,
+                value.min(crate::MAX_TIMEOUT_NS as u64),
+            )
+        })
     }
 
     /// Timeout for publication connection in nanoseconds.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_publication_connection_timeout_ns`, environment variable `AERON_PUBLICATION_CONNECTION_TIMEOUT`.
     pub fn publication_connection_timeout_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_publication_connection_timeout_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_publication_connection_timeout_ns(
+                w,
+                value.min(crate::MAX_TIMEOUT_NS as u64),
+            )
+        })
     }
 
     /// Interval (in nanoseconds) between checks for timers and timeouts.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_timer_interval_ns`, environment variable `AERON_TIMER_INTERVAL`.
     pub fn timer_interval_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_timer_interval_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_timer_interval_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+        })
     }
 
     /// Idle strategy to be employed by Sender for DEDICATED Threading Mode.
@@ -895,16 +935,30 @@ impl MediaDriverBuilder {
 
     /// Timeout for freed counters before they can be reused.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_counters_free_to_reuse_timeout_ns`, environment variable `AERON_COUNTERS_FREE_TO_REUSE_TIMEOUT`.
     pub fn counters_free_to_reuse_timeout_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_counters_free_to_reuse_timeout_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_counters_free_to_reuse_timeout_ns(
+                w,
+                value.min(crate::MAX_TIMEOUT_NS as u64),
+            )
+        })
     }
 
     /// Timeout for a receiver to be tracked.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_flow_control_receiver_timeout_ns`, environment variable `AERON_FLOW_CONTROL_RECEIVER_TIMEOUT`.
     pub fn flow_control_receiver_timeout_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_flow_control_receiver_timeout_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_flow_control_receiver_timeout_ns(
+                w,
+                value.min(crate::MAX_TIMEOUT_NS as u64),
+            )
+        })
     }
 
     /// Default receiver tag for publishers to group endpoints by using tagged flow control.
@@ -951,30 +1005,62 @@ impl MediaDriverBuilder {
 
     /// Untethered subscriptions window limit timeout after which they are removed from flow control.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_untethered_window_limit_timeout_ns`, environment variable `AERON_UNTETHERED_WINDOW_LIMIT_TIMEOUT`.
     pub fn untethered_window_limit_timeout_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_untethered_window_limit_timeout_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_untethered_window_limit_timeout_ns(
+                w,
+                value.min(crate::MAX_TIMEOUT_NS as u64),
+            )
+        })
     }
 
     /// Timeout for an untethered subscriptions to stay in the linger state.
     ///
+    /// `u64::MAX` (Aeron's null value, the default) uses the untethered window limit timeout. Other values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_untethered_linger_timeout_ns`, environment variable `AERON_UNTETHERED_LINGER_TIMEOUT`.
     pub fn untethered_linger_timeout_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_untethered_linger_timeout_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_untethered_linger_timeout_ns(
+                w,
+                if value == u64::MAX {
+                    value
+                } else {
+                    value.min(crate::MAX_TIMEOUT_NS as u64)
+                },
+            )
+        })
     }
 
     /// Untethered subscriptions resting timeout before they are allowed to re join an active stream.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_untethered_resting_timeout_ns`, environment variable `AERON_UNTETHERED_RESTING_TIMEOUT`.
     pub fn untethered_resting_timeout_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_untethered_resting_timeout_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_untethered_resting_timeout_ns(
+                w,
+                value.min(crate::MAX_TIMEOUT_NS as u64),
+            )
+        })
     }
 
     /// Timeout in which the driver is expected to respond or heartbeat.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_driver_timeout_ms`, environment variable `AERON_DRIVER_TIMEOUT`.
     pub fn driver_timeout_ms(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_driver_timeout_ms(w, value))
+        self.apply(|w| {
+            ffi::driver_set_driver_timeout_ms(
+                w,
+                value.min((crate::MAX_TIMEOUT_NS / 1_000_000) as u64),
+            )
+        })
     }
 
     /// Expected size of multicast receiver groups property name.
@@ -986,16 +1072,24 @@ impl MediaDriverBuilder {
 
     /// Max backoff time for multicast NAK delay randomisation in nanoseconds.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_nak_multicast_max_backoff_ns`, environment variable `AERON_NAK_MULTICAST_MAX_BACKOFF`.
     pub fn nak_multicast_max_backoff_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_nak_multicast_max_backoff_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_nak_multicast_max_backoff_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+        })
     }
 
     /// How long to delay before sending an initial NAK.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_nak_unicast_delay_ns`, environment variable `AERON_NAK_UNICAST_DELAY`.
     pub fn nak_unicast_delay_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_nak_unicast_delay_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_nak_unicast_delay_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+        })
     }
 
     /// A ratio to apply to the nak unicast delay to calculate the resend delay. Used as a multipler.
@@ -1014,16 +1108,24 @@ impl MediaDriverBuilder {
 
     /// How long to delay before sending a retransmit following a NAK.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_retransmit_unicast_delay_ns`, environment variable `AERON_RETRANSMIT_UNICAST_DELAY`.
     pub fn retransmit_unicast_delay_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_retransmit_unicast_delay_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_retransmit_unicast_delay_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+        })
     }
 
     /// How long to linger after delay on a NAK.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_retransmit_unicast_linger_ns`, environment variable `AERON_RETRANSMIT_UNICAST_LINGER`.
     pub fn retransmit_unicast_linger_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_retransmit_unicast_linger_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_retransmit_unicast_linger_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+        })
     }
 
     /// Group semantics for network subscriptions.
@@ -1094,37 +1196,66 @@ impl MediaDriverBuilder {
     /// Property name for time to wait before removing a neighbor entry from the cache if an update for that neighbor has
     /// not been received.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_resolver_neighbor_timeout_ns`, environment variable `AERON_DRIVER_RESOLVER_NEIGHBOR_TIMEOUT`.
     pub fn resolver_neighbor_timeout_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_resolver_neighbor_timeout_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_resolver_neighbor_timeout_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+        })
     }
 
     /// Property name for the interval between sending name to address messages for this driver to its neighbors.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_self_resolution_interval_ns`, environment variable `AERON_DRIVER_RESOLVER_SELF_RESOLUTION_INTERVAL`.
     pub fn self_resolution_interval_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_self_resolution_interval_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_self_resolution_interval_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+        })
     }
 
     /// Property name for the interval between sending name to address messages for all known neighbors.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_resolver_neighbor_resolution_interval_ns`, environment variable `AERON_DRIVER_RESOLVER_NEIGHBOR_RESOLUTION_INTERVAL`.
     pub fn resolver_neighbor_resolution_interval_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_resolver_neighbor_resolution_interval_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_resolver_neighbor_resolution_interval_ns(
+                w,
+                value.min(crate::MAX_TIMEOUT_NS as u64),
+            )
+        })
     }
 
     /// Sets `resolver_bootstrap_neighbor_resolution_interval_ns`.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_resolver_bootstrap_neighbor_resolution_interval_ns`, environment variable `AERON_DRIVER_RESOLVER_BOOTSTRAP_NEIGHBOR_RESOLUTION_INTERVAL`.
     pub fn resolver_bootstrap_neighbor_resolution_interval_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_resolver_bootstrap_neighbor_resolution_interval_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_resolver_bootstrap_neighbor_resolution_interval_ns(
+                w,
+                value.min(crate::MAX_TIMEOUT_NS as u64),
+            )
+        })
     }
 
     /// Specify the interval which checks for re-resolutions of names occurs.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_re_resolution_check_interval_ns`, environment variable `AERON_DRIVER_RERESOLUTION_CHECK_INTERVAL`.
     pub fn re_resolution_check_interval_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_re_resolution_check_interval_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_re_resolution_check_interval_ns(
+                w,
+                value.min(crate::MAX_TIMEOUT_NS as u64),
+            )
+        })
     }
 
     /// Specify the sender wildcard port range.
@@ -1143,30 +1274,46 @@ impl MediaDriverBuilder {
 
     /// Specify the duty cycle time threshold for the conductor.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_conductor_cycle_threshold_ns`, environment variable `AERON_DRIVER_CONDUCTOR_CYCLE_THRESHOLD`.
     pub fn conductor_cycle_threshold_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_conductor_cycle_threshold_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_conductor_cycle_threshold_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+        })
     }
 
     /// Specify the duty cycle time threshold for the sender.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_sender_cycle_threshold_ns`, environment variable `AERON_DRIVER_SENDER_CYCLE_THRESHOLD`.
     pub fn sender_cycle_threshold_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_sender_cycle_threshold_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_sender_cycle_threshold_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+        })
     }
 
     /// Specify the duty cycle time threshold for the receiver.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_receiver_cycle_threshold_ns`, environment variable `AERON_DRIVER_RECEIVER_CYCLE_THRESHOLD`.
     pub fn receiver_cycle_threshold_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_receiver_cycle_threshold_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_receiver_cycle_threshold_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+        })
     }
 
     /// Specify the duty cycle time threshold for the name_resolver.
     ///
+    /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
     /// C: `aeron_driver_context_set_name_resolver_threshold_ns`, environment variable `AERON_DRIVER_NAME_RESOLVER_THRESHOLD`.
     pub fn name_resolver_threshold_ns(self, value: u64) -> Self {
-        self.apply(|w| ffi::driver_set_name_resolver_threshold_ns(w, value))
+        self.apply(|w| {
+            ffi::driver_set_name_resolver_threshold_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+        })
     }
 
     /// Sets `receiver_io_vector_capacity`.

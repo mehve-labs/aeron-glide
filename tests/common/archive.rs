@@ -7,7 +7,7 @@
 use super::{TIMEOUT, free_udp_port};
 use aeron_glide::archive::{self, AeronArchive};
 use aeron_glide::{AeronClient, CncFile, Context};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
@@ -29,20 +29,34 @@ fn jar() -> Option<PathBuf> {
         return Some(PathBuf::from(jar));
     }
     let version = std::env::var("AERON_VERSION").unwrap_or_else(|_| "1.53.3".to_string());
-    let file = format!("out/aeron-{version}/aeron-all/build/libs/aeron-all-{version}.jar");
-    // The jar is in the build script's output directory of the profile this
+    let jar_path = format!("aeron-all/build/libs/aeron-all-{version}.jar");
+    // Built inside the source tree when building from AERON_SOURCE_DIR.
+    if let Some(source) = std::env::var_os("AERON_SOURCE_DIR") {
+        let jar = PathBuf::from(source).join(&jar_path);
+        if jar.exists() {
+            return Some(jar);
+        }
+    }
+    let file = format!("out/aeron-{version}/{jar_path}");
+    // Otherwise it is in the build script's output directory of the profile this
     // test binary was built with (which may be outside the repository, e.g.
     // CARGO_TARGET_DIR): build/<pkg>-<hash>/out, or build/<pkg>/<hash>/out in
-    // newer Cargo layouts, which also put test binaries under build/. Look in
-    // the build directories next to the binary's ancestors, nearest first (its
-    // own profile, then the other profiles).
+    // newer Cargo layouts, which also put test binaries under build/. The
+    // profile directory is the nearest ancestor of the binary whose build/
+    // holds this crate's outputs; look there first, then in the other profiles
+    // next to it.
     let exe = std::env::current_exe().ok()?;
-    let mut builds = Vec::new();
-    for dir in exe.ancestors().skip(1).take(5) {
-        builds.push(dir.join("build"));
-        if let Ok(profiles) = std::fs::read_dir(dir) {
-            builds.extend(profiles.flatten().map(|p| p.path().join("build")));
-        }
+    let ours = |dir: &Path| {
+        std::fs::read_dir(dir.join("build")).is_ok_and(|entries| {
+            entries
+                .flatten()
+                .any(|e| e.file_name().to_string_lossy().starts_with("aeron-glide"))
+        })
+    };
+    let profile = exe.ancestors().skip(1).take(5).find(|dir| ours(dir))?;
+    let mut builds = vec![profile.join("build")];
+    if let Some(Ok(profiles)) = profile.parent().map(std::fs::read_dir) {
+        builds.extend(profiles.flatten().map(|p| p.path().join("build")));
     }
     for build in builds {
         let Ok(entries) = std::fs::read_dir(&build) else {

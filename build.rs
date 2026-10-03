@@ -13,6 +13,7 @@ fn main() {
     // which compiles the crate but never links. Skip the Aeron download, the
     // CMake build, and the cxx C++ compilation entirely — the cxx bridge still
     // expands to pure-Rust FFI declarations, so rustdoc succeeds without them.
+    println!("cargo:rerun-if-env-changed=DOCS_RS");
     if env::var("DOCS_RS").is_ok() {
         return;
     }
@@ -162,8 +163,28 @@ fn main() {
             println!("cargo:rustc-link-lib=iphlpapi");
         }
         Ok("linux") => {
-            println!("cargo:rustc-link-lib=uuid");
-            println!("cargo:rustc-link-lib=bsd");
+            // As Aeron links them: libbsd and libuuid only when CMake found them
+            // (libuuid is the driver's), libatomic on aarch64.
+            let cache =
+                std::fs::read_to_string(base_lib_dir.join("CMakeCache.txt")).unwrap_or_default();
+            let found = |var: &str| {
+                cache.lines().any(|line| {
+                    line.strip_prefix(var)
+                        .and_then(|rest| rest.split_once('='))
+                        .is_some_and(|(_, value)| {
+                            !value.is_empty() && !value.ends_with("-NOTFOUND")
+                        })
+                })
+            };
+            if driver_enabled && found("LIBUUID_EXISTS:") {
+                println!("cargo:rustc-link-lib=uuid");
+            }
+            if found("LIBBSD_EXISTS:") {
+                println!("cargo:rustc-link-lib=bsd");
+            }
+            if env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("aarch64") {
+                println!("cargo:rustc-link-lib=atomic");
+            }
         }
         _ => {}
     }
@@ -195,7 +216,13 @@ fn aeron_source(version: &str, out_dir: &Path) -> PathBuf {
     // Written last: a tree without it is a partial extract, e.g. of an
     // interrupted build.
     let complete = out_dir.join(format!("aeron-{version}.complete"));
-    if aeron_dir.exists() && complete.exists() {
+    // The marker holds the tarball's SHA-256: a changed AERON_SHA256 re-downloads.
+    if aeron_dir.exists()
+        && let Ok(extracted) = std::fs::read_to_string(&complete)
+        && env::var("AERON_SHA256").map_or(true, |expected| {
+            expected.trim().eq_ignore_ascii_case(extracted.trim())
+        })
+    {
         return aeron_dir;
     }
 

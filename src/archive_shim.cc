@@ -327,6 +327,7 @@ int64_t ArchiveWrapper::archiveId() const { return archive_->archiveId(); }
 int64_t ArchiveWrapper::controlSessionId() const { return archive_->controlSessionId(); }
 
 int32_t ArchiveWrapper::pollForRecordingSignals() const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     return archive_->pollForRecordingSignals();
 }
@@ -335,6 +336,7 @@ int32_t ArchiveWrapper::pollForRecordingSignals() const {
 // buffer after the archive's lock is released (racing concurrent callers), and
 // overreads a zero-length one.
 rust::String ArchiveWrapper::pollForErrorResponse() const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     // At least the default length: a shorter buffer truncates messages to nothing.
     std::vector<char> buffer(std::max<std::uint32_t>(archive_->context().maxErrorMessageLength(), 1000) + 1, '\0');
@@ -346,6 +348,7 @@ rust::String ArchiveWrapper::pollForErrorResponse() const {
 }
 
 void ArchiveWrapper::checkForErrorResponse() const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     archive_->checkForErrorResponse();
 }
@@ -367,93 +370,111 @@ std::unique_ptr<ExclusivePublicationWrapper> ArchiveWrapper::addRecordedExclusiv
 
 int64_t ArchiveWrapper::startRecording(rust::Str channel, int32_t stream_id, int32_t source_location,
                                        bool auto_stop) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     return archive_->startRecording(str(channel), stream_id, sourceLocation(source_location), auto_stop);
 }
 
 int64_t ArchiveWrapper::extendRecording(int64_t recording_id, rust::Str channel, int32_t stream_id,
                                         int32_t source_location, bool auto_stop) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     return archive_->extendRecording(recording_id, str(channel), stream_id, sourceLocation(source_location), auto_stop);
 }
 
 void ArchiveWrapper::stopRecording(int64_t subscription_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     archive_->stopRecording(subscription_id);
 }
 
 bool ArchiveWrapper::tryStopRecording(int64_t subscription_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     return archive_->tryStopRecording(subscription_id);
 }
 
 void ArchiveWrapper::stopRecordingByChannelAndStream(rust::Str channel, int32_t stream_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     archive_->stopRecording(str(channel), stream_id);
 }
 
 bool ArchiveWrapper::tryStopRecordingByChannelAndStream(rust::Str channel, int32_t stream_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     return archive_->tryStopRecording(str(channel), stream_id);
 }
 
 bool ArchiveWrapper::tryStopRecordingByIdentity(int64_t recording_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     return archive_->tryStopRecordingByIdentity(recording_id);
 }
 
 void ArchiveWrapper::stopRecordingPublication(const PublicationWrapper &publication) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     archive_->stopRecording(publication.shared());
 }
 
 void ArchiveWrapper::stopRecordingExclusivePublication(const ExclusivePublicationWrapper &publication) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     archive_->stopRecording(publication.shared());
 }
 
 int64_t ArchiveWrapper::purgeRecording(int64_t recording_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     return archive_->purgeRecording(recording_id);
 }
 
 void ArchiveWrapper::updateChannel(int64_t recording_id, rust::Str channel) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     archive_->updateChannel(recording_id, str(channel));
 }
 
 int64_t ArchiveWrapper::truncateRecording(int64_t recording_id, int64_t position) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     return archive_->truncateRecording(recording_id, position);
 }
 
 int64_t ArchiveWrapper::getRecordingPosition(int64_t recording_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     return archive_->getRecordingPosition(recording_id);
 }
 
 int64_t ArchiveWrapper::getStartPosition(int64_t recording_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     return archive_->getStartPosition(recording_id);
 }
 
 int64_t ArchiveWrapper::getStopPosition(int64_t recording_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     return archive_->getStopPosition(recording_id);
 }
 
 int64_t ArchiveWrapper::getMaxRecordedPosition(int64_t recording_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     return archive_->getMaxRecordedPosition(recording_id);
 }
 
 int64_t ArchiveWrapper::findLastMatchingRecording(int64_t min_recording_id, rust::Str channel_fragment,
                                                   int32_t stream_id, int32_t session_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     return archive_->findLastMatchingRecording(min_recording_id, str(channel_fragment), stream_id, session_id);
 }
 
 int32_t ArchiveWrapper::listRecording(int64_t recording_id, RecordingDescriptorFn handler, size_t ctx) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     ConsumerFailure failure;
     int32_t count = archive_->listRecording(recording_id, [&](arc::RecordingDescriptor &d) {
@@ -465,6 +486,7 @@ int32_t ArchiveWrapper::listRecording(int64_t recording_id, RecordingDescriptorF
 
 int32_t ArchiveWrapper::listRecordings(int64_t from_recording_id, int32_t record_count,
                                        RecordingDescriptorFn handler, size_t ctx) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     ConsumerFailure failure;
     int32_t count = archive_->listRecordings(from_recording_id, record_count, [&](arc::RecordingDescriptor &d) {
@@ -477,6 +499,7 @@ int32_t ArchiveWrapper::listRecordings(int64_t from_recording_id, int32_t record
 int32_t ArchiveWrapper::listRecordingsForUri(int64_t from_recording_id, int32_t record_count,
                                              rust::Str channel_fragment, int32_t stream_id,
                                              RecordingDescriptorFn handler, size_t ctx) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     ConsumerFailure failure;
     int32_t count = archive_->listRecordingsForUri(
@@ -490,6 +513,7 @@ int32_t ArchiveWrapper::listRecordingSubscriptions(int32_t pseudo_index, int32_t
                                                    rust::Str channel_fragment, int32_t stream_id,
                                                    bool apply_stream_id, RecordingSubscriptionFn handler,
                                                    size_t ctx) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     ConsumerFailure failure;
     int32_t count = archive_->listRecordingSubscriptions(
@@ -547,11 +571,13 @@ std::unique_ptr<SubscriptionWrapper> ArchiveWrapper::replay(
 }
 
 void ArchiveWrapper::stopReplay(int64_t replay_session_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     archive_->stopReplay(replay_session_id);
 }
 
 void ArchiveWrapper::stopAllReplays(int64_t recording_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     archive_->stopAllReplays(recording_id);
 }
@@ -562,6 +588,7 @@ int64_t ArchiveWrapper::replicate(int64_t src_recording_id, int32_t src_control_
                                   int64_t subscription_tag_id, int32_t file_io_max_length,
                                   int32_t replication_session_id,
                                   rust::Slice<const uint8_t> encoded_credentials) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     // The params keep a pointer to the credentials; they outlive the call.
     std::string credentials(reinterpret_cast<const char *>(encoded_credentials.data()), encoded_credentials.size());
@@ -582,36 +609,43 @@ int64_t ArchiveWrapper::replicate(int64_t src_recording_id, int32_t src_control_
 }
 
 void ArchiveWrapper::stopReplication(int64_t replication_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     archive_->stopReplication(replication_id);
 }
 
 bool ArchiveWrapper::tryStopReplication(int64_t replication_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     return archive_->tryStopReplication(replication_id);
 }
 
 void ArchiveWrapper::detachSegments(int64_t recording_id, int64_t new_start_position) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     archive_->detachSegments(recording_id, new_start_position);
 }
 
 int64_t ArchiveWrapper::deleteDetachedSegments(int64_t recording_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     return archive_->deleteDetachedSegments(recording_id);
 }
 
 int64_t ArchiveWrapper::purgeSegments(int64_t recording_id, int64_t new_start_position) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     return archive_->purgeSegments(recording_id, new_start_position);
 }
 
 int64_t ArchiveWrapper::attachSegments(int64_t recording_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     return archive_->attachSegments(recording_id);
 }
 
 int64_t ArchiveWrapper::migrateSegments(int64_t src_recording_id, int64_t dst_recording_id) const {
+    ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
     return archive_->migrateSegments(src_recording_id, dst_recording_id);
 }

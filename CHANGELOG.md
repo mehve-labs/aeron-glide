@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `control_mode` takes a `ControlMode`, `linger` a `Duration`, `mtu` and
   `term_length` a `u32`.
 - The C++ shim is compiled as C++17 (was C++14): building needs a C++17
-  compiler (GCC 7+, Clang 5+, MSVC 2017+).
+  compiler.
 - **Breaking:** `AeronClient::start` is removed. It did nothing: the client
   starts when it connects.
 - **Breaking:** the cxx bridge module `aeron_glide::ffi` is private. It exposed
@@ -90,15 +90,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `CountersReader::for_each` returns `Result<()>`.
 - **Breaking:** `AeronClient::add_publication`, `add_exclusive_publication` and
   `add_subscription`, and `Publication::offer` / `try_claim`, take `&self`.
-  `AeronClient::start` takes `&self` too.
 - **Breaking:** the media driver is configured with `MediaDriver::builder()`
   (chainable setters without the `set_` prefix; the first invalid setting is
   reported by `start()`), or started with defaults via `MediaDriver::launch()`.
   A started `MediaDriver` cannot be reconfigured or started again; previously
   setters after `start()` raced with the driver's threads and a second
   `start()` leaked the first driver. `MediaDriver::new` and its `Default` impl
-  are removed. `ThreadingMode::Invoker` is rejected by `start()` until the
-  driver duty cycle is exposed. `MediaDriver` is `Send + Sync` and has `dir()`.
+  are removed. `MediaDriver` is `Send + Sync` and has `dir()`.
 - **Breaking:** `ReplayMerge` is now `ReplayMerge<'a>` and keeps the
   `&mut Subscription` passed to `ReplayMerge::new` borrowed while it is alive.
 - **Breaking:** `Image` is now `Image<'a>`, borrowing its `Subscription` /
@@ -114,7 +112,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ReplayMerge progress) overflowed Aeron's `now + timeout` deadlines: requests
   timed out at once, and the client conductor could then read a request from
   the caller's freed stack (found by AddressSanitizer). Timeouts are capped at
-  about 73 years, and `ChannelBuilder` rejects URI durations above that.
+  about 73 years (also the media driver's `*_ns` / `*_ms` settings), and
+  `ChannelBuilder` rejects URI durations above that.
+- Linux builds link `libbsd` and `libuuid` only when Aeron's CMake found them
+  (`libuuid` only with the driver), and `libatomic` on aarch64, as Aeron does.
+- Changing `AERON_SHA256` re-verifies an already extracted Aeron source.
+- Archive requests after the archive's Aeron client closed fail with
+  `IllegalState` ("the Aeron client is closed"), like resource adds, instead
+  of an archive error carrying a stale socket error.
 - Examples no longer spin forever on offer errors that retrying cannot fix
   (e.g. a message too long): they retry back pressure only.
 - Linux builds failed to link (static libraries were passed to the linker
@@ -207,6 +212,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `MIGRATION.md`: upgrading from 0.3, and moving from rusteron.
 - Publication accessors on `Publication` and `ExclusivePublication`: `channel`,
   `stream_id`, `session_id`, `initial_term_id`, `registration_id`,
   `original_registration_id`, `is_original` (concurrent only), `max_message_length`,
@@ -362,7 +368,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`counters_reader`, read-only), its distinct-error log (`read_error_log`,
   with an `ErrorLogEntry` per error), its `constants` (`CncConstants`: PID,
   start time, buffer lengths, ...) and the driver's liveness
-  (`to_driver_heartbeat`, `is_driver_active`). A corrupt CnC file whose layout does not fit
+  (`to_driver_heartbeat`, `is_driver_active`), and its loss report
+  (`read_loss_report`, with a `LossReportEntry` per stream that lost data;
+  read with bounds checks, unlike Aeron's reader). A corrupt CnC file whose layout does not fit
   the file is rejected, and errors the driver is still recording are skipped.
 - `heartbeat_timestamp` (C++ `HeartbeatTimestamp`): `CLIENT_HEARTBEAT_TYPE_ID`,
   `find_counter_id_by_registration_id` and `is_active`, to check whether a

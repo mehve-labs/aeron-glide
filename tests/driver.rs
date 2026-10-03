@@ -228,3 +228,42 @@ fn termination_hook_may_drop_the_last_driver_handle() {
         !std::path::Path::new(&dir).exists()
     });
 }
+
+#[test]
+fn huge_driver_timeouts_are_capped() {
+    // The driver keeps these as signed nanoseconds and adds them to its clock:
+    // uncapped, `u64::MAX` is -1 there and deadlines wrap into the past. Capped,
+    // the driver still works.
+    let dir = temp_dir("huge-timeouts");
+    let driver = MediaDriver::builder()
+        .dir(&dir)
+        .dir_delete_on_start(true)
+        .dir_delete_on_shutdown(true)
+        // Explicit: another test sets AERON_THREADING_MODE=INVOKER for the process.
+        .threading_mode(ThreadingMode::Shared)
+        .image_liveness_timeout_ns(u64::MAX)
+        .publication_linger_timeout_ns(u64::MAX)
+        .untethered_window_limit_timeout_ns(u64::MAX)
+        .start()
+        .unwrap();
+    assert_eq!(driver.image_liveness_timeout_ns(), (i64::MAX / 4) as u64);
+    let client = AeronClient::connect(Context::new().aeron_dir(&dir)).unwrap();
+    let mut sub = client
+        .add_subscription("aeron:udp?endpoint=localhost:0", 9)
+        .unwrap();
+    let endpoint = loop {
+        if let Some(endpoint) = sub.resolved_endpoint().unwrap() {
+            break endpoint;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    };
+    let publication = client
+        .add_publication(&format!("aeron:udp?endpoint={endpoint}"), 9)
+        .unwrap();
+    common::wait_connected(&sub);
+    for _ in 0..3 {
+        common::offer(&publication, b"still alive");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    common::poll_n(&mut sub, 3, |_| {});
+}

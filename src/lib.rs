@@ -1,48 +1,56 @@
-//! Safe, idiomatic Rust wrapper for the [Aeron](https://github.com/real-logic/aeron) C++ API.
-//!
-//! This crate binds directly to the Aeron C++ client using [`cxx`](https://cxx.rs/),
-//! providing zero-cost abstractions over publications, subscriptions, images, and the
-//! embedded media driver. Closures are passed cleanly across the FFI boundary via
-//! trampolines, so the API feels native to Rust.
+#![cfg_attr(
+    not(feature = "driver"),
+    doc = "[`MediaDriver`]: https://docs.rs/aeron-glide/latest/aeron_glide/struct.MediaDriver.html"
+)]
+#![cfg_attr(
+    not(feature = "archive"),
+    doc = "[`archive`]: https://docs.rs/aeron-glide/latest/aeron_glide/archive/index.html"
+)]
+//! Safe, idiomatic Rust API for [Aeron](https://github.com/aeron-io/aeron): the
+//! client, the embedded C media driver and the archive client, built on Aeron's
+//! C++ API with [`cxx`](https://cxx.rs/) (and its C API where C++ lacks a call).
 //!
 //! # Quick start
 //!
 //! ```no_run
 //! use aeron_glide::AeronClient;
 //!
-//! let mut client = AeronClient::new().unwrap();
+//! let client = AeronClient::new()?; // connects to a running media driver
+//! let publication = client.add_publication("aeron:ipc", 1001)?;
+//! let mut subscription = client.add_subscription("aeron:ipc", 1001)?;
 //!
-//! let pub1 = client.add_publication("aeron:ipc", 1001).unwrap();
-//! let mut sub1 = client.add_subscription("aeron:ipc", 1001).unwrap();
-//!
-//! // Publish
-//! while let Err(e) = pub1.offer(b"hello aeron") {
+//! // Retry while not connected or back pressured; other errors are real.
+//! while let Err(e) = publication.offer(b"hello aeron") {
 //!     assert!(e.is_retryable(), "offer failed: {e}");
 //! }
 //!
-//! // Subscribe
-//! sub1.poll(10, |data, _| {
-//!     println!("Received: {}", String::from_utf8_lossy(data));
-//! })
-//! .unwrap();
+//! subscription.poll(10, |data, _header| {
+//!     println!("received {}", String::from_utf8_lossy(data));
+//! })?;
+//! # Ok::<(), aeron_glide::Error>(())
 //! ```
 //!
-//! # Features
+//! # What it covers
 //!
-//! - **IPC and UDP** channels: build URIs with [`ChannelBuilder`], parse them with [`ChannelUri`]
-//! - **Publications** ([`Publication`]) and **exclusive publications** ([`ExclusivePublication`])
-//! - **Zero-copy publish** via [`Publication::try_claim`]
-//! - **Fragment reassembly** via [`Subscription::poll_assembled`] with [`ControlledAction`] flow control
-//! - **Image** access for per-session stream inspection
-//! - **Counters**: create your own ([`Counter`]) and read the driver's statistics ([`CountersReader`])
-//! - **Embedded media driver** ([`MediaDriver`]) with full configuration
-//! - **Archive client** (behind the `archive` feature flag): recording, replay, replication, queries, `ReplayMerge` and `PersistentSubscription`
+//! - **Publications** ([`Publication`], [`ExclusivePublication`]): `offer`,
+//!   vectored offers and zero-copy [`Publication::try_claim`]
+//! - **Subscriptions** ([`Subscription`]) with fragment reassembly
+//!   ([`Subscription::poll_assembled`]), controlled polling ([`ControlledAction`])
+//!   and per-session [`Image`]s
+//! - **Channels**: build URIs with [`ChannelBuilder`], parse them with [`ChannelUri`]
+//! - **Counters**: create your own ([`Counter`]), read the driver's
+//!   ([`CountersReader`]), or map its CnC file without a client ([`CncFile`])
+//! - **Embedded media driver** ([`MediaDriver`], `driver` feature, on by
+//!   default): every driver setting, threaded or invoker mode, termination handlers
+//! - **Agents** ([`concurrent`]): idle strategies, `AgentRunner` and `AgentInvoker`
+//! - **Archive client** ([`archive`], `archive` feature): recording, replay,
+//!   replication, queries, `ReplayMerge` and `PersistentSubscription`
 //!
 //! # Thread safety
 //!
 //! | Type | `Send` | `Sync` |
 //! |---|---|---|
-//! | [`AeronClient`], [`Publication`], [`Counter`], [`CountersReader`], [`CncFile`] | yes | yes |
+//! | [`AeronClient`], [`Publication`], [`Counter`], [`CountersReader`], [`CncFile`], [`MediaDriver`] | yes | yes |
 //! | [`ExclusivePublication`], [`Subscription`] | yes | no |
 //! | [`Image`] (borrows its `Subscription`) | no | no |
 //!
@@ -65,11 +73,28 @@
 //! send::<aeron_glide::Image<'static>>();
 //! ```
 //!
+//! # Handlers and panics
+//!
+//! A panic must not unwind through Aeron, so closures passed to it are wrapped:
+//!
+//! - **Poll handlers**: the panic is resumed once Aeron returns from the poll.
+//!   The remaining fragments of that poll are consumed without being delivered
+//!   (a controlled handler's fragment is aborted instead, and delivered again).
+//! - **Reserved value suppliers**: the message is still published, then the
+//!   panic is resumed.
+//! - **Client, driver and archive handlers**, which run on Aeron's conductor
+//!   threads: the panic is caught and printed to stderr.
+//!
+//! Handlers may drop what they own, including the client: the drop is moved off
+//! Aeron's thread when needed. Calls Aeron cannot make from inside a handler
+//! fail with [`ErrorKind::Reentrant`] instead of deadlocking.
+//!
 //! # Prerequisites
 //!
-//! - CMake and a C++14 compiler (Aeron C++ is built from source automatically)
-//! - A running Aeron media driver (use the included `mediadriver` binary or [`MediaDriver`])
-//! - Java 17+ only if building with `--features archive`
+//! - CMake 3.30+ and a C++17 compiler (Aeron is built from source automatically)
+//! - A running media driver: the `mediadriver` binary (`bin` feature), a
+//!   [`MediaDriver`] in your process, or Aeron's Java or C driver
+//! - Java 17+, only with the `archive` feature
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(feature = "archive")]
@@ -84,7 +109,6 @@ mod context;
 pub mod counter_types;
 mod counters;
 #[cfg(feature = "driver")]
-#[cfg_attr(docsrs, doc(cfg(feature = "driver")))]
 mod driver;
 #[cfg(feature = "driver")]
 mod driver_gen;
@@ -99,11 +123,14 @@ pub use channel::{ChannelBuilder, ChannelUri, ControlMode};
 pub use client::{AeronClient, PendingAdd};
 pub use context::Context;
 pub use counters::{
-    CncConstants, CncFile, Counter, CounterView, CountersReader, ErrorLogEntry, heartbeat_timestamp,
+    CncConstants, CncFile, Counter, CounterView, CountersReader, ErrorLogEntry, LossReportEntry,
+    heartbeat_timestamp,
 };
 #[cfg(feature = "driver")]
+#[cfg_attr(docsrs, doc(cfg(feature = "driver")))]
 pub use driver::{IdleStrategy, MediaDriver, MediaDriverBuilder, ThreadingMode};
 #[cfg(feature = "driver")]
+#[cfg_attr(docsrs, doc(cfg(feature = "driver")))]
 pub use driver_gen::{InferableBoolean, ThreadNaming};
 pub use error::{Error, ErrorKind, OfferError, Result};
 pub use handlers::{
@@ -153,6 +180,8 @@ pub(crate) fn timeout_nanos(timeout: std::time::Duration) -> i64 {
     timeout.as_nanos().min(MAX_TIMEOUT_NS as u128) as i64
 }
 
+// Callbacks crossing the bridge are plain `fn` types: no aliases there.
+#[allow(clippy::type_complexity)]
 #[cxx::bridge(namespace = "aeron_rs")]
 pub(crate) mod ffi {
     /// One part of a vectored offer: the address and length of a byte slice.
@@ -623,6 +652,11 @@ pub(crate) mod ffi {
             handler: fn(usize, i32, i64, i64, &[u8]),
             ctx: usize,
             since_timestamp: i64,
+        ) -> Result<i32>;
+        fn readLossReport(
+            self: &CncFileWrapper,
+            handler: fn(usize, i64, i64, i64, i64, i32, i32, &[u8], &[u8]),
+            ctx: usize,
         ) -> Result<i32>;
 
         fn counter(
