@@ -7,7 +7,6 @@ authors = ["Mehve Labs <mehvelabs@gmail.com>"]
 description = "Safe, idiomatic Rust wrapper for the Aeron C++ API via cxx"
 license = "Apache-2.0"
 repository = "https://github.com/mehve-labs/aeron-glide"
-homepage = "https://github.com/mehve-labs/aeron-glide"
 documentation = "https://docs.rs/aeron-glide"
 readme = "README.md"
 keywords = ["aeron", "messaging", "ipc", "low-latency", "pub-sub"]
@@ -102,4 +101,66 @@ required-features = ["archive"]
 [[example]]
 name = "replay_merge_demo"
 path = "examples/replay_merge_demo.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "basic_publisher"
+path = "examples/basic_publisher.rs"
+
+[[example]]
+name = "basic_subscriber"
+path = "examples/basic_subscriber.rs"
+
+[[example]]
+name = "driver_stats"
+path = "examples/driver_stats.rs"
+
+[[example]]
+name = "embedded_ping_pong"
+path = "examples/embedded_ping_pong.rs"
+required-features = ["driver"]
+
+[[example]]
+name = "embedded_exclusive_ipc_throughput"
+path = "examples/embedded_exclusive_ipc_throughput.rs"
+required-features = ["driver"]
+
+[[example]]
+name = "file_transfer"
+path = "examples/file_transfer.rs"
+required-features = ["driver"]
+
+[[example]]
+name = "multi_destination"
+path = "examples/multi_destination.rs"
+required-features = ["driver"]
+
+[[example]]
+name = "streaming_rate"
+path = "examples/streaming_rate.rs"
+required-features = ["driver"]
+
+[[example]]
+name = "non_blocking_publisher"
+path = "examples/non_blocking_publisher.rs"
+required-features = ["driver"]
+
+[[example]]
+name = "persistent_subscription"
+path = "examples/persistent_subscription.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "recording_throughput"
+path = "examples/recording_throughput.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "recording_replication"
+path = "examples/recording_replication.rs"
+required-features = ["archive"]
+
+[[example]]
+name = "archive_error_handling"
+path = "examples/archive_error_handling.rs"
 required-features = ["archive"]
