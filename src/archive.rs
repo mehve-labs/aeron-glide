@@ -549,4 +549,3 @@ impl<'a> ReplayMerge<'a> {
         self.inner.isLiveAdded()
     }
 }
-
