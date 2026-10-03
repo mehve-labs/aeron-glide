@@ -7,6 +7,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/shim.cc");
     println!("cargo:rerun-if-changed=src/shim.h");
+    println!("cargo:rerun-if-changed=src/counter_types.h");
 
     // docs.rs builds in a network-isolated sandbox and only runs `cargo doc`,
     // which compiles the crate but never links. Skip the Aeron download, the

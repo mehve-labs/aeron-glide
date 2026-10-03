@@ -358,8 +358,9 @@ impl CncFile {
 pub mod heartbeat_timestamp {
     use super::*;
 
-    /// Counter type ID of a client heartbeat timestamp.
-    pub const CLIENT_HEARTBEAT_TYPE_ID: i32 = 11;
+    /// Counter type ID of a client heartbeat timestamp
+    /// ([`DRIVER_HEARTBEAT_TYPE_ID`](crate::counter_types::DRIVER_HEARTBEAT_TYPE_ID)).
+    pub const CLIENT_HEARTBEAT_TYPE_ID: i32 = crate::counter_types::DRIVER_HEARTBEAT_TYPE_ID;
 
     /// The ID of the allocated heartbeat counter of type `counter_type_id` whose
     /// key holds `registration_id` (e.g. a client ID), if any.

@@ -60,8 +60,11 @@ wait with `common::wait_until` (it has a deadline) rather than open-ended loops.
   API, is the exception.
 - **Generated code.** `src/driver_gen.rs` and `src/driver_gen.h` (media driver
   settings) are generated from Aeron's `aeronmd.h` by
-  `scripts/gen_driver_context.py` and checked in. Don't edit them; rerun the
-  script after building with a new Aeron version and review the diff. They
+  `scripts/gen_driver_context.py`, and `src/counter_types.rs` and
+  `src/counter_types.h` (counter type IDs, checked by `static_assert`) from
+  `AeronCounters.h` by `scripts/gen_counter_types.py`; all are checked in.
+  Don't edit them; rerun the scripts after building with a new Aeron version
+  and review the diff. They
   match the default Aeron version in `build.rs`; building with a different
   `AERON_VERSION` may need them regenerated (and the archive header patch
   re-checked).

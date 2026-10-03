@@ -242,7 +242,7 @@ impl AeronClient {
 
     /// Allocate a counter in the media driver, waiting until it is ready (C++
     /// `addCounter` / `findCounter`). `type_id` identifies the kind of counter for
-    /// tools (use your own, distinct from Aeron's);
+    /// tools (use your own, distinct from Aeron's [`counter_types`](crate::counter_types));
     /// `key` (at most [`CountersReader::MAX_KEY_LENGTH`] bytes) and `label` (at most
     /// [`CountersReader::MAX_LABEL_LENGTH`] bytes) describe it; longer ones fail with
     /// [`ErrorKind::IllegalArgument`], as in the Java client (the C++ client lets

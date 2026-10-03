@@ -405,3 +405,31 @@ fn reader_lookups() {
         assert!(reader.get_free_for_reuse_deadline(bad).is_err());
     }
 }
+
+#[test]
+fn driver_counters_have_known_types() {
+    use aeron_glide::counter_types::*;
+    let driver = TestDriver::start();
+    let client = driver.client();
+    let reader = client.counters_reader();
+    assert_eq!(
+        reader.get_counter_type_id(0).unwrap(),
+        DRIVER_SYSTEM_COUNTER_TYPE_ID
+    );
+    let sub = client.add_subscription("aeron:ipc", 3).unwrap();
+    let publication = client.add_publication("aeron:ipc", 3).unwrap();
+    common::wait_connected(&sub);
+    let image = sub.images().into_iter().next().expect("an image");
+    assert_eq!(
+        reader
+            .get_counter_type_id(image.subscriber_position_id())
+            .unwrap(),
+        DRIVER_SUBSCRIBER_POSITION_TYPE_ID
+    );
+    assert_eq!(
+        reader
+            .get_counter_type_id(publication.publication_limit_id())
+            .unwrap(),
+        DRIVER_PUBLISHER_LIMIT_TYPE_ID
+    );
+}

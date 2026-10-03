@@ -80,6 +80,7 @@ mod callback;
 mod channel;
 mod client;
 mod context;
+pub mod counter_types;
 mod counters;
 mod driver;
 mod driver_gen;
