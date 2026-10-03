@@ -16,6 +16,7 @@
 ///     .build();
 /// assert_eq!(udp, "aeron:udp?endpoint=localhost:20121|mtu=8192");
 /// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChannelBuilder {
     media: &'static str,
     params: Vec<(String, String)>,

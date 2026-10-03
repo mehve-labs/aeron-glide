@@ -235,6 +235,15 @@ pub struct AeronArchive {
     inner: cxx::UniquePtr<ffi::ArchiveWrapper>,
 }
 
+impl std::fmt::Debug for AeronArchive {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AeronArchive")
+            .field("archive_id", &self.archive_id())
+            .field("control_session_id", &self.control_session_id())
+            .finish_non_exhaustive()
+    }
+}
+
 impl AeronArchive {
     /// Connect to an Aeron Archive using the specified control channels.
     ///
@@ -467,6 +476,15 @@ pub const REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT_MS: i64 = 10_000;
 pub struct ReplayMerge<'a> {
     inner: cxx::UniquePtr<ffi::ReplayMergeWrapper>,
     _subscription: PhantomData<&'a mut crate::Subscription>,
+}
+
+impl std::fmt::Debug for ReplayMerge<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReplayMerge")
+            .field("is_merged", &self.is_merged())
+            .field("has_failed", &self.has_failed())
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a> ReplayMerge<'a> {

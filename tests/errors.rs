@@ -41,8 +41,7 @@ fn driver_errors_are_classified() {
     let err = MediaDriver::builder()
         .dir("/dev/null/aeron-glide")
         .start()
-        .err()
-        .expect("start fails");
+        .expect_err("start fails");
     assert_ne!(err.kind(), ErrorKind::Other, "{err}");
     assert_ne!(err.code(), 0, "{err}");
     assert!(err.message().starts_with("Failed to init driver"), "{err}");
@@ -53,8 +52,7 @@ fn invalid_driver_setting_is_reported_by_start() {
     let err = MediaDriver::builder()
         .term_buffer_length(1000)
         .start()
-        .err()
-        .expect("a term length that is not a power of two is rejected");
+        .expect_err("a term length that is not a power of two is rejected");
     assert_ne!(err.kind(), ErrorKind::Other, "{err}");
 }
 
@@ -66,8 +64,7 @@ fn builder_keeps_the_first_setter_error() {
         .term_buffer_length(1 << 20)
         .threading_mode(ThreadingMode::Invoker)
         .start()
-        .err()
-        .expect("invalid init args are rejected");
+        .expect_err("invalid init args are rejected");
     // The first failing setter wins, not the later Invoker check.
     assert_eq!(err.kind(), ErrorKind::IllegalArgument, "{err}");
     assert!(err.message().contains("sender_idle_strategy"), "{err}");

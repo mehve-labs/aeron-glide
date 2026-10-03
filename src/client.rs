@@ -30,6 +30,15 @@ impl Drop for AeronClient {
 unsafe impl Send for AeronClient {}
 unsafe impl Sync for AeronClient {}
 
+impl std::fmt::Debug for AeronClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AeronClient")
+            .field("client_id", &self.client_id())
+            .field("is_closed", &self.is_closed())
+            .finish_non_exhaustive()
+    }
+}
+
 impl AeronClient {
     /// Create a new Aeron client connected to the media driver, with default settings.
     ///
@@ -459,6 +468,15 @@ impl<T> Drop for PendingAdd<'_, T> {
         {
             abandoned.push((self.kind, self.registration_id));
         }
+    }
+}
+
+impl<T> std::fmt::Debug for PendingAdd<'_, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PendingAdd")
+            .field("registration_id", &self.registration_id)
+            .field("done", &self.done)
+            .finish_non_exhaustive()
     }
 }
 

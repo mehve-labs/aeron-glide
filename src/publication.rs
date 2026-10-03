@@ -191,6 +191,17 @@ pub struct Publication {
     pub(crate) inner: cxx::UniquePtr<ffi::PublicationWrapper>,
 }
 
+impl std::fmt::Debug for Publication {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Publication")
+            .field("channel", &self.channel())
+            .field("stream_id", &self.stream_id())
+            .field("session_id", &self.session_id())
+            .field("registration_id", &self.registration_id())
+            .finish_non_exhaustive()
+    }
+}
+
 impl Drop for Publication {
     fn drop(&mut self) {
         callback::drop_outside_conductor(&mut self.inner);
@@ -280,6 +291,17 @@ impl Publication {
 /// use it at a time.
 pub struct ExclusivePublication {
     pub(crate) inner: cxx::UniquePtr<ffi::ExclusivePublicationWrapper>,
+}
+
+impl std::fmt::Debug for ExclusivePublication {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExclusivePublication")
+            .field("channel", &self.channel())
+            .field("stream_id", &self.stream_id())
+            .field("session_id", &self.session_id())
+            .field("registration_id", &self.registration_id())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Drop for ExclusivePublication {

@@ -44,6 +44,24 @@ pub struct Context {
     handlers: Vec<Installer>,
 }
 
+impl std::fmt::Debug for Context {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Context")
+            .field("aeron_dir", &self.aeron_dir)
+            .field("client_name", &self.client_name)
+            .field("driver_timeout", &self.driver_timeout)
+            .field("resource_linger_timeout", &self.resource_linger_timeout)
+            .field("idle_sleep_duration", &self.idle_sleep_duration)
+            .field("pre_touch_mapped_memory", &self.pre_touch_mapped_memory)
+            .field(
+                "use_conductor_agent_invoker",
+                &self.use_conductor_agent_invoker,
+            )
+            .field("handlers", &self.handlers.len())
+            .finish()
+    }
+}
+
 impl Context {
     /// A context with Aeron's defaults.
     pub fn new() -> Self {

@@ -52,7 +52,7 @@ fn rejected_async_add_is_an_error() {
         result = pending.poll();
         !matches!(result, Ok(None))
     });
-    let err = result.err().expect("the driver rejects the channel");
+    let err = result.expect_err("the driver rejects the channel");
     assert_eq!(err.kind(), ErrorKind::Aeron, "{err}");
     assert!(err.code() < 0, "{err}");
     // The synchronous form reports the same error.
@@ -132,4 +132,26 @@ fn polling_after_a_failure_reports_done() {
     );
     assert!(client.client_name().is_empty());
     assert_eq!(client.idle_sleep_duration(), Duration::from_millis(16));
+}
+
+#[test]
+fn resources_format_with_debug() {
+    let driver = TestDriver::start();
+    let client = driver.client();
+    let sub = client.add_subscription("aeron:ipc", 4).unwrap();
+    let publication = client.add_publication("aeron:ipc", 4).unwrap();
+    let exclusive = client.add_exclusive_publication("aeron:ipc", 4).unwrap();
+    common::wait_connected(&sub);
+    let pending = client.add_counter_async(1001, &[], "debug").unwrap();
+    let output = format!(
+        "{client:?} {sub:?} {publication:?} {exclusive:?} {:?} {pending:?} {:?} {:?}",
+        sub.images(),
+        client.counters_reader(),
+        Context::new().client_name("x"),
+    );
+    assert!(output.contains("AeronClient"), "{output}");
+    assert!(output.contains("stream_id: 4"), "{output}");
+    assert!(output.contains("Image"), "{output}");
+    assert!(output.contains("PendingAdd"), "{output}");
+    assert!(format!("{:?}", driver.driver()).contains(&driver.dir));
 }

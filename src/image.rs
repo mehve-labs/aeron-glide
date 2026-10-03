@@ -27,6 +27,16 @@ pub struct Image<'a> {
     _owner: PhantomData<&'a Subscription>,
 }
 
+impl std::fmt::Debug for Image<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Image")
+            .field("session_id", &self.session_id())
+            .field("correlation_id", &self.correlation_id())
+            .field("source_identity", &self.source_identity())
+            .finish_non_exhaustive()
+    }
+}
+
 impl Image<'_> {
     pub(crate) fn from_raw(inner: cxx::UniquePtr<ffi::ImageWrapper>) -> Option<Self> {
         (!inner.is_null()).then_some(Self {

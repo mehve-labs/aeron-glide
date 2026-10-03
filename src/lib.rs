@@ -599,8 +599,7 @@ mod tests {
         let err = MediaDriver::builder()
             .threading_mode(ThreadingMode::Invoker)
             .start()
-            .err()
-            .expect("invoker mode is rejected");
+            .expect_err("invoker mode is rejected");
         assert_eq!(err.kind(), ErrorKind::UnsupportedOperation);
     }
 
@@ -616,6 +615,33 @@ mod tests {
         send_sync::<MediaDriver>();
         send::<ExclusivePublication>();
         send::<Subscription>();
+    }
+
+    #[test]
+    fn public_types_are_debug() {
+        fn debug<T: std::fmt::Debug>() {}
+        debug::<AeronClient>();
+        debug::<PendingAdd<'static, Publication>>();
+        debug::<Context>();
+        debug::<ChannelBuilder>();
+        debug::<Publication>();
+        debug::<ExclusivePublication>();
+        debug::<BufferClaim<'static>>();
+        debug::<Subscription>();
+        debug::<Image<'static>>();
+        debug::<Header>();
+        debug::<Counter>();
+        debug::<CountersReader>();
+        debug::<CncFile>();
+        debug::<MediaDriver>();
+        debug::<MediaDriverBuilder>();
+        debug::<Error>();
+        debug::<OfferError>();
+        #[cfg(feature = "archive")]
+        {
+            debug::<archive::AeronArchive>();
+            debug::<archive::ReplayMerge<'static>>();
+        }
     }
 
     #[test]

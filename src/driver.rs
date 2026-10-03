@@ -82,6 +82,14 @@ pub struct MediaDriver {
 unsafe impl Send for MediaDriver {}
 unsafe impl Sync for MediaDriver {}
 
+impl std::fmt::Debug for MediaDriver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MediaDriver")
+            .field("dir", &self.dir())
+            .finish_non_exhaustive()
+    }
+}
+
 impl MediaDriver {
     /// Configure a new media driver.
     pub fn builder() -> MediaDriverBuilder {
@@ -110,6 +118,15 @@ unsafe impl Send for MediaDriverBuilder {}
 impl Default for MediaDriverBuilder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl std::fmt::Debug for MediaDriverBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MediaDriverBuilder")
+            .field("threading_mode", &self.threading_mode)
+            .field("error", &self.inner.as_ref().err())
+            .finish_non_exhaustive()
     }
 }
 

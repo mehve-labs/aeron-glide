@@ -46,6 +46,16 @@ pub struct Subscription {
     pub(crate) inner: cxx::UniquePtr<ffi::SubscriptionWrapper>,
 }
 
+impl std::fmt::Debug for Subscription {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Subscription")
+            .field("channel", &self.channel())
+            .field("stream_id", &self.stream_id())
+            .field("registration_id", &self.registration_id())
+            .finish_non_exhaustive()
+    }
+}
+
 impl Drop for Subscription {
     fn drop(&mut self) {
         callback::drop_outside_conductor(&mut self.inner);

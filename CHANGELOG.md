@@ -214,6 +214,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `find_by_type_id_and_registration_id` (returning `Option<i32>`),
   `get_counter_registration_id`, `get_counter_owner_id`,
   `get_free_for_reuse_deadline` and `get_counter_key`.
+- `Debug` for every public type (clients, publications, subscriptions, images,
+  counters, contexts, the media driver and archive types); `ChannelBuilder`
+  is also `Clone`, `PartialEq` and `Eq`.
 - `counter_types`: the counter type IDs of the media driver, archive and
   cluster (C++ `AeronCounters`), generated from the Aeron headers.
 - `CncFile`: map a running driver's CnC file without a client
