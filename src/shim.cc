@@ -12,6 +12,10 @@ namespace aeron_rs {
 // Throws the Aeron exception matching aeron_errcode(), prefixed with `what`.
 [[noreturn]] void throwDriverError(const char *what) {
     using namespace aeron::util;
+    if (aeron_errcode() == 0) {
+        // Some C setters reject a value without recording an error.
+        throw IllegalArgumentException(std::string(what) + ": invalid value", SOURCEINFO, EINVAL);
+    }
     std::string message = std::string(what) + ": " + aeron_errmsg();
     AERON_MAP_TO_SOURCED_EXCEPTION_AND_THROW(aeron_errcode(), message);
     throw AeronException(message, SOURCEINFO, aeron_errcode()); // unreachable
@@ -569,6 +573,16 @@ std::unique_ptr<ArchiveWrapper> connect_archive(
     ::rust::Str control_request_channel, int32_t control_request_stream_id,
     ::rust::Str control_response_channel, int32_t control_response_stream_id) {
     aeron::archive::client::Context ctx;
+    // Give the archive its own client with a non-exiting error handler; otherwise
+    // the archive C client creates one with Aeron's default handler, which exit()s.
+    aeron::Context clientCtx;
+    clientCtx.errorHandler([](const std::exception &e) {
+        std::cerr << "aeron-glide: Aeron archive client error: " << e.what() << std::endl;
+    });
+    if (const char *dir = std::getenv("AERON_DIR")) {
+        clientCtx.aeronDir(dir);
+    }
+    ctx.aeron(aeron::Aeron::connect(clientCtx));
     ctx.controlRequestChannel(std::string(control_request_channel.data(), control_request_channel.size()));
     ctx.controlRequestStreamId(control_request_stream_id);
     ctx.controlResponseChannel(std::string(control_response_channel.data(), control_response_channel.size()));

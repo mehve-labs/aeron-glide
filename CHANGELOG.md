@@ -60,12 +60,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- The client no longer calls `exit(-1)` on asynchronous errors such as a media
-  driver timeout or shutdown (the Aeron C++ default error handler). Errors go
-  to `Context::error_handler`, or are printed to stderr, and the client closes.
-- Client errors reported with positive Aeron client error codes (e.g. "MediaDriver
-  has been shutdown") are classified as `DriverTimeout` / `ClientTimeout` /
-  `ConductorServiceTimeout` instead of the generic `Aeron` kind.
+- Neither the client nor the archive client calls `exit()` on asynchronous
+  errors such as a media driver timeout or shutdown any more (the default Aeron
+  error handlers did). Errors go to `Context::error_handler`, or are printed to
+  stderr; fatal ones close the client. The archive now connects through its own
+  client with a non-exiting handler (honouring `AERON_DIR`).
+- Client errors reported with positive Aeron client error codes are classified:
+  "MediaDriver has been shutdown" and other timeouts as `DriverTimeout` /
+  `ClientTimeout` / `ConductorServiceTimeout`, buffer-full errors as
+  `IllegalState`, instead of the generic `Aeron` kind.
 - `try_claim` truncated lengths above `i32::MAX` to 32 bits (e.g. a claim of
   4 GiB + 16 bytes committed a 16-byte message); such lengths are now rejected
   with `ErrorKind::IllegalArgument`.
@@ -81,7 +84,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `receiver_group_tag`) with the matching getters on a started `MediaDriver`
   (95, e.g. `dir()`), generated from Aeron's `aeronmd.h`. New enums
   `ThreadNaming` and `InferableBoolean`. Settings that take function pointers or
-  driver-internal structs are not exposed yet.
+  driver-internal structs are not exposed yet. Strings passed to driver
+  settings are owned by the builder (some C setters keep the pointer), and
+  setting an idle strategy's `*_init_args` reloads that strategy, so their order
+  doesn't matter.
 - `Context` client configuration (`aeron_dir`, `client_name`, `driver_timeout`,
   `resource_linger_timeout`, `idle_sleep_duration`, `pre_touch_mapped_memory`,
   `error_handler`) and `AeronClient::connect(context)`. The client now honours

@@ -19,7 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# Hand-written in src/lib.rs.
+# Setters hand-written in src/lib.rs (their getters are still generated).
 EXCLUDE = {"threading_mode"}
 
 # C parameter type -> (Rust parameter type, cxx bridge type, C++ parameter type, expression passed to C).
@@ -31,7 +31,8 @@ SCALARS = {
     "int32_t": ("i32", "i32", "int32_t", "{v}"),
     "uint32_t": ("u32", "u32", "uint32_t", "{v}"),
     "uint8_t": ("u8", "u8", "uint8_t", "{v}"),
-    "const char *": ("&str", "&str", "rust::Str", "std::string({v}.data(), {v}.size()).c_str()"),
+    # Some C setters keep the pointer rather than copying it, so the wrapper owns every string.
+    "const char *": ("&str", "&str", "rust::Str", "driver.keep({v})"),
     "aeron_thread_naming_t": ("ThreadNaming", "i32", "int32_t", "static_cast<aeron_thread_naming_t>({v})"),
     "aeron_inferable_boolean_t": ("InferableBoolean", "i32", "int32_t", "static_cast<aeron_inferable_boolean_t>({v})"),
 }
@@ -49,7 +50,11 @@ GETTERS = {
     "const char *": ("String", "String", "rust::String", "lossyOrEmpty({e})", "{e}"),
     "aeron_thread_naming_t": ("ThreadNaming", "i32", "int32_t", "static_cast<int32_t>({e})", "ThreadNaming::from_c({e})"),
     "aeron_inferable_boolean_t": ("InferableBoolean", "i32", "int32_t", "static_cast<int32_t>({e})", "InferableBoolean::from_c({e})"),
+    "aeron_threading_mode_t": ("ThreadingMode", "i32", "int32_t", "static_cast<int32_t>({e})", "ThreadingMode::from_c({e})"),
 }
+
+# Getters whose C return type differs from their setter's are returned as the setter's type.
+CAST_TO_SETTER = {"uint64_t", "int64_t", "size_t", "bool", "int32_t", "int", "uint32_t", "uint8_t"}
 
 DECL = re.compile(
     r"(?P<ret>[A-Za-z_][\w ]*?\s*\*?)\s*\baeron_driver_context_(?P<kind>set|get)_(?P<name>\w+)\s*\(\s*aeron_driver_context_t\s*\*\s*\w+\s*(?:,\s*(?P<args>[^)]*?))?\)\s*;",
@@ -102,6 +107,8 @@ def parse(header):
         if kind == "get":
             if m.group("args") is None:
                 getters[name] = norm(m.group("ret"))
+            else:
+                skipped.append((name, [t for t, _ in split_params(m.group("args"))]))
             continue
         segment = source[last:m.start()]
         last = m.end()
@@ -116,8 +123,9 @@ def rust_doc(lines, indent="    "):
 
 
 def generate(header):
-    setters, getters, _ = parse(header)
+    setters, getters, skipped = parse(header)
     h, bridge, builder, driver, not_generated = [], [], [], [], []
+    setter_types = {n: p[0][0] for n, p, _, _ in setters if len(p) == 1}
     for name, params, doc, env in setters:
         if name in EXCLUDE:
             continue
@@ -125,7 +133,17 @@ def generate(header):
         refs = [f"`aeron_driver_context_set_{name}`"] + ([f"environment variable `{env}`"] if env else [])
         lines = (doc or [f"Sets `{name}`."]) + ["", "C: " + ", ".join(refs) + "."]
         cfn = f"driver_set_{name}"
-        call = None
+        after = ""
+        if name.endswith("_idle_strategy_init_args"):
+            base = name[: -len("_init_args")]
+            lines[-2:-2] = ["", f"Aeron loads the idle strategy when `{base}` is set, so `{base}` is reloaded here with these arguments; the order of the two settings does not matter."]
+            after = (
+                f"    if (const char *current = aeron_driver_context_get_{base}(driver.context())) {{\n"
+                f"        std::string strategy(current);\n"
+                f"        if (aeron_driver_context_set_{base}(driver.context(), strategy.c_str()) < 0) {{\n"
+                f'            throwDriverError("Failed to reload {base}");\n'
+                f"        }}\n    }}\n"
+            )
         if name.endswith("_idle_strategy") and types == ["const char *"]:
             rparams, bparams, cparams = "strategy: IdleStrategy", "value: &str", "rust::Str value"
             cargs, rcall = SCALARS["const char *"][3].format(v="value"), "strategy.as_str()"
@@ -148,7 +166,7 @@ def generate(header):
             f"    driver.ensureNotStarted();\n"
             f"    if (aeron_driver_context_set_{name}(driver.context(), {cargs}) < 0) {{\n"
             f'        throwDriverError("Failed to set {name}");\n'
-            f"    }}\n}}\n"
+            f"    }}\n{after}}}\n"
         )
         bridge.append(f"        fn {cfn}(driver: Pin<&mut MediaDriverWrapper>, {bparams}) -> Result<()>;\n")
         builder.append(
@@ -156,12 +174,33 @@ def generate(header):
             + f"    pub fn {name}(self, {rparams}) -> Self {{\n"
             f"        self.apply(|w| ffi::{cfn}(w, {rcall}))\n    }}\n"
         )
+    for name, types in skipped:
+        if types == ["uint16_t *", "uint16_t *"]:
+            cfn = f"driver_get_{name}"
+            h.append(
+                f"inline rust::Vec<uint16_t> {cfn}(const MediaDriverWrapper &driver) {{\n"
+                f"    uint16_t low = 0, high = 0;\n"
+                f"    aeron_driver_context_get_{name}(driver.context(), &low, &high);\n"
+                f"    rust::Vec<uint16_t> range;\n    range.push_back(low);\n    range.push_back(high);\n"
+                f"    return range;\n}}\n"
+            )
+            bridge.append(f"        fn {cfn}(driver: &MediaDriverWrapper) -> Vec<u16>;\n")
+            driver.append(
+                f"    /// The driver's `{name}` setting as `(low, high)` (`aeron_driver_context_get_{name}`).\n"
+                f"    pub fn {name}(&self) -> (u16, u16) {{\n"
+                f"        let range = ffi::{cfn}(&self.inner);\n        (range[0], range[1])\n    }}\n"
+            )
+        else:
+            not_generated.append(f"aeron_driver_context_get_{name}({', '.join(types)})")
     for name, ret in sorted(getters.items()):
-        if name in EXCLUDE or ret not in GETTERS:
-            if ret not in GETTERS and name not in EXCLUDE:
-                not_generated.append(f"aeron_driver_context_get_{name} -> {ret}")
+        if ret not in GETTERS:
+            not_generated.append(f"aeron_driver_context_get_{name} -> {ret}")
             continue
         rt, bt, ct, cexpr, rconv = GETTERS[ret]
+        wanted = setter_types.get(name)
+        if wanted and wanted != ret and ret in CAST_TO_SETTER and wanted in CAST_TO_SETTER:
+            rt, bt, ct, _, rconv = GETTERS[wanted]
+            cexpr = "{e} != 0" if wanted == "bool" else f"static_cast<{ct}>({{e}})"
         cfn = f"driver_get_{name}"
         h.append(
             f"inline {ct} {cfn}(const MediaDriverWrapper &driver) {{\n"
@@ -199,7 +238,7 @@ RUST_PROLOGUE = '''// @generated by scripts/gen_driver_context.py from {src}. Do
 {not_generated}
 #![allow(clippy::too_many_arguments)]
 
-use crate::{{IdleStrategy, MediaDriver, MediaDriverBuilder}};
+use crate::{{IdleStrategy, MediaDriver, MediaDriverBuilder, ThreadingMode}};
 
 #[cxx::bridge(namespace = "aeron_rs")]
 pub(crate) mod ffi {{

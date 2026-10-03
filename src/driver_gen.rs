@@ -39,7 +39,7 @@
 //! - `aeron_driver_context_get_unicast_flowcontrol_supplier -> aeron_flow_control_strategy_supplier_func_t`
 #![allow(clippy::too_many_arguments)]
 
-use crate::{IdleStrategy, MediaDriver, MediaDriverBuilder};
+use crate::{IdleStrategy, MediaDriver, MediaDriverBuilder, ThreadingMode};
 
 #[cxx::bridge(namespace = "aeron_rs")]
 pub(crate) mod ffi {
@@ -424,12 +424,14 @@ pub(crate) mod ffi {
             driver: Pin<&mut MediaDriverWrapper>,
             value: i32,
         ) -> Result<()>;
+        fn driver_get_sender_wildcard_port_range(driver: &MediaDriverWrapper) -> Vec<u16>;
+        fn driver_get_receiver_wildcard_port_range(driver: &MediaDriverWrapper) -> Vec<u16>;
         fn driver_get_client_liveness_timeout_ns(driver: &MediaDriverWrapper) -> u64;
         fn driver_get_conductor_cpu_affinity(driver: &MediaDriverWrapper) -> i32;
-        fn driver_get_conductor_cycle_threshold_ns(driver: &MediaDriverWrapper) -> i64;
+        fn driver_get_conductor_cycle_threshold_ns(driver: &MediaDriverWrapper) -> u64;
         fn driver_get_conductor_idle_strategy(driver: &MediaDriverWrapper) -> String;
         fn driver_get_conductor_idle_strategy_init_args(driver: &MediaDriverWrapper) -> String;
-        fn driver_get_connect_enabled(driver: &MediaDriverWrapper) -> i32;
+        fn driver_get_connect_enabled(driver: &MediaDriverWrapper) -> bool;
         fn driver_get_counters_buffer_length(driver: &MediaDriverWrapper) -> usize;
         fn driver_get_counters_free_to_reuse_timeout_ns(driver: &MediaDriverWrapper) -> u64;
         fn driver_get_cpuset_affinity(driver: &MediaDriverWrapper) -> bool;
@@ -439,7 +441,7 @@ pub(crate) mod ffi {
         fn driver_get_dir_delete_on_start(driver: &MediaDriverWrapper) -> bool;
         fn driver_get_dir_warn_if_exists(driver: &MediaDriverWrapper) -> bool;
         fn driver_get_driver_timeout_ms(driver: &MediaDriverWrapper) -> u64;
-        fn driver_get_enable_experimental_features(driver: &MediaDriverWrapper) -> i32;
+        fn driver_get_enable_experimental_features(driver: &MediaDriverWrapper) -> bool;
         fn driver_get_error_buffer_length(driver: &MediaDriverWrapper) -> usize;
         fn driver_get_file_page_size(driver: &MediaDriverWrapper) -> usize;
         fn driver_get_flow_control_group_min_size(driver: &MediaDriverWrapper) -> i32;
@@ -458,7 +460,7 @@ pub(crate) mod ffi {
         fn driver_get_nak_unicast_delay_ns(driver: &MediaDriverWrapper) -> u64;
         fn driver_get_nak_unicast_retry_delay_ratio(driver: &MediaDriverWrapper) -> u64;
         fn driver_get_name_resolver_init_args(driver: &MediaDriverWrapper) -> String;
-        fn driver_get_name_resolver_threshold_ns(driver: &MediaDriverWrapper) -> i64;
+        fn driver_get_name_resolver_threshold_ns(driver: &MediaDriverWrapper) -> u64;
         fn driver_get_native_resource_agent_cpu_affinity(driver: &MediaDriverWrapper) -> i32;
         fn driver_get_native_resource_agent_idle_strategy(driver: &MediaDriverWrapper) -> String;
         fn driver_get_native_resource_agent_idle_strategy_init_args(
@@ -478,7 +480,7 @@ pub(crate) mod ffi {
         fn driver_get_rcv_status_message_timeout_ns(driver: &MediaDriverWrapper) -> u64;
         fn driver_get_re_resolution_check_interval_ns(driver: &MediaDriverWrapper) -> u64;
         fn driver_get_receiver_cpu_affinity(driver: &MediaDriverWrapper) -> i32;
-        fn driver_get_receiver_cycle_threshold_ns(driver: &MediaDriverWrapper) -> i64;
+        fn driver_get_receiver_cycle_threshold_ns(driver: &MediaDriverWrapper) -> u64;
         fn driver_get_receiver_group_consideration(driver: &MediaDriverWrapper) -> i32;
         fn driver_get_receiver_group_tag_is_present(driver: &MediaDriverWrapper) -> bool;
         fn driver_get_receiver_group_tag_value(driver: &MediaDriverWrapper) -> i64;
@@ -500,7 +502,7 @@ pub(crate) mod ffi {
         fn driver_get_self_resolution_interval_ns(driver: &MediaDriverWrapper) -> u64;
         fn driver_get_send_to_status_poll_ratio(driver: &MediaDriverWrapper) -> usize;
         fn driver_get_sender_cpu_affinity(driver: &MediaDriverWrapper) -> i32;
-        fn driver_get_sender_cycle_threshold_ns(driver: &MediaDriverWrapper) -> i64;
+        fn driver_get_sender_cycle_threshold_ns(driver: &MediaDriverWrapper) -> u64;
         fn driver_get_sender_idle_strategy(driver: &MediaDriverWrapper) -> String;
         fn driver_get_sender_idle_strategy_init_args(driver: &MediaDriverWrapper) -> String;
         fn driver_get_sender_io_vector_capacity(driver: &MediaDriverWrapper) -> u32;
@@ -517,10 +519,11 @@ pub(crate) mod ffi {
         fn driver_get_term_buffer_sparse_file(driver: &MediaDriverWrapper) -> bool;
         fn driver_get_tether_subscriptions(driver: &MediaDriverWrapper) -> bool;
         fn driver_get_thread_naming(driver: &MediaDriverWrapper) -> i32;
+        fn driver_get_threading_mode(driver: &MediaDriverWrapper) -> i32;
         fn driver_get_timer_interval_ns(driver: &MediaDriverWrapper) -> u64;
         fn driver_get_to_clients_buffer_length(driver: &MediaDriverWrapper) -> usize;
         fn driver_get_to_conductor_buffer_length(driver: &MediaDriverWrapper) -> usize;
-        fn driver_get_untethered_linger_timeout_ns(driver: &MediaDriverWrapper) -> i64;
+        fn driver_get_untethered_linger_timeout_ns(driver: &MediaDriverWrapper) -> u64;
         fn driver_get_untethered_resting_timeout_ns(driver: &MediaDriverWrapper) -> u64;
         fn driver_get_untethered_window_limit_timeout_ns(driver: &MediaDriverWrapper) -> u64;
     }
@@ -831,12 +834,16 @@ impl MediaDriverBuilder {
 
     /// Idle strategy init args to be employed by Sender for DEDICATED Threading Mode.
     ///
+    /// Aeron loads the idle strategy when `sender_idle_strategy` is set, so `sender_idle_strategy` is reloaded here with these arguments; the order of the two settings does not matter.
+    ///
     /// C: `aeron_driver_context_set_sender_idle_strategy_init_args`, environment variable `AERON_SENDER_IDLE_STRATEGY_INIT_ARGS`.
     pub fn sender_idle_strategy_init_args(self, value: &str) -> Self {
         self.apply(|w| ffi::driver_set_sender_idle_strategy_init_args(w, value))
     }
 
     /// Idle strategy init args to be employed by Conductor for DEDICATED or SHARED_NETWORK Threading Mode.
+    ///
+    /// Aeron loads the idle strategy when `conductor_idle_strategy` is set, so `conductor_idle_strategy` is reloaded here with these arguments; the order of the two settings does not matter.
     ///
     /// C: `aeron_driver_context_set_conductor_idle_strategy_init_args`, environment variable `AERON_CONDUCTOR_IDLE_STRATEGY_INIT_ARGS`.
     pub fn conductor_idle_strategy_init_args(self, value: &str) -> Self {
@@ -845,6 +852,8 @@ impl MediaDriverBuilder {
 
     /// Idle strategy init args to be employed by Receiver for DEDICATED Threading Mode.
     ///
+    /// Aeron loads the idle strategy when `receiver_idle_strategy` is set, so `receiver_idle_strategy` is reloaded here with these arguments; the order of the two settings does not matter.
+    ///
     /// C: `aeron_driver_context_set_receiver_idle_strategy_init_args`, environment variable `AERON_RECEIVER_IDLE_STRATEGY_INIT_ARGS`.
     pub fn receiver_idle_strategy_init_args(self, value: &str) -> Self {
         self.apply(|w| ffi::driver_set_receiver_idle_strategy_init_args(w, value))
@@ -852,12 +861,16 @@ impl MediaDriverBuilder {
 
     /// Idle strategy init args to be employed by Sender and Receiver for SHARED_NETWORK Threading Mode.
     ///
+    /// Aeron loads the idle strategy when `sharednetwork_idle_strategy` is set, so `sharednetwork_idle_strategy` is reloaded here with these arguments; the order of the two settings does not matter.
+    ///
     /// C: `aeron_driver_context_set_sharednetwork_idle_strategy_init_args`, environment variable `AERON_SHAREDNETWORK_IDLE_STRATEGY_INIT_ARGS`.
     pub fn sharednetwork_idle_strategy_init_args(self, value: &str) -> Self {
         self.apply(|w| ffi::driver_set_sharednetwork_idle_strategy_init_args(w, value))
     }
 
     /// Idle strategy init args to be employed by Conductor, Sender, and Receiver for SHARED Threading Mode.
+    ///
+    /// Aeron loads the idle strategy when `shared_idle_strategy` is set, so `shared_idle_strategy` is reloaded here with these arguments; the order of the two settings does not matter.
     ///
     /// C: `aeron_driver_context_set_shared_idle_strategy_init_args`.
     pub fn shared_idle_strategy_init_args(self, value: &str) -> Self {
@@ -872,6 +885,8 @@ impl MediaDriverBuilder {
     }
 
     /// Idle strategy init args to be employed AsyncExecutor when enabled.
+    ///
+    /// Aeron loads the idle strategy when `native_resource_agent_idle_strategy` is set, so `native_resource_agent_idle_strategy` is reloaded here with these arguments; the order of the two settings does not matter.
     ///
     /// C: `aeron_driver_context_set_native_resource_agent_idle_strategy_init_args`, environment variable `AERON_DRIVER_NATIVE_RESOURCE_AGENT_IDLE_STRATEGY_INIT_ARGS`.
     pub fn native_resource_agent_idle_strategy_init_args(self, value: &str) -> Self {
@@ -1240,6 +1255,18 @@ impl MediaDriverBuilder {
 }
 
 impl MediaDriver {
+    /// The driver's `sender_wildcard_port_range` setting as `(low, high)` (`aeron_driver_context_get_sender_wildcard_port_range`).
+    pub fn sender_wildcard_port_range(&self) -> (u16, u16) {
+        let range = ffi::driver_get_sender_wildcard_port_range(&self.inner);
+        (range[0], range[1])
+    }
+
+    /// The driver's `receiver_wildcard_port_range` setting as `(low, high)` (`aeron_driver_context_get_receiver_wildcard_port_range`).
+    pub fn receiver_wildcard_port_range(&self) -> (u16, u16) {
+        let range = ffi::driver_get_receiver_wildcard_port_range(&self.inner);
+        (range[0], range[1])
+    }
+
     /// The driver's `client_liveness_timeout_ns` setting (`aeron_driver_context_get_client_liveness_timeout_ns`).
     pub fn client_liveness_timeout_ns(&self) -> u64 {
         ffi::driver_get_client_liveness_timeout_ns(&self.inner)
@@ -1251,7 +1278,7 @@ impl MediaDriver {
     }
 
     /// The driver's `conductor_cycle_threshold_ns` setting (`aeron_driver_context_get_conductor_cycle_threshold_ns`).
-    pub fn conductor_cycle_threshold_ns(&self) -> i64 {
+    pub fn conductor_cycle_threshold_ns(&self) -> u64 {
         ffi::driver_get_conductor_cycle_threshold_ns(&self.inner)
     }
 
@@ -1266,7 +1293,7 @@ impl MediaDriver {
     }
 
     /// The driver's `connect_enabled` setting (`aeron_driver_context_get_connect_enabled`).
-    pub fn connect_enabled(&self) -> i32 {
+    pub fn connect_enabled(&self) -> bool {
         ffi::driver_get_connect_enabled(&self.inner)
     }
 
@@ -1316,7 +1343,7 @@ impl MediaDriver {
     }
 
     /// The driver's `enable_experimental_features` setting (`aeron_driver_context_get_enable_experimental_features`).
-    pub fn enable_experimental_features(&self) -> i32 {
+    pub fn enable_experimental_features(&self) -> bool {
         ffi::driver_get_enable_experimental_features(&self.inner)
     }
 
@@ -1411,7 +1438,7 @@ impl MediaDriver {
     }
 
     /// The driver's `name_resolver_threshold_ns` setting (`aeron_driver_context_get_name_resolver_threshold_ns`).
-    pub fn name_resolver_threshold_ns(&self) -> i64 {
+    pub fn name_resolver_threshold_ns(&self) -> u64 {
         ffi::driver_get_name_resolver_threshold_ns(&self.inner)
     }
 
@@ -1496,7 +1523,7 @@ impl MediaDriver {
     }
 
     /// The driver's `receiver_cycle_threshold_ns` setting (`aeron_driver_context_get_receiver_cycle_threshold_ns`).
-    pub fn receiver_cycle_threshold_ns(&self) -> i64 {
+    pub fn receiver_cycle_threshold_ns(&self) -> u64 {
         ffi::driver_get_receiver_cycle_threshold_ns(&self.inner)
     }
 
@@ -1601,7 +1628,7 @@ impl MediaDriver {
     }
 
     /// The driver's `sender_cycle_threshold_ns` setting (`aeron_driver_context_get_sender_cycle_threshold_ns`).
-    pub fn sender_cycle_threshold_ns(&self) -> i64 {
+    pub fn sender_cycle_threshold_ns(&self) -> u64 {
         ffi::driver_get_sender_cycle_threshold_ns(&self.inner)
     }
 
@@ -1685,6 +1712,11 @@ impl MediaDriver {
         ThreadNaming::from_c(ffi::driver_get_thread_naming(&self.inner))
     }
 
+    /// The driver's `threading_mode` setting (`aeron_driver_context_get_threading_mode`).
+    pub fn threading_mode(&self) -> ThreadingMode {
+        ThreadingMode::from_c(ffi::driver_get_threading_mode(&self.inner))
+    }
+
     /// The driver's `timer_interval_ns` setting (`aeron_driver_context_get_timer_interval_ns`).
     pub fn timer_interval_ns(&self) -> u64 {
         ffi::driver_get_timer_interval_ns(&self.inner)
@@ -1701,7 +1733,7 @@ impl MediaDriver {
     }
 
     /// The driver's `untethered_linger_timeout_ns` setting (`aeron_driver_context_get_untethered_linger_timeout_ns`).
-    pub fn untethered_linger_timeout_ns(&self) -> i64 {
+    pub fn untethered_linger_timeout_ns(&self) -> u64 {
         ffi::driver_get_untethered_linger_timeout_ns(&self.inner)
     }
 

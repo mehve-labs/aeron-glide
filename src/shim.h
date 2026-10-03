@@ -1,5 +1,6 @@
 #pragma once
 #include <cstring>
+#include <deque>
 #include <exception>
 #include <memory>
 #include <string>
@@ -142,12 +143,19 @@ public:
     // Throws IllegalStateException once started: the driver's threads read the context.
     void ensureNotStarted() const;
     aeron_driver_context_t *context() const { return context_; }
+    // A copy of `value` that lives as long as this wrapper: some C setters keep
+    // the pointer they are given instead of copying the string.
+    const char *keep(rust::Str value) {
+        strings_.emplace_back(value.data(), value.size());
+        return strings_.back().c_str();
+    }
 
     void setThreadingMode(int32_t mode);
 
 private:
     aeron_driver_context_t* context_;
     aeron_driver_t* driver_;
+    std::deque<std::string> strings_; // destroyed after the driver and context are closed
 };
 
 class PublicationWrapper {

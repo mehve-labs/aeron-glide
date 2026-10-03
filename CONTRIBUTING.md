@@ -65,4 +65,7 @@ wait with `common::wait_until` (it has a deadline) rather than open-ended loops.
 - **Generated code.** `src/driver_gen.rs` and `src/driver_gen.h` (media driver
   settings) are generated from Aeron's `aeronmd.h` by
   `scripts/gen_driver_context.py` and checked in. Don't edit them; rerun the
-  script after building with a new Aeron version and review the diff.
+  script after building with a new Aeron version and review the diff. They
+  match the default Aeron version in `build.rs`; building with a different
+  `AERON_VERSION` may need them regenerated (and the archive header patch
+  re-checked).

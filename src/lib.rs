@@ -220,6 +220,12 @@ pub struct AeronClient {
     inner: cxx::UniquePtr<ffi::AeronWrapper>,
 }
 
+impl Drop for AeronClient {
+    fn drop(&mut self) {
+        callback::drop_outside_conductor(&mut self.inner);
+    }
+}
+
 // SAFETY: aeron::Aeron is thread-safe: resource registration goes through the C
 // client's command queue and the C++ wrapper's `m_adminLock`. The wrapper only
 // holds a `shared_ptr<aeron::Aeron>` (atomic reference count), and every method
@@ -290,6 +296,12 @@ pub struct Publication {
     inner: cxx::UniquePtr<ffi::PublicationWrapper>,
 }
 
+impl Drop for Publication {
+    fn drop(&mut self) {
+        callback::drop_outside_conductor(&mut self.inner);
+    }
+}
+
 // SAFETY: a concurrent publication is designed for use from multiple threads:
 // aeron_publication_offer / try_claim are thread-safe, the other bridged methods
 // only read state, and every method bridged as `&self` is a const C++ method.
@@ -335,6 +347,12 @@ impl Publication {
 /// use it at a time.
 pub struct ExclusivePublication {
     inner: cxx::UniquePtr<ffi::ExclusivePublicationWrapper>,
+}
+
+impl Drop for ExclusivePublication {
+    fn drop(&mut self) {
+        callback::drop_outside_conductor(&mut self.inner);
+    }
 }
 
 // SAFETY: an exclusive publication has no thread affinity; it only requires a
@@ -428,6 +446,12 @@ impl PollAction for ControlledAction {
 /// single-threaded. [`Image`]s borrow the subscription, so they stay on its thread.
 pub struct Subscription {
     inner: cxx::UniquePtr<ffi::SubscriptionWrapper>,
+}
+
+impl Drop for Subscription {
+    fn drop(&mut self) {
+        callback::drop_outside_conductor(&mut self.inner);
+    }
 }
 
 // SAFETY: a subscription has no thread affinity; polling only requires a single
@@ -650,6 +674,12 @@ pub struct CountersReader {
     inner: cxx::UniquePtr<ffi::CountersReaderWrapper>,
 }
 
+impl Drop for CountersReader {
+    fn drop(&mut self) {
+        callback::drop_outside_conductor(&mut self.inner);
+    }
+}
+
 // SAFETY: the reader only reads the counters' shared memory (written by the media
 // driver with ordered stores), and holds a `shared_ptr<aeron::Aeron>` (atomic
 // reference count). All bridged methods are const.
@@ -730,6 +760,17 @@ pub enum IdleStrategy {
     Noop,
 }
 
+impl ThreadingMode {
+    pub(crate) fn from_c(value: i32) -> Self {
+        match value {
+            1 => Self::SharedNetwork,
+            2 => Self::Shared,
+            3 => Self::Invoker,
+            _ => Self::Dedicated,
+        }
+    }
+}
+
 impl IdleStrategy {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -790,6 +831,10 @@ pub struct MediaDriverBuilder {
     threading_mode: ThreadingMode,
 }
 
+// SAFETY: the builder owns an unshared driver context that no thread uses until
+// `start`, so it may be configured on one thread and started on another.
+unsafe impl Send for MediaDriverBuilder {}
+
 impl Default for MediaDriverBuilder {
     fn default() -> Self {
         Self::new()
@@ -825,13 +870,13 @@ impl MediaDriverBuilder {
     /// [`ThreadingMode::Invoker`] is not supported yet: it needs an API to run
     /// the driver's duty cycle, which this crate does not expose.
     pub fn start(self) -> Result<MediaDriver> {
+        let mut inner = self.inner?;
         if self.threading_mode == ThreadingMode::Invoker {
             return Err(Error::new(
                 ErrorKind::UnsupportedOperation,
                 "ThreadingMode::Invoker is not supported yet",
             ));
         }
-        let mut inner = self.inner?;
         inner.pin_mut().start()?;
         Ok(MediaDriver { inner })
     }

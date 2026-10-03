@@ -1,6 +1,6 @@
 mod common;
 
-use aeron_glide::{ErrorKind, MediaDriver, OfferError};
+use aeron_glide::{ErrorKind, IdleStrategy, MediaDriver, OfferError, ThreadingMode};
 use common::{TestDriver, wait_connected};
 
 fn assert_illegal_argument(result: Result<i64, OfferError>) {
@@ -58,4 +58,19 @@ fn invalid_driver_setting_is_reported_by_start() {
         .err()
         .expect("a term length that is not a power of two is rejected");
     assert_ne!(err.kind(), ErrorKind::Other, "{err}");
+}
+
+#[test]
+fn builder_keeps_the_first_setter_error() {
+    let err = MediaDriver::builder()
+        .sender_idle_strategy(IdleStrategy::Sleeping)
+        .sender_idle_strategy_init_args("not-a-duration")
+        .term_buffer_length(1 << 20)
+        .threading_mode(ThreadingMode::Invoker)
+        .start()
+        .err()
+        .expect("invalid init args are rejected");
+    // The first failing setter wins, not the later Invoker check.
+    assert_eq!(err.kind(), ErrorKind::IllegalArgument, "{err}");
+    assert!(err.message().contains("sender_idle_strategy"), "{err}");
 }

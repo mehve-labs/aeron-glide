@@ -18,7 +18,9 @@ fn main() {
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-    // Configurable Aeron version
+    // Configurable Aeron version. The generated src/driver_gen.{rs,h} and the
+    // archive header patch target the default; other versions may need
+    // `scripts/gen_driver_context.py` rerun.
     let aeron_version = env::var("AERON_VERSION").unwrap_or_else(|_| "1.53.3".to_string());
     println!("cargo:rerun-if-env-changed=AERON_VERSION");
 

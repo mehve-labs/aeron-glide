@@ -75,7 +75,7 @@ fn claim_panic_aborts_the_claim() {
 }
 
 #[test]
-fn controlled_poll_panic_redelivers_the_fragment() {
+fn assembled_poll_panic_redelivers_the_fragment() {
     let driver = TestDriver::start();
     let client = driver.client();
     let publication = client.add_publication("aeron:ipc", 1).unwrap();
@@ -90,7 +90,8 @@ fn controlled_poll_panic_redelivers_the_fragment() {
             false
         })
     }));
-    assert!(result.is_err());
+    let payload = result.expect_err("the handler panic propagates");
+    assert_eq!(payload.downcast_ref::<&str>(), Some(&"assembled panic"));
 
     let mut received = Vec::new();
     wait_until("redelivery", || {

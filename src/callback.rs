@@ -13,7 +13,48 @@
 
 use crate::{ControlledAction, PollAction};
 use std::any::Any;
+use std::cell::Cell;
 use std::panic::{self, AssertUnwindSafe};
+
+thread_local! {
+    static IN_CONDUCTOR_CALLBACK: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Marks the current thread as running a callback invoked by an Aeron client
+/// conductor (e.g. the error handler) until dropped.
+pub(crate) struct ConductorCallbackScope(bool);
+
+impl ConductorCallbackScope {
+    pub(crate) fn enter() -> Self {
+        Self(IN_CONDUCTOR_CALLBACK.replace(true))
+    }
+}
+
+impl Drop for ConductorCallbackScope {
+    fn drop(&mut self) {
+        IN_CONDUCTOR_CALLBACK.set(self.0);
+    }
+}
+
+/// Drop a C++ object that may hold the last reference to an Aeron client.
+///
+/// Destroying a client closes it and joins its conductor thread, so it must not
+/// happen on that conductor thread, inside one of its callbacks. There the drop is
+/// handed to a short-lived thread instead.
+pub(crate) fn drop_outside_conductor<T>(inner: &mut cxx::UniquePtr<T>)
+where
+    T: cxx::memory::UniquePtrTarget + 'static,
+{
+    if !IN_CONDUCTOR_CALLBACK.get() {
+        return;
+    }
+    struct SendPtr<T: cxx::memory::UniquePtrTarget>(#[allow(dead_code)] cxx::UniquePtr<T>);
+    // SAFETY: only used for the types below, which are `Send` themselves (the
+    // client, publications, subscriptions and the counters reader).
+    unsafe impl<T: cxx::memory::UniquePtrTarget> Send for SendPtr<T> {}
+    let ptr = SendPtr(std::mem::replace(inner, cxx::UniquePtr::null()));
+    std::thread::spawn(move || drop(ptr));
+}
 
 pub(crate) struct Callback<F> {
     f: F,

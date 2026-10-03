@@ -5,7 +5,9 @@
 
 #![allow(dead_code)]
 
-use aeron_glide::{AeronClient, Context, MediaDriver, Subscription, ThreadingMode};
+use aeron_glide::{
+    AeronClient, Context, MediaDriver, MediaDriverBuilder, Subscription, ThreadingMode,
+};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
@@ -14,12 +16,17 @@ pub const TIMEOUT: Duration = Duration::from_secs(10);
 
 /// An embedded media driver in its own directory, removed on drop.
 pub struct TestDriver {
-    pub driver: MediaDriver,
+    driver: Option<MediaDriver>,
     pub dir: String,
 }
 
 impl TestDriver {
     pub fn start() -> Self {
+        Self::start_with(|builder| builder)
+    }
+
+    /// Start with extra settings applied after the harness defaults.
+    pub fn start_with(configure: impl FnOnce(MediaDriverBuilder) -> MediaDriverBuilder) -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let dir = std::env::temp_dir().join(format!(
             "aeron-glide-test-{}-{}",
@@ -27,7 +34,7 @@ impl TestDriver {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         let dir = dir.to_str().expect("utf-8 temp dir").to_string();
-        let driver = MediaDriver::builder()
+        let builder = MediaDriver::builder()
             .dir(&dir)
             .dir_delete_on_start(true)
             .dir_delete_on_shutdown(true)
@@ -35,10 +42,16 @@ impl TestDriver {
             // Small IPC terms keep memory low; max message length is term / 8 = 128 KiB.
             .ipc_term_buffer_length(1 << 20)
             // Close publications (and their images) quickly once released.
-            .publication_linger_timeout_ns(Duration::from_millis(50).as_nanos() as u64)
-            .start()
-            .expect("start media driver");
-        Self { driver, dir }
+            .publication_linger_timeout_ns(Duration::from_millis(50).as_nanos() as u64);
+        let driver = configure(builder).start().expect("start media driver");
+        Self {
+            driver: Some(driver),
+            dir,
+        }
+    }
+
+    pub fn driver(&self) -> &MediaDriver {
+        self.driver.as_ref().expect("driver running")
     }
 
     /// A client connected to this driver.
@@ -54,7 +67,9 @@ impl TestDriver {
 
 impl Drop for TestDriver {
     fn drop(&mut self) {
-        // The driver deletes its directory on shutdown; this covers a failed start.
+        // Shut the driver down first; it deletes its directory on shutdown, and this
+        // removes anything left behind (e.g. if the test panicked mid-way).
+        drop(self.driver.take());
         let _ = std::fs::remove_dir_all(&self.dir);
     }
 }

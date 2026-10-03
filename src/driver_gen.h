@@ -14,7 +14,7 @@ inline rust::String lossyOrEmpty(const char *value) {
 
 inline void driver_set_dir(MediaDriverWrapper &driver, rust::Str value) {
     driver.ensureNotStarted();
-    if (aeron_driver_context_set_dir(driver.context(), std::string(value.data(), value.size()).c_str()) < 0) {
+    if (aeron_driver_context_set_dir(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set dir");
     }
 }
@@ -245,85 +245,121 @@ inline void driver_set_timer_interval_ns(MediaDriverWrapper &driver, uint64_t va
 
 inline void driver_set_sender_idle_strategy(MediaDriverWrapper &driver, rust::Str value) {
     driver.ensureNotStarted();
-    if (aeron_driver_context_set_sender_idle_strategy(driver.context(), std::string(value.data(), value.size()).c_str()) < 0) {
+    if (aeron_driver_context_set_sender_idle_strategy(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set sender_idle_strategy");
     }
 }
 
 inline void driver_set_conductor_idle_strategy(MediaDriverWrapper &driver, rust::Str value) {
     driver.ensureNotStarted();
-    if (aeron_driver_context_set_conductor_idle_strategy(driver.context(), std::string(value.data(), value.size()).c_str()) < 0) {
+    if (aeron_driver_context_set_conductor_idle_strategy(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set conductor_idle_strategy");
     }
 }
 
 inline void driver_set_receiver_idle_strategy(MediaDriverWrapper &driver, rust::Str value) {
     driver.ensureNotStarted();
-    if (aeron_driver_context_set_receiver_idle_strategy(driver.context(), std::string(value.data(), value.size()).c_str()) < 0) {
+    if (aeron_driver_context_set_receiver_idle_strategy(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set receiver_idle_strategy");
     }
 }
 
 inline void driver_set_sharednetwork_idle_strategy(MediaDriverWrapper &driver, rust::Str value) {
     driver.ensureNotStarted();
-    if (aeron_driver_context_set_sharednetwork_idle_strategy(driver.context(), std::string(value.data(), value.size()).c_str()) < 0) {
+    if (aeron_driver_context_set_sharednetwork_idle_strategy(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set sharednetwork_idle_strategy");
     }
 }
 
 inline void driver_set_shared_idle_strategy(MediaDriverWrapper &driver, rust::Str value) {
     driver.ensureNotStarted();
-    if (aeron_driver_context_set_shared_idle_strategy(driver.context(), std::string(value.data(), value.size()).c_str()) < 0) {
+    if (aeron_driver_context_set_shared_idle_strategy(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set shared_idle_strategy");
     }
 }
 
 inline void driver_set_sender_idle_strategy_init_args(MediaDriverWrapper &driver, rust::Str value) {
     driver.ensureNotStarted();
-    if (aeron_driver_context_set_sender_idle_strategy_init_args(driver.context(), std::string(value.data(), value.size()).c_str()) < 0) {
+    if (aeron_driver_context_set_sender_idle_strategy_init_args(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set sender_idle_strategy_init_args");
+    }
+    if (const char *current = aeron_driver_context_get_sender_idle_strategy(driver.context())) {
+        std::string strategy(current);
+        if (aeron_driver_context_set_sender_idle_strategy(driver.context(), strategy.c_str()) < 0) {
+            throwDriverError("Failed to reload sender_idle_strategy");
+        }
     }
 }
 
 inline void driver_set_conductor_idle_strategy_init_args(MediaDriverWrapper &driver, rust::Str value) {
     driver.ensureNotStarted();
-    if (aeron_driver_context_set_conductor_idle_strategy_init_args(driver.context(), std::string(value.data(), value.size()).c_str()) < 0) {
+    if (aeron_driver_context_set_conductor_idle_strategy_init_args(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set conductor_idle_strategy_init_args");
+    }
+    if (const char *current = aeron_driver_context_get_conductor_idle_strategy(driver.context())) {
+        std::string strategy(current);
+        if (aeron_driver_context_set_conductor_idle_strategy(driver.context(), strategy.c_str()) < 0) {
+            throwDriverError("Failed to reload conductor_idle_strategy");
+        }
     }
 }
 
 inline void driver_set_receiver_idle_strategy_init_args(MediaDriverWrapper &driver, rust::Str value) {
     driver.ensureNotStarted();
-    if (aeron_driver_context_set_receiver_idle_strategy_init_args(driver.context(), std::string(value.data(), value.size()).c_str()) < 0) {
+    if (aeron_driver_context_set_receiver_idle_strategy_init_args(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set receiver_idle_strategy_init_args");
+    }
+    if (const char *current = aeron_driver_context_get_receiver_idle_strategy(driver.context())) {
+        std::string strategy(current);
+        if (aeron_driver_context_set_receiver_idle_strategy(driver.context(), strategy.c_str()) < 0) {
+            throwDriverError("Failed to reload receiver_idle_strategy");
+        }
     }
 }
 
 inline void driver_set_sharednetwork_idle_strategy_init_args(MediaDriverWrapper &driver, rust::Str value) {
     driver.ensureNotStarted();
-    if (aeron_driver_context_set_sharednetwork_idle_strategy_init_args(driver.context(), std::string(value.data(), value.size()).c_str()) < 0) {
+    if (aeron_driver_context_set_sharednetwork_idle_strategy_init_args(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set sharednetwork_idle_strategy_init_args");
+    }
+    if (const char *current = aeron_driver_context_get_sharednetwork_idle_strategy(driver.context())) {
+        std::string strategy(current);
+        if (aeron_driver_context_set_sharednetwork_idle_strategy(driver.context(), strategy.c_str()) < 0) {
+            throwDriverError("Failed to reload sharednetwork_idle_strategy");
+        }
     }
 }
 
 inline void driver_set_shared_idle_strategy_init_args(MediaDriverWrapper &driver, rust::Str value) {
     driver.ensureNotStarted();
-    if (aeron_driver_context_set_shared_idle_strategy_init_args(driver.context(), std::string(value.data(), value.size()).c_str()) < 0) {
+    if (aeron_driver_context_set_shared_idle_strategy_init_args(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set shared_idle_strategy_init_args");
+    }
+    if (const char *current = aeron_driver_context_get_shared_idle_strategy(driver.context())) {
+        std::string strategy(current);
+        if (aeron_driver_context_set_shared_idle_strategy(driver.context(), strategy.c_str()) < 0) {
+            throwDriverError("Failed to reload shared_idle_strategy");
+        }
     }
 }
 
 inline void driver_set_native_resource_agent_idle_strategy(MediaDriverWrapper &driver, rust::Str value) {
     driver.ensureNotStarted();
-    if (aeron_driver_context_set_native_resource_agent_idle_strategy(driver.context(), std::string(value.data(), value.size()).c_str()) < 0) {
+    if (aeron_driver_context_set_native_resource_agent_idle_strategy(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set native_resource_agent_idle_strategy");
     }
 }
 
 inline void driver_set_native_resource_agent_idle_strategy_init_args(MediaDriverWrapper &driver, rust::Str value) {
     driver.ensureNotStarted();
-    if (aeron_driver_context_set_native_resource_agent_idle_strategy_init_args(driver.context(), std::string(value.data(), value.size()).c_str()) < 0) {
+    if (aeron_driver_context_set_native_resource_agent_idle_strategy_init_args(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set native_resource_agent_idle_strategy_init_args");
+    }
+    if (const char *current = aeron_driver_context_get_native_resource_agent_idle_strategy(driver.context())) {
+        std::string strategy(current);
+        if (aeron_driver_context_set_native_resource_agent_idle_strategy(driver.context(), strategy.c_str()) < 0) {
+            throwDriverError("Failed to reload native_resource_agent_idle_strategy");
+        }
     }
 }
 
@@ -497,28 +533,28 @@ inline void driver_set_publication_reserved_session_id_high(MediaDriverWrapper &
 
 inline void driver_set_resolver_name(MediaDriverWrapper &driver, rust::Str value) {
     driver.ensureNotStarted();
-    if (aeron_driver_context_set_resolver_name(driver.context(), std::string(value.data(), value.size()).c_str()) < 0) {
+    if (aeron_driver_context_set_resolver_name(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set resolver_name");
     }
 }
 
 inline void driver_set_resolver_interface(MediaDriverWrapper &driver, rust::Str value) {
     driver.ensureNotStarted();
-    if (aeron_driver_context_set_resolver_interface(driver.context(), std::string(value.data(), value.size()).c_str()) < 0) {
+    if (aeron_driver_context_set_resolver_interface(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set resolver_interface");
     }
 }
 
 inline void driver_set_resolver_bootstrap_neighbor(MediaDriverWrapper &driver, rust::Str value) {
     driver.ensureNotStarted();
-    if (aeron_driver_context_set_resolver_bootstrap_neighbor(driver.context(), std::string(value.data(), value.size()).c_str()) < 0) {
+    if (aeron_driver_context_set_resolver_bootstrap_neighbor(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set resolver_bootstrap_neighbor");
     }
 }
 
 inline void driver_set_name_resolver_init_args(MediaDriverWrapper &driver, rust::Str value) {
     driver.ensureNotStarted();
-    if (aeron_driver_context_set_name_resolver_init_args(driver.context(), std::string(value.data(), value.size()).c_str()) < 0) {
+    if (aeron_driver_context_set_name_resolver_init_args(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set name_resolver_init_args");
     }
 }
@@ -684,6 +720,24 @@ inline void driver_set_stream_session_limit(MediaDriverWrapper &driver, int32_t 
     }
 }
 
+inline rust::Vec<uint16_t> driver_get_sender_wildcard_port_range(const MediaDriverWrapper &driver) {
+    uint16_t low = 0, high = 0;
+    aeron_driver_context_get_sender_wildcard_port_range(driver.context(), &low, &high);
+    rust::Vec<uint16_t> range;
+    range.push_back(low);
+    range.push_back(high);
+    return range;
+}
+
+inline rust::Vec<uint16_t> driver_get_receiver_wildcard_port_range(const MediaDriverWrapper &driver) {
+    uint16_t low = 0, high = 0;
+    aeron_driver_context_get_receiver_wildcard_port_range(driver.context(), &low, &high);
+    rust::Vec<uint16_t> range;
+    range.push_back(low);
+    range.push_back(high);
+    return range;
+}
+
 inline uint64_t driver_get_client_liveness_timeout_ns(const MediaDriverWrapper &driver) {
     return aeron_driver_context_get_client_liveness_timeout_ns(driver.context());
 }
@@ -692,8 +746,8 @@ inline int32_t driver_get_conductor_cpu_affinity(const MediaDriverWrapper &drive
     return aeron_driver_context_get_conductor_cpu_affinity(driver.context());
 }
 
-inline int64_t driver_get_conductor_cycle_threshold_ns(const MediaDriverWrapper &driver) {
-    return aeron_driver_context_get_conductor_cycle_threshold_ns(driver.context());
+inline uint64_t driver_get_conductor_cycle_threshold_ns(const MediaDriverWrapper &driver) {
+    return static_cast<uint64_t>(aeron_driver_context_get_conductor_cycle_threshold_ns(driver.context()));
 }
 
 inline rust::String driver_get_conductor_idle_strategy(const MediaDriverWrapper &driver) {
@@ -704,8 +758,8 @@ inline rust::String driver_get_conductor_idle_strategy_init_args(const MediaDriv
     return lossyOrEmpty(aeron_driver_context_get_conductor_idle_strategy_init_args(driver.context()));
 }
 
-inline int32_t driver_get_connect_enabled(const MediaDriverWrapper &driver) {
-    return static_cast<int32_t>(aeron_driver_context_get_connect_enabled(driver.context()));
+inline bool driver_get_connect_enabled(const MediaDriverWrapper &driver) {
+    return aeron_driver_context_get_connect_enabled(driver.context()) != 0;
 }
 
 inline size_t driver_get_counters_buffer_length(const MediaDriverWrapper &driver) {
@@ -744,8 +798,8 @@ inline uint64_t driver_get_driver_timeout_ms(const MediaDriverWrapper &driver) {
     return aeron_driver_context_get_driver_timeout_ms(driver.context());
 }
 
-inline int32_t driver_get_enable_experimental_features(const MediaDriverWrapper &driver) {
-    return static_cast<int32_t>(aeron_driver_context_get_enable_experimental_features(driver.context()));
+inline bool driver_get_enable_experimental_features(const MediaDriverWrapper &driver) {
+    return aeron_driver_context_get_enable_experimental_features(driver.context()) != 0;
 }
 
 inline size_t driver_get_error_buffer_length(const MediaDriverWrapper &driver) {
@@ -820,8 +874,8 @@ inline rust::String driver_get_name_resolver_init_args(const MediaDriverWrapper 
     return lossyOrEmpty(aeron_driver_context_get_name_resolver_init_args(driver.context()));
 }
 
-inline int64_t driver_get_name_resolver_threshold_ns(const MediaDriverWrapper &driver) {
-    return aeron_driver_context_get_name_resolver_threshold_ns(driver.context());
+inline uint64_t driver_get_name_resolver_threshold_ns(const MediaDriverWrapper &driver) {
+    return static_cast<uint64_t>(aeron_driver_context_get_name_resolver_threshold_ns(driver.context()));
 }
 
 inline int32_t driver_get_native_resource_agent_cpu_affinity(const MediaDriverWrapper &driver) {
@@ -888,8 +942,8 @@ inline int32_t driver_get_receiver_cpu_affinity(const MediaDriverWrapper &driver
     return aeron_driver_context_get_receiver_cpu_affinity(driver.context());
 }
 
-inline int64_t driver_get_receiver_cycle_threshold_ns(const MediaDriverWrapper &driver) {
-    return aeron_driver_context_get_receiver_cycle_threshold_ns(driver.context());
+inline uint64_t driver_get_receiver_cycle_threshold_ns(const MediaDriverWrapper &driver) {
+    return static_cast<uint64_t>(aeron_driver_context_get_receiver_cycle_threshold_ns(driver.context()));
 }
 
 inline int32_t driver_get_receiver_group_consideration(const MediaDriverWrapper &driver) {
@@ -972,8 +1026,8 @@ inline int32_t driver_get_sender_cpu_affinity(const MediaDriverWrapper &driver) 
     return aeron_driver_context_get_sender_cpu_affinity(driver.context());
 }
 
-inline int64_t driver_get_sender_cycle_threshold_ns(const MediaDriverWrapper &driver) {
-    return aeron_driver_context_get_sender_cycle_threshold_ns(driver.context());
+inline uint64_t driver_get_sender_cycle_threshold_ns(const MediaDriverWrapper &driver) {
+    return static_cast<uint64_t>(aeron_driver_context_get_sender_cycle_threshold_ns(driver.context()));
 }
 
 inline rust::String driver_get_sender_idle_strategy(const MediaDriverWrapper &driver) {
@@ -1040,6 +1094,10 @@ inline int32_t driver_get_thread_naming(const MediaDriverWrapper &driver) {
     return static_cast<int32_t>(aeron_driver_context_get_thread_naming(driver.context()));
 }
 
+inline int32_t driver_get_threading_mode(const MediaDriverWrapper &driver) {
+    return static_cast<int32_t>(aeron_driver_context_get_threading_mode(driver.context()));
+}
+
 inline uint64_t driver_get_timer_interval_ns(const MediaDriverWrapper &driver) {
     return aeron_driver_context_get_timer_interval_ns(driver.context());
 }
@@ -1052,8 +1110,8 @@ inline size_t driver_get_to_conductor_buffer_length(const MediaDriverWrapper &dr
     return aeron_driver_context_get_to_conductor_buffer_length(driver.context());
 }
 
-inline int64_t driver_get_untethered_linger_timeout_ns(const MediaDriverWrapper &driver) {
-    return aeron_driver_context_get_untethered_linger_timeout_ns(driver.context());
+inline uint64_t driver_get_untethered_linger_timeout_ns(const MediaDriverWrapper &driver) {
+    return static_cast<uint64_t>(aeron_driver_context_get_untethered_linger_timeout_ns(driver.context()));
 }
 
 inline uint64_t driver_get_untethered_resting_timeout_ns(const MediaDriverWrapper &driver) {
