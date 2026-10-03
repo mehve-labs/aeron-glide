@@ -2,3 +2,5 @@
 **/*.rs.bk
 .claude/
 aeron-archive/
+docs/
+.DS_Store
