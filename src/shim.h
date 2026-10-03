@@ -184,8 +184,8 @@ public:
 
     // Image accessors
     int imageCount() const;
-    std::unique_ptr<ImageWrapper> imageByIndex(size_t index);
-    std::unique_ptr<ImageWrapper> imageBySessionId(int32_t session_id);
+    std::unique_ptr<ImageWrapper> imageByIndex(size_t index) const;
+    std::unique_ptr<ImageWrapper> imageBySessionId(int32_t session_id) const;
 
     // Internal accessor for ReplayMerge (not exposed through cxx)
     const std::shared_ptr<aeron::Subscription>& sharedSubscription() const { return sub; }
@@ -200,7 +200,9 @@ private:
 
 class ImageWrapper {
 public:
-    ImageWrapper(std::shared_ptr<aeron::Image> image);
+    // `subscription` owns the image: aeron::Image only holds raw C pointers, so the
+    // subscription (and through it the client) must outlive it.
+    ImageWrapper(std::shared_ptr<aeron::Image> image, std::shared_ptr<aeron::Subscription> subscription);
     ~ImageWrapper();
 
     // Metadata
@@ -222,6 +224,7 @@ public:
     int controlledPollAssembled(int fragment_limit, ControlledFragmentFn handler, size_t ctx);
 
 private:
+    std::shared_ptr<aeron::Subscription> subscription_;
     std::shared_ptr<aeron::Image> image_;
     // Handler of the controlledPollAssembled call in progress, used by the assembler.
     const ControlledFragmentFn *controlled_handler_ = nullptr;
@@ -340,6 +343,7 @@ public:
     bool isLiveAdded() const;
 
 private:
+    std::shared_ptr<aeron::Subscription> subscription_;
     std::unique_ptr<aeron::archive::client::ReplayMerge> merge_;
 };
 

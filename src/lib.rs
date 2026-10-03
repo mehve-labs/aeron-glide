@@ -51,6 +51,7 @@ mod callback;
 mod error;
 use callback::Callback;
 pub use error::{Error, ErrorKind, OfferError, Result};
+use std::marker::PhantomData;
 
 #[cxx::bridge(namespace = "aeron_rs")]
 pub mod ffi {
@@ -142,14 +143,9 @@ pub mod ffi {
         fn isConnected(self: &SubscriptionWrapper) -> bool;
         fn deleteSessionBuffer(self: Pin<&mut SubscriptionWrapper>, session_id: i32) -> bool;
         fn imageCount(self: &SubscriptionWrapper) -> i32;
-        fn imageByIndex(
-            self: Pin<&mut SubscriptionWrapper>,
-            index: usize,
-        ) -> UniquePtr<ImageWrapper>;
-        fn imageBySessionId(
-            self: Pin<&mut SubscriptionWrapper>,
-            session_id: i32,
-        ) -> UniquePtr<ImageWrapper>;
+        fn imageByIndex(self: &SubscriptionWrapper, index: usize) -> UniquePtr<ImageWrapper>;
+        fn imageBySessionId(self: &SubscriptionWrapper, session_id: i32)
+        -> UniquePtr<ImageWrapper>;
 
         type ImageWrapper;
         fn sessionId(self: &ImageWrapper) -> i32;
@@ -433,15 +429,18 @@ impl Subscription {
 
     /// Get an image by its index (0-based), or `None` if there is no image at that index.
     /// Images appear in the order they were connected.
-    pub fn image_by_index(&mut self, index: usize) -> Option<Image> {
-        let img = self.inner.pin_mut().imageByIndex(index);
-        (!img.is_null()).then_some(Image { inner: img })
+    ///
+    /// The image borrows this subscription, so the subscription cannot be polled
+    /// (or dropped) while the image is alive.
+    pub fn image_by_index(&self, index: usize) -> Option<Image<'_>> {
+        Image::from_raw(self.inner.imageByIndex(index))
     }
 
     /// Get an image by the publisher's session ID, or `None` if no such image exists.
-    pub fn image_by_session_id(&mut self, session_id: i32) -> Option<Image> {
-        let img = self.inner.pin_mut().imageBySessionId(session_id);
-        (!img.is_null()).then_some(Image { inner: img })
+    ///
+    /// The image borrows this subscription, like [`image_by_index`](Self::image_by_index).
+    pub fn image_by_session_id(&self, session_id: i32) -> Option<Image<'_>> {
+        Image::from_raw(self.inner.imageBySessionId(session_id))
     }
 }
 
@@ -449,14 +448,30 @@ impl Subscription {
 ///
 /// Each publisher session creates one image on each matching subscription.
 /// Images track their own position and can be polled independently.
-pub struct Image {
+///
+/// An `Image` borrows the [`Subscription`] (or `ReplayMerge`) it came from, so it
+/// cannot outlive it:
+///
+/// ```compile_fail,E0597
+/// # use aeron_glide::AeronClient;
+/// let mut client = AeronClient::new().unwrap();
+/// let image = {
+///     let sub = client.add_subscription("aeron:ipc", 1).unwrap();
+///     sub.image_by_index(0).unwrap()
+/// }; // error: `sub` does not live long enough
+/// # drop(image);
+/// ```
+pub struct Image<'a> {
     inner: cxx::UniquePtr<ffi::ImageWrapper>,
+    _owner: PhantomData<&'a Subscription>,
 }
 
-impl Image {
-    #[cfg(feature = "archive")]
-    pub(crate) fn from_raw(inner: cxx::UniquePtr<ffi::ImageWrapper>) -> Self {
-        Self { inner }
+impl Image<'_> {
+    pub(crate) fn from_raw(inner: cxx::UniquePtr<ffi::ImageWrapper>) -> Option<Self> {
+        (!inner.is_null()).then_some(Self {
+            inner,
+            _owner: PhantomData,
+        })
     }
 
     /// The session ID of the publisher that created this image.
@@ -996,6 +1011,14 @@ mod tests {
             Err(OfferError::Error(e)) => assert_eq!(e.kind(), ErrorKind::IllegalArgument),
             other => panic!("expected IllegalArgument, got {other:?}"),
         }
+
+        // An image stays usable after the client that created it is dropped:
+        // the subscription it borrows keeps the client alive.
+        while publ.offer(b"last").is_err() {}
+        let image = sub.image_by_index(0).expect("image");
+        drop(client);
+        assert!(image.position().is_ok());
+        assert!(!image.is_closed());
     }
 
     #[test]

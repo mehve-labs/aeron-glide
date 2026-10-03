@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // channel+stream share a session (even across clients).
     let mut pub1 = client.add_exclusive_publication(CHANNEL, stream_id)?;
     let mut pub2 = client.add_exclusive_publication(CHANNEL, stream_id)?;
-    let mut sub = client.add_subscription(CHANNEL, stream_id)?;
+    let sub = client.add_subscription(CHANNEL, stream_id)?;
 
     // Wait for both images to appear
     println!("Waiting for publishers to connect...");

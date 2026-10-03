@@ -37,9 +37,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   remaining fragments of a plain poll are consumed without delivery; a
   panicking claim is aborted.
 - **Breaking:** `CountersReader::for_each` returns `Result<()>`.
+- **Breaking:** `Image` is now `Image<'a>`, borrowing its `Subscription` /
+  `ReplayMerge`. `Subscription::image_by_index` and `image_by_session_id` take
+  `&self`.
 - **Breaking:** `Subscription::image_by_index`, `Subscription::image_by_session_id`
   and `ReplayMerge::image` return `Option<Image>` instead of an error when there
   is no such image.
+
+### Fixed
+
+- Use-after-free: an `Image` could outlive its subscription and client, and
+  then crash on `position()`, `poll()` or drop. The C++ image wrapper now keeps
+  its subscription (and through it the client) alive, and `Image` borrows the
+  `Subscription` or `ReplayMerge` it came from.
 
 ### Added
 

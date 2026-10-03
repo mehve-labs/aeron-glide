@@ -289,19 +289,19 @@ int SubscriptionWrapper::imageCount() const {
 
 // Not bridged as `Result`: any failure (e.g. the std::logic_error the C++ wrapper
 // throws for an index that is out of range) means "no such image".
-std::unique_ptr<ImageWrapper> SubscriptionWrapper::imageByIndex(size_t index) {
+std::unique_ptr<ImageWrapper> SubscriptionWrapper::imageByIndex(size_t index) const {
     try {
         auto image = sub->imageByIndex(index);
-        return image ? std::unique_ptr<ImageWrapper>(new ImageWrapper(image)) : nullptr;
+        return image ? std::unique_ptr<ImageWrapper>(new ImageWrapper(image, sub)) : nullptr;
     } catch (...) {
         return nullptr;
     }
 }
 
-std::unique_ptr<ImageWrapper> SubscriptionWrapper::imageBySessionId(int32_t session_id) {
+std::unique_ptr<ImageWrapper> SubscriptionWrapper::imageBySessionId(int32_t session_id) const {
     try {
         auto image = sub->imageBySessionId(session_id);
-        return image ? std::unique_ptr<ImageWrapper>(new ImageWrapper(image)) : nullptr;
+        return image ? std::unique_ptr<ImageWrapper>(new ImageWrapper(image, sub)) : nullptr;
     } catch (...) {
         return nullptr;
     }
@@ -309,8 +309,9 @@ std::unique_ptr<ImageWrapper> SubscriptionWrapper::imageBySessionId(int32_t sess
 
 // ImageWrapper
 
-ImageWrapper::ImageWrapper(std::shared_ptr<aeron::Image> image)
-    : image_(image),
+ImageWrapper::ImageWrapper(std::shared_ptr<aeron::Image> image, std::shared_ptr<aeron::Subscription> subscription)
+    : subscription_(std::move(subscription)),
+      image_(std::move(image)),
       controlled_assembler_([this](aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
           return dispatchControlled(controlled_handler_, controlled_ctx_, buffer, offset, length);
       }) {}
@@ -609,7 +610,8 @@ ReplayMergeWrapper::ReplayMergeWrapper(
     int64_t recordingId,
     int64_t startPosition,
     int64_t mergeProgressTimeoutMs)
-    : merge_(std::make_unique<aeron::archive::client::ReplayMerge>(
+    : subscription_(subscription),
+      merge_(std::make_unique<aeron::archive::client::ReplayMerge>(
           subscription, archive, replayChannel, replayDestination,
           liveDestination, recordingId, startPosition,
           aeron::currentTimeMillis, mergeProgressTimeoutMs)) {}
@@ -632,7 +634,7 @@ int ReplayMergeWrapper::poll(int fragment_limit, FragmentFn handler, size_t ctx)
 std::unique_ptr<ImageWrapper> ReplayMergeWrapper::image() {
     try {
         auto img = merge_->image();
-        return img ? std::unique_ptr<ImageWrapper>(new ImageWrapper(img)) : nullptr;
+        return img ? std::unique_ptr<ImageWrapper>(new ImageWrapper(img, subscription_)) : nullptr;
     } catch (...) {
         return nullptr;
     }

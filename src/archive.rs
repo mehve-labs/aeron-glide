@@ -504,9 +504,10 @@ impl ReplayMerge {
 
     /// Get the merged Image, or `None` if it is not available yet. Available after
     /// `is_merged()` returns true; can also be used during the merge.
-    pub fn image(&mut self) -> Option<crate::Image> {
-        let wrapper = self.inner.pin_mut().image();
-        (!wrapper.is_null()).then(|| crate::Image::from_raw(wrapper))
+    ///
+    /// The image borrows this `ReplayMerge`, so it cannot be polled while the image is alive.
+    pub fn image(&mut self) -> Option<crate::Image<'_>> {
+        crate::Image::from_raw(self.inner.pin_mut().image())
     }
 
     /// Returns true when the replay and live streams have been successfully merged.
