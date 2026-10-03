@@ -134,6 +134,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `subscription_registration_id`, `is_publication_revoked`,
   `active_transport_count`, `reject`, `controlled_poll` (without reassembly),
   `bounded_poll`, `bounded_controlled_poll` and `block_poll`.
+- `Context::default_aeron_path` and `Context::request_driver_termination`.
 - Agent invoker mode: `Context::use_conductor_agent_invoker` runs the client
   conductor inside `AeronClient::invoke()` on your own thread instead of a
   dedicated one (`AeronClient::uses_agent_invoker`). Synchronous adds invoke

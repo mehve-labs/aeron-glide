@@ -1,6 +1,6 @@
 mod common;
 
-use aeron_glide::ErrorKind;
+use aeron_glide::{Context, ErrorKind};
 use common::{TestDriver, wait_until};
 use std::time::Duration;
 
@@ -76,4 +76,19 @@ fn client_accessors() {
 
     let other = driver.client();
     assert_ne!(other.client_id(), client.client_id());
+}
+
+#[test]
+fn context_utilities() {
+    assert!(!Context::default_aeron_path().unwrap().is_empty());
+
+    let driver = TestDriver::start();
+    // Sent to the running driver (its default validator then rejects it).
+    assert!(Context::request_driver_termination(&driver.dir, b"token").unwrap());
+    let client = driver.client();
+    client.add_publication("aeron:ipc", 1).unwrap();
+
+    // No driver (no CnC file) in this directory.
+    let missing = std::env::temp_dir().join("aeron-glide-no-driver-here");
+    assert!(Context::request_driver_termination(missing.to_str().unwrap(), b"").is_err());
 }

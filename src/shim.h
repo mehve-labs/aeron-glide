@@ -514,6 +514,12 @@ private:
     std::shared_ptr<aeron::Aeron> aeron;
 };
 
+// Static aeron::Context utilities (P13).
+inline bool requestDriverTermination(rust::Str directory, rust::Slice<const uint8_t> token) {
+    return aeron::Context::requestDriverTermination(std::string(directory), token.data(), token.size());
+}
+inline rust::String defaultAeronPath() { return rust::String::lossy(aeron::Context::defaultAeronPath()); }
+
 // Factory functions that cxx can safely bind to
 std::unique_ptr<ContextWrapper> create_context();
 std::unique_ptr<AeronWrapper> create_aeron(std::unique_ptr<ContextWrapper> context);

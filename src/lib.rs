@@ -172,6 +172,8 @@ pub(crate) mod ffi {
         type CountersReaderWrapper;
 
         fn create_context() -> Result<UniquePtr<ContextWrapper>>;
+        fn requestDriverTermination(directory: &str, token: &[u8]) -> Result<bool>;
+        fn defaultAeronPath() -> Result<String>;
         fn setAeronDir(self: Pin<&mut ContextWrapper>, dir: &str) -> Result<()>;
         fn setClientName(self: Pin<&mut ContextWrapper>, name: &str) -> Result<()>;
         fn setDriverTimeoutMs(self: Pin<&mut ContextWrapper>, value: i64) -> Result<()>;

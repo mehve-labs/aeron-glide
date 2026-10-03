@@ -50,6 +50,24 @@ impl Context {
         Self::default()
     }
 
+    /// Aeron's default directory on this platform (e.g. `/dev/shm/aeron-<user>`
+    /// on Linux), used when neither [`aeron_dir`](Self::aeron_dir) nor `AERON_DIR`
+    /// is set.
+    pub fn default_aeron_path() -> Result<String> {
+        Ok(ffi::defaultAeronPath()?)
+    }
+
+    /// Ask the media driver running in `aeron_dir` to terminate, presenting
+    /// `token` to its termination validator. Returns `true` if the request was
+    /// sent, `false` if the driver has not initialised its CnC file yet; fails if
+    /// there is no CnC file (no driver) in that directory.
+    ///
+    /// Whether the driver actually terminates is up to its termination validator;
+    /// Aeron's default rejects every request.
+    pub fn request_driver_termination(aeron_dir: &str, token: &[u8]) -> Result<bool> {
+        Ok(ffi::requestDriverTermination(aeron_dir, token)?)
+    }
+
     /// The Aeron directory shared with the media driver.
     ///
     /// Defaults to the `AERON_DIR` environment variable if set, otherwise Aeron's
