@@ -240,8 +240,7 @@ Aeron C code. On an Apple M4 Pro, against one shared media driver (Aeron
 | rusteron 0.2.10 | 39.9M msgs/sec | 20.1 µs | 29.8 µs | 46.4 µs |
 
 **[BENCHMARKS.md](BENCHMARKS.md)** has the method, a run pinned with
-`taskset` on Linux, the comparison with the previous release (0.3.1), why throughput numbers like
-these move so much, and how to reproduce them with
+`taskset` on Linux, and how to reproduce them with
 [`scripts/benchmark.py`](scripts/benchmark.py).
 
 ## Documentation
