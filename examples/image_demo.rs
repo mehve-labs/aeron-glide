@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         println!(
             "            position={} closed={} end_of_stream={}",
-            image.position(),
+            image.position()?,
             image.is_closed(),
             image.is_end_of_stream(),
         );
@@ -75,11 +75,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let fragments = image.poll(10, |data| {
             let msg = std::str::from_utf8(data).unwrap_or("<binary>");
             println!("  [session={}] {}", sid, msg);
-        });
+        })?;
         println!(
             "  -> {} fragments, position now={}\n",
             fragments,
-            image.position()
+            image.position()?
         );
     }
 
@@ -104,7 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let fragments = image.poll_assembled(10, |data| {
             let msg = std::str::from_utf8(data).unwrap_or("<binary>");
             println!("  [session={}] {}", sid, msg);
-        });
+        })?;
         println!("  -> {} fragments (auto-Continue)\n", fragments);
     }
 
@@ -125,7 +125,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..count as usize {
         let mut image = sub.image_by_index(i).ok_or("no image")?;
         let sid = image.session_id();
-        let pos_before = image.position();
+        let pos_before = image.position()?;
 
         let mut seen = 0;
         let fragments = image.poll_assembled(10, |data| -> ControlledAction {
@@ -137,12 +137,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 ControlledAction::Continue
             }
-        });
+        })?;
         println!(
             "  -> {} fragments delivered, position {} -> {} (remaining still queued)\n",
             fragments,
             pos_before,
-            image.position()
+            image.position()?
         );
     }
 
@@ -154,7 +154,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "  image_by_session_id({}) -> position={}",
         sid,
-        img_lookup.position()
+        img_lookup.position()?
     );
 
     // Final positions
@@ -165,7 +165,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "  Image[{}] session={}: position={}",
             i,
             image.session_id(),
-            image.position()
+            image.position()?
         );
     }
 

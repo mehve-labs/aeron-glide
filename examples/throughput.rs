@@ -77,7 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     while running.load(Ordering::Acquire) {
         subscription.poll(MESSAGE_LENGTH as i32, |_data| {
             message_count += 1;
-        });
+        })?;
 
         if message_count >= next_check && start.elapsed() >= Duration::from_secs(1) {
             let elapsed = start.elapsed().as_secs_f64();

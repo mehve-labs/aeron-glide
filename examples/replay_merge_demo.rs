@@ -162,7 +162,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let msg = std::str::from_utf8(data).unwrap_or("<binary>");
             total_received += 1;
             println!("  [{}] {}", total_received, msg);
-        });
+        })?;
 
         // Monitor state transitions
         if !was_live_added && merge.is_live_added() {
@@ -199,7 +199,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if total_received <= 5 || total_received % 10 == 0 {
                     println!("  [{}] {}", total_received, msg);
                 }
-            });
+            })?;
             break;
         }
 
@@ -222,7 +222,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!(
                     "  Merged image: session_id={} position={}",
                     image.session_id(),
-                    image.position()
+                    image.position()?
                 );
             }
             None => println!("  Merged image not available yet"),

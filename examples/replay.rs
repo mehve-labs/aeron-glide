@@ -84,7 +84,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let msg = std::str::from_utf8(data).unwrap_or("<binary>");
             println!("  [{}] {}", total_received, msg);
             total_received += 1;
-        });
+        })?;
         if fragments == 0 {
             idle_count += 1;
             thread::sleep(Duration::from_millis(10));

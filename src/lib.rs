@@ -63,7 +63,7 @@ pub mod ffi {
         type MediaDriverWrapper;
         type CountersReaderWrapper;
 
-        fn create_context() -> UniquePtr<ContextWrapper>;
+        fn create_context() -> Result<UniquePtr<ContextWrapper>>;
         fn create_aeron(context: UniquePtr<ContextWrapper>) -> Result<UniquePtr<AeronWrapper>>;
         fn create_media_driver() -> Result<UniquePtr<MediaDriverWrapper>>;
 
@@ -123,18 +123,21 @@ pub mod ffi {
         ) -> Result<i64>;
         fn isConnected(self: &ExclusivePublicationWrapper) -> bool;
 
-        fn poll(self: Pin<&mut SubscriptionWrapper>, fragment_limit: i32, handler_id: usize)
-        -> i32;
+        fn poll(
+            self: Pin<&mut SubscriptionWrapper>,
+            fragment_limit: i32,
+            handler_id: usize,
+        ) -> Result<i32>;
         fn pollAssembled(
             self: Pin<&mut SubscriptionWrapper>,
             fragment_limit: i32,
             handler_id: usize,
-        ) -> i32;
+        ) -> Result<i32>;
         fn controlledPollAssembled(
             self: Pin<&mut SubscriptionWrapper>,
             fragment_limit: i32,
             handler_id: usize,
-        ) -> i32;
+        ) -> Result<i32>;
         fn isConnected(self: &SubscriptionWrapper) -> bool;
         fn deleteSessionBuffer(self: Pin<&mut SubscriptionWrapper>, session_id: i32) -> bool;
         fn imageCount(self: &SubscriptionWrapper) -> i32;
@@ -152,22 +155,26 @@ pub mod ffi {
         fn correlationId(self: &ImageWrapper) -> i64;
         fn joinPosition(self: &ImageWrapper) -> i64;
         fn sourceIdentity(self: &ImageWrapper) -> String;
-        fn position(self: &ImageWrapper) -> i64;
+        fn position(self: &ImageWrapper) -> Result<i64>;
         fn isClosed(self: &ImageWrapper) -> bool;
         fn isEndOfStream(self: &ImageWrapper) -> bool;
         fn endOfStreamPosition(self: &ImageWrapper) -> i64;
-        fn poll(self: Pin<&mut ImageWrapper>, fragment_limit: i32, handler_id: usize) -> i32;
+        fn poll(
+            self: Pin<&mut ImageWrapper>,
+            fragment_limit: i32,
+            handler_id: usize,
+        ) -> Result<i32>;
         fn controlledPollAssembled(
             self: Pin<&mut ImageWrapper>,
             fragment_limit: i32,
             handler_id: usize,
-        ) -> i32;
+        ) -> Result<i32>;
 
         fn maxCounterId(self: &CountersReaderWrapper) -> i32;
-        fn getCounterValue(self: &CountersReaderWrapper, id: i32) -> i64;
-        fn getCounterState(self: &CountersReaderWrapper, id: i32) -> i32;
-        fn getCounterTypeId(self: &CountersReaderWrapper, id: i32) -> i32;
-        fn getCounterLabel(self: &CountersReaderWrapper, id: i32) -> String;
+        fn getCounterValue(self: &CountersReaderWrapper, id: i32) -> Result<i64>;
+        fn getCounterState(self: &CountersReaderWrapper, id: i32) -> Result<i32>;
+        fn getCounterTypeId(self: &CountersReaderWrapper, id: i32) -> Result<i32>;
+        fn getCounterLabel(self: &CountersReaderWrapper, id: i32) -> Result<String>;
         fn forEach(self: &CountersReaderWrapper, handler_id: usize);
     }
 
@@ -196,7 +203,7 @@ pub struct AeronClient {
 impl AeronClient {
     /// Create a new Aeron client connected to the media driver.
     pub fn new() -> Result<Self> {
-        let ctx = ffi::create_context();
+        let ctx = ffi::create_context()?;
         let aeron = ffi::create_aeron(ctx)?;
 
         Ok(Self { inner: aeron })
@@ -451,7 +458,7 @@ pub struct Subscription {
 impl Subscription {
     /// Poll for new messages, calling `handler` for each fragment received.
     /// Returns the number of fragments dispatched.
-    pub fn poll<F>(&mut self, limit: i32, mut handler: F) -> i32
+    pub fn poll<F>(&mut self, limit: i32, mut handler: F) -> Result<i32>
     where
         F: FnMut(&[u8]),
     {
@@ -472,7 +479,7 @@ impl Subscription {
             handlers.borrow_mut().remove(&handler_id);
         });
 
-        result
+        Ok(result?)
     }
 
     /// Poll with automatic fragment reassembly. Messages that span multiple fragments
@@ -481,7 +488,7 @@ impl Subscription {
     ///
     /// The handler can return `()` (maps to Continue) or a `ControlledAction` for
     /// flow-control (Abort to retry, Break to stop, Commit to checkpoint, Continue to proceed).
-    pub fn poll_assembled<R, F>(&mut self, limit: i32, mut handler: F) -> i32
+    pub fn poll_assembled<R, F>(&mut self, limit: i32, mut handler: F) -> Result<i32>
     where
         R: PollAction,
         F: FnMut(&[u8]) -> R,
@@ -510,7 +517,7 @@ impl Subscription {
             handlers.borrow_mut().remove(&handler_id);
         });
 
-        result
+        Ok(result?)
     }
 
     /// Returns `true` if there is at least one publisher connected to this subscription.
@@ -587,8 +594,10 @@ impl Image {
     }
 
     /// The current consumption position within the stream.
-    pub fn position(&self) -> i64 {
-        self.inner.position()
+    ///
+    /// Fails once the image is closed.
+    pub fn position(&self) -> Result<i64> {
+        Ok(self.inner.position()?)
     }
 
     /// Returns `true` if the image has been closed (publisher disconnected or timed out).
@@ -607,7 +616,7 @@ impl Image {
     }
 
     /// Poll this specific image for fragments. Returns the number of fragments dispatched.
-    pub fn poll<F>(&mut self, limit: i32, mut handler: F) -> i32
+    pub fn poll<F>(&mut self, limit: i32, mut handler: F) -> Result<i32>
     where
         F: FnMut(&[u8]),
     {
@@ -628,10 +637,10 @@ impl Image {
             handlers.borrow_mut().remove(&handler_id);
         });
 
-        result
+        Ok(result?)
     }
 
-    pub fn poll_assembled<R, F>(&mut self, limit: i32, mut handler: F) -> i32
+    pub fn poll_assembled<R, F>(&mut self, limit: i32, mut handler: F) -> Result<i32>
     where
         R: PollAction,
         F: FnMut(&[u8]) -> R,
@@ -659,7 +668,7 @@ impl Image {
             handlers.borrow_mut().remove(&handler_id);
         });
 
-        result
+        Ok(result?)
     }
 }
 
@@ -700,24 +709,25 @@ impl CountersReader {
         self.inner.maxCounterId()
     }
 
-    /// Read the current value of a counter by ID.
-    pub fn get_counter_value(&self, id: i32) -> i64 {
-        self.inner.getCounterValue(id)
+    /// Read the current value of a counter by ID. Fails for an out-of-range ID.
+    pub fn get_counter_value(&self, id: i32) -> Result<i64> {
+        Ok(self.inner.getCounterValue(id)?)
     }
 
-    /// Get the state of a counter (e.g., active, inactive).
-    pub fn get_counter_state(&self, id: i32) -> i32 {
-        self.inner.getCounterState(id)
+    /// Get the state of a counter (e.g., active, inactive). Fails for an out-of-range ID.
+    pub fn get_counter_state(&self, id: i32) -> Result<i32> {
+        Ok(self.inner.getCounterState(id)?)
     }
 
-    /// Get the type ID of a counter.
-    pub fn get_counter_type_id(&self, id: i32) -> i32 {
-        self.inner.getCounterTypeId(id)
+    /// Get the type ID of a counter. Fails for an out-of-range ID.
+    pub fn get_counter_type_id(&self, id: i32) -> Result<i32> {
+        Ok(self.inner.getCounterTypeId(id)?)
     }
 
-    /// Get the human-readable label of a counter.
-    pub fn get_counter_label(&self, id: i32) -> String {
-        self.inner.getCounterLabel(id)
+    /// Get the human-readable label of a counter. Fails for an out-of-range ID.
+    /// Invalid UTF-8 is replaced with `U+FFFD`.
+    pub fn get_counter_label(&self, id: i32) -> Result<String> {
+        Ok(self.inner.getCounterLabel(id)?)
     }
 
     /// Iterate over all counters, calling `handler(counter_id, type_id, key_bytes, label)` for each.
@@ -1065,7 +1075,7 @@ mod tests {
         assert_eq!(sub.image_count(), 1);
         let image = sub.image_by_index(0).expect("image_by_index failed");
         assert!(image.session_id() != 0);
-        assert!(image.position() >= 0);
+        assert!(image.position().unwrap() >= 0);
         assert!(!image.is_closed());
         assert!(!image.is_end_of_stream());
 
@@ -1089,11 +1099,23 @@ mod tests {
                 if data.len() == large.len() {
                     received += 1;
                 }
-            });
+            })
+            .unwrap();
         }
         assert_eq!(received, 1, "large message should be reassembled");
         assert!(sub.delete_session_buffer(sid));
         assert!(!sub.delete_session_buffer(sid));
+
+        // Out-of-range lookups are errors or `None`, not process aborts.
+        assert!(sub.image_by_index(99).is_none());
+        assert!(sub.image_by_session_id(sid.wrapping_add(1)).is_none());
+        let counters = client.counters_reader();
+        for bad in [-1, counters.max_counter_id() + 1] {
+            assert!(counters.get_counter_value(bad).is_err());
+            assert!(counters.get_counter_state(bad).is_err());
+            assert!(counters.get_counter_type_id(bad).is_err());
+            assert!(counters.get_counter_label(bad).is_err());
+        }
 
         // Oversized offers and claims are errors, not process aborts.
         let too_big = vec![0u8; 32 * 1024 * 1024];

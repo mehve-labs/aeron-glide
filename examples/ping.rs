@@ -115,7 +115,8 @@ fn main() {
                     std::str::from_utf8(data).unwrap()
                 );
                 received = true;
-            });
+            })
+            .expect("poll failed");
             thread::yield_now();
         }
 
@@ -128,7 +129,7 @@ fn main() {
     let reader = client.counters_reader();
     println!("\n--- AERON COUNTERS ---");
     reader.for_each(|id, _type_id, _key_buffer, label| {
-        let value = reader.get_counter_value(id);
+        let value = reader.get_counter_value(id).unwrap_or(0);
         if value != 0 {
             println!("  {:>3}: {} = {}", id, label, value);
         }

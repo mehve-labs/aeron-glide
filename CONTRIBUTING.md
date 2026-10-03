@@ -32,3 +32,20 @@ Signed-off-by: Your Name <your.email@example.com>
 ## Development
 
 See [README.md](README.md) for build and test instructions.
+
+### Binding conventions
+
+- **Exceptions.** cxx aborts the process if a C++ exception escapes a bridged
+  function that is not declared `-> Result<..>`. Declare every bridged function
+  that can throw (directly, via the Aeron C++ wrapper, or by constructing a
+  `rust::String`) as `-> Result<..>` and map it to `aeron_glide::Result` on the
+  Rust side. Only functions that cannot throw may be bridged without `Result`;
+  when a lookup's only failure means "not found", catch in `shim.cc` and return
+  `nullptr` (surfaced as `Option`).
+- **Strings from C++.** Use `rust::String::lossy`, never `rust::String(...)`,
+  for data Aeron hands us (labels, channels, source identities): the checked
+  constructor throws on invalid UTF-8.
+- **Error kinds.** `rust::behavior::trycatch` in `shim.h` classifies Aeron
+  exceptions into `ErrorKind`. Errors from the C API (e.g. the media driver)
+  should go through `AERON_MAP_TO_SOURCED_EXCEPTION_AND_THROW` so they get a
+  kind and an error code too.

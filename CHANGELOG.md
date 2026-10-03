@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   return `Result<i64, OfferError>` instead of a raw position. Aeron errors such
   as an oversized message are returned as `OfferError::Error` instead of
   aborting the process.
+- **Breaking:** calls that can fail inside Aeron now return `Result` instead of
+  aborting the process: `Subscription::poll` / `poll_assembled`, `Image::poll` /
+  `poll_assembled` / `position`, `ReplayMerge::poll` (which previously reported
+  errors as 0 fragments), and `CountersReader::get_counter_value` /
+  `get_counter_state` / `get_counter_type_id` / `get_counter_label` (e.g. for an
+  out-of-range counter id).
+- Strings read from Aeron (counter labels, image source identities, recording
+  channels) no longer abort on invalid UTF-8; invalid bytes become `U+FFFD`.
 - **Breaking:** `Subscription::image_by_index`, `Subscription::image_by_session_id`
   and `ReplayMerge::image` return `Option<Image>` instead of an error when there
   is no such image.

@@ -104,7 +104,7 @@ fn run_pong(
                 // Fallback to offer if claim fails
                 while ping_pub.offer(data).is_err() {}
             }
-        });
+        })?;
     }
     Ok(())
 }
@@ -185,14 +185,16 @@ fn record_rtt(
     // Receive
     let mut received = false;
     while !received {
-        subscription.poll(FRAGMENT_COUNT_LIMIT, |data| {
-            let sent_time = i64::from_le_bytes(data[..8].try_into().unwrap());
-            let rtt = nanos() - sent_time;
-            if rtt >= 0 {
-                let _ = histogram.record(rtt as u64);
-            }
-            received = true;
-        });
+        subscription
+            .poll(FRAGMENT_COUNT_LIMIT, |data| {
+                let sent_time = i64::from_le_bytes(data[..8].try_into().unwrap());
+                let rtt = nanos() - sent_time;
+                if rtt >= 0 {
+                    let _ = histogram.record(rtt as u64);
+                }
+                received = true;
+            })
+            .expect("poll failed");
     }
 }
 

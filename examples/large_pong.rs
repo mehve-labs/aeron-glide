@@ -20,7 +20,7 @@ fn main() {
     loop {
         // poll_assembled with ControlledAction: if we can't echo back immediately,
         // return Abort so Aeron rewinds and re-delivers the message next poll.
-        let _ = sub.poll_assembled(10, |data| -> ControlledAction {
+        sub.poll_assembled(10, |data| -> ControlledAction {
             let seq = u32::from_le_bytes(data[..4].try_into().unwrap());
 
             if publ.offer(data).is_err() {
@@ -31,7 +31,8 @@ fn main() {
 
             println!("Echoed ping: seq={}, size={} bytes", seq, data.len());
             ControlledAction::Continue
-        });
+        })
+        .expect("poll failed");
 
         thread::sleep(Duration::from_millis(1));
     }

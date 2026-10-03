@@ -17,7 +17,7 @@ fn main() {
     println!("Max Counter ID capacity: {}", max_id);
 
     reader.for_each(|id, type_id, _key_buffer, label| {
-        let value = reader.get_counter_value(id);
+        let value = reader.get_counter_value(id).unwrap_or(0);
         println!("{:>3} [{:<4}] {}: {}", id, type_id, label, value);
     });
 

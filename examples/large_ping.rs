@@ -55,7 +55,8 @@ fn main() {
                     data.len() == MESSAGE_SIZE && data[4..] == msg[4..]
                 );
                 received = true;
-            });
+            })
+            .expect("poll failed");
             thread::yield_now();
         }
     }

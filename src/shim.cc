@@ -276,20 +276,24 @@ int SubscriptionWrapper::imageCount() const {
     return static_cast<int>(sub->imageCount());
 }
 
+// Not bridged as `Result`: any failure (e.g. the std::logic_error the C++ wrapper
+// throws for an index that is out of range) means "no such image".
 std::unique_ptr<ImageWrapper> SubscriptionWrapper::imageByIndex(size_t index) {
-    auto image = sub->imageByIndex(index);
-    if (!image) {
+    try {
+        auto image = sub->imageByIndex(index);
+        return image ? std::unique_ptr<ImageWrapper>(new ImageWrapper(image)) : nullptr;
+    } catch (...) {
         return nullptr;
     }
-    return std::unique_ptr<ImageWrapper>(new ImageWrapper(image));
 }
 
 std::unique_ptr<ImageWrapper> SubscriptionWrapper::imageBySessionId(int32_t session_id) {
-    auto image = sub->imageBySessionId(session_id);
-    if (!image) {
+    try {
+        auto image = sub->imageBySessionId(session_id);
+        return image ? std::unique_ptr<ImageWrapper>(new ImageWrapper(image)) : nullptr;
+    } catch (...) {
         return nullptr;
     }
-    return std::unique_ptr<ImageWrapper>(new ImageWrapper(image));
 }
 
 // ImageWrapper
@@ -317,7 +321,7 @@ int64_t ImageWrapper::joinPosition() const {
 }
 
 rust::String ImageWrapper::sourceIdentity() const {
-    return rust::String(image_->sourceIdentity());
+    return rust::String::lossy(image_->sourceIdentity());
 }
 
 int64_t ImageWrapper::position() const {
@@ -370,13 +374,13 @@ int32_t CountersReaderWrapper::getCounterTypeId(int32_t id) const {
 }
 
 rust::String CountersReaderWrapper::getCounterLabel(int32_t id) const {
-    return rust::String(aeron->countersReader().getCounterLabel(id));
+    return rust::String::lossy(aeron->countersReader().getCounterLabel(id));
 }
 
 void CountersReaderWrapper::forEach(size_t handler_id) const {
     aeron->countersReader().forEach([&](int32_t counter_id, int32_t type_id, const aeron::concurrent::AtomicBuffer& keyBuffer, const std::string& label) {
         rust::Slice<const uint8_t> key_slice(keyBuffer.buffer(), keyBuffer.capacity());
-        aeron_rs::handle_counters_metadata(handler_id, counter_id, type_id, key_slice, rust::String(label));
+        aeron_rs::handle_counters_metadata(handler_id, counter_id, type_id, key_slice, rust::String::lossy(label));
     });
 }
 
@@ -492,8 +496,8 @@ int32_t ArchiveWrapper::listRecordings(int64_t from_recording_id, int32_t record
             rd.m_mtuLength,
             rd.m_sessionId,
             rd.m_streamId,
-            ::rust::String(rd.m_strippedChannel),
-            ::rust::String(rd.m_originalChannel));
+            ::rust::String::lossy(rd.m_strippedChannel),
+            ::rust::String::lossy(rd.m_originalChannel));
     };
     return archive_->listRecordings(from_recording_id, record_count, consumer);
 }
@@ -515,8 +519,8 @@ int32_t ArchiveWrapper::listRecordingsForUri(int64_t from_recording_id, int32_t 
             rd.m_mtuLength,
             rd.m_sessionId,
             rd.m_streamId,
-            ::rust::String(rd.m_strippedChannel),
-            ::rust::String(rd.m_originalChannel));
+            ::rust::String::lossy(rd.m_strippedChannel),
+            ::rust::String::lossy(rd.m_originalChannel));
     };
     return archive_->listRecordingsForUri(
         from_recording_id, record_count,
@@ -553,7 +557,7 @@ int64_t ArchiveWrapper::truncateRecording(int64_t recording_id, int64_t position
 }
 
 ::rust::String ArchiveWrapper::pollForErrorResponse() {
-    return ::rust::String(archive_->pollForErrorResponse());
+    return ::rust::String::lossy(archive_->pollForErrorResponse());
 }
 
 void ArchiveWrapper::checkForErrorResponse() {
@@ -612,11 +616,12 @@ int ReplayMergeWrapper::poll(int fragment_limit, size_t handler_id) {
 }
 
 std::unique_ptr<ImageWrapper> ReplayMergeWrapper::image() {
-    auto img = merge_->image();
-    if (!img) {
+    try {
+        auto img = merge_->image();
+        return img ? std::unique_ptr<ImageWrapper>(new ImageWrapper(img)) : nullptr;
+    } catch (...) {
         return nullptr;
     }
-    return std::unique_ptr<ImageWrapper>(new ImageWrapper(img));
 }
 
 bool ReplayMergeWrapper::isMerged() const {

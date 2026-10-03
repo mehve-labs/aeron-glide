@@ -515,7 +515,7 @@ impl ReplayMerge {
     }
 
     /// Poll for fragments from the replay/merged stream.
-    pub fn poll<F>(&mut self, fragment_limit: i32, mut handler: F) -> i32
+    pub fn poll<F>(&mut self, fragment_limit: i32, mut handler: F) -> Result<i32>
     where
         F: FnMut(&[u8]),
     {
@@ -530,17 +530,13 @@ impl ReplayMerge {
             handlers.borrow_mut().insert(handler_id, mut_ptr);
         });
 
-        let result = self
-            .inner
-            .pin_mut()
-            .poll(fragment_limit, handler_id)
-            .unwrap_or(0);
+        let result = self.inner.pin_mut().poll(fragment_limit, handler_id);
 
         crate::HANDLERS.with(|handlers| {
             handlers.borrow_mut().remove(&handler_id);
         });
 
-        result
+        Ok(result?)
     }
 
     /// Get the merged Image, or `None` if it is not available yet. Available after

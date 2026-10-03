@@ -63,7 +63,7 @@ fn main() {
 
     // We run endlessly in this example, echoing anything we get
     loop {
-        let _ = sub.poll_assembled(1, |data| {
+        sub.poll_assembled(1, |data| {
             println!(
                 "Pong received ping: {:?}",
                 std::str::from_utf8(data).unwrap()
@@ -74,7 +74,8 @@ fn main() {
                 // back pressure or unconnected
                 thread::yield_now();
             }
-        });
+        })
+        .expect("poll failed");
 
         thread::sleep(Duration::from_millis(1));
     }
