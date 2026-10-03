@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   errors as 0 fragments), and `CountersReader::get_counter_value` /
   `get_counter_state` / `get_counter_type_id` / `get_counter_label` (e.g. for an
   out-of-range counter id).
+- `Image::position` documents that a closed image reports its final position.
 - Strings read from Aeron (counter labels, image source identities, recording
   channels) no longer abort on invalid UTF-8; invalid bytes become `U+FFFD`.
 - Closures are passed to C++ through monomorphised trampolines instead of

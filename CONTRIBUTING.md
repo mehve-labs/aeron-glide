@@ -33,6 +33,10 @@ Signed-off-by: Your Name <your.email@example.com>
 
 See [README.md](README.md) for build and test instructions.
 
+Integration tests live in `tests/`. Each test starts its own media driver in a
+unique directory through `tests/common::TestDriver`, so tests run in parallel;
+wait with `common::wait_until` (it has a deadline) rather than open-ended loops.
+
 ### Binding conventions
 
 - **Exceptions.** cxx aborts the process if a C++ exception escapes a bridged
