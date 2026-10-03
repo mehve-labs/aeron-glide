@@ -103,7 +103,9 @@ impl Context {
 
     /// How long without a media driver heartbeat before the client considers the
     /// driver dead, reports [`ErrorKind::DriverTimeout`](crate::ErrorKind::DriverTimeout)
-    /// to the error handler and closes. Aeron's default is 10 seconds.
+    /// to the error handler and closes. Aeron's default is 10 seconds. Keep it to
+    /// a few seconds at least: the client checks liveness about every half
+    /// second, so sub-second timeouts expire spuriously under load.
     pub fn driver_timeout(mut self, timeout: Duration) -> Self {
         self.driver_timeout = Some(timeout);
         self

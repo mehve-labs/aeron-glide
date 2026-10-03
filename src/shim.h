@@ -600,7 +600,16 @@ public:
         return current;
     }
     int64_t getAndSet(int64_t value) const { return counter_->getAndSet(value); }
-    bool compareAndSet(int64_t expected, int64_t update) const { return counter_->compareAndSet(expected, update); }
+    bool compareAndSet(int64_t expected, int64_t update) const {
+#if defined(__GNUC__) || defined(__clang__)
+        // Upstream bug (1.53.3, Atomic64_gcc_cpp11.h, used on ARM): a failed
+        // cmpxchg returns a fresh read, so compareAndSet can report success
+        // without writing when the value changed back to `expected`.
+        return __atomic_compare_exchange_n(addr_, &expected, update, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+#else
+        return counter_->compareAndSet(expected, update);
+#endif
+    }
 
 private:
     std::shared_ptr<aeron::Counter> counter_;

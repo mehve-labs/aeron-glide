@@ -5,10 +5,12 @@
 #include <iostream>
 #include <vector>
 #include <thread>
+#include <filesystem>
 #include "aeron-glide/src/lib.rs.h"
 
 extern "C" {
 #include <aeronmd.h>
+#include <aeron_cnc_file_descriptor.h>
 }
 
 namespace aeron_rs {
@@ -690,12 +692,30 @@ void CountersReaderWrapper::forEach(CounterFn handler, size_t ctx) const {
 
 CncFileWrapper::CncFileWrapper(rust::Str directory, int64_t timeout_ms) {
     std::string dir(directory);
+    if (dir.find('\0') != std::string::npos) {
+        throw aeron::util::IllegalArgumentException("directory contains a NUL character", SOURCEINFO, EINVAL);
+    }
     aeron_cnc_t *cnc = nullptr;
     if (aeron_cnc_init(&cnc, dir.c_str(), timeout_ms) < 0) {
         throw aeron::util::IOException(
             "failed to open existing cnc file in: " + dir + ": " + aeron_errmsg(), SOURCEINFO, aeron_errcode());
     }
     std::unique_ptr<aeron_cnc_t, void (*)(aeron_cnc_t *)> owned(cnc, aeron_cnc_close);
+    // The C client sums the buffer lengths as size_t, so negative lengths in a
+    // corrupt file can pass its size check and place buffers outside the mapping.
+    aeron_cnc_constants_t c = {};
+    std::error_code ec;
+    const auto fileLength = std::filesystem::file_size(aeron_cnc_filename(cnc), ec);
+    bool valid = aeron_cnc_constants(cnc, &c) == 0 && !ec;
+    int64_t total = AERON_CNC_VERSION_AND_META_DATA_LENGTH;
+    for (int32_t length : {c.to_driver_buffer_length, c.to_clients_buffer_length, c.counter_metadata_buffer_length,
+                           c.counter_values_buffer_length, c.error_log_buffer_length}) {
+        valid = valid && length >= 0;
+        total += length;
+    }
+    if (!valid || static_cast<uint64_t>(total) > fileLength) {
+        throw aeron::util::IOException("invalid cnc file in: " + dir, SOURCEINFO, EINVAL);
+    }
     state_ = std::make_shared<State>(cnc);
     owned.release();
 }
@@ -709,20 +729,27 @@ namespace {
 struct ErrorLogConsumer {
     ErrorLogFn handler;
     size_t ctx;
+    int32_t count;
 };
 
 // Called from C: noexcept, and builds nothing that could throw.
 void errorLogCallback(int32_t observations, int64_t first, int64_t last, const char *error, size_t length,
                       void *clientd) noexcept {
     auto *consumer = static_cast<ErrorLogConsumer *>(clientd);
+    // The driver publishes an entry before its first observation is recorded.
+    if (observations <= 0) {
+        return;
+    }
+    consumer->count++;
     consumer->handler(consumer->ctx, observations, first, last,
                       rust::Slice<const uint8_t>(reinterpret_cast<const uint8_t *>(error), length));
 }
 } // namespace
 
 int32_t CncFileWrapper::readErrorLog(ErrorLogFn handler, size_t ctx, int64_t since_timestamp) const {
-    ErrorLogConsumer consumer{handler, ctx};
-    return static_cast<int32_t>(aeron_cnc_error_log_read(state_->cnc, errorLogCallback, &consumer, since_timestamp));
+    ErrorLogConsumer consumer{handler, ctx, 0};
+    aeron_cnc_error_log_read(state_->cnc, errorLogCallback, &consumer, since_timestamp);
+    return consumer.count;
 }
 
 CncConstants CncFileWrapper::constants() const {

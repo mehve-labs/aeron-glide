@@ -239,8 +239,8 @@ impl Counter {
     }
 
     /// Returns `true` once the counter has been closed by its client, e.g. after
-    /// a driver timeout. Always `false` for a handle from
-    /// [`CountersReader::counter`].
+    /// a driver timeout. Always `false` for a static counter (the driver never
+    /// frees it) and for a handle from [`CountersReader::counter`].
     pub fn is_closed(&self) -> bool {
         self.inner.isClosed()
     }
@@ -390,7 +390,7 @@ impl CncFile {
     /// Map the CnC file in `aeron_dir`, waiting up to 10 seconds for it to exist
     /// and be initialised by a media driver (C++ `CncFileReader::mapExisting`).
     /// Fails with [`ErrorKind::Io`] if it does not, or at once if the file's
-    /// version is incompatible.
+    /// version is incompatible or its layout is invalid.
     pub fn map_existing(aeron_dir: &str) -> Result<Self> {
         Self::map_existing_with_timeout(aeron_dir, Duration::from_secs(10))
     }
@@ -456,7 +456,8 @@ impl CncFile {
 
     /// Read the driver's distinct-error log: `consumer` is called for each
     /// distinct error last observed at or after `since_timestamp` (milliseconds
-    /// since the epoch; 0 for all). Returns the number of errors read.
+    /// since the epoch; 0 for all). Returns the number of errors read. An error
+    /// the driver is still recording (no observation yet) is skipped.
     pub fn read_error_log<F>(&self, since_timestamp: i64, consumer: F) -> Result<usize>
     where
         F: FnMut(&ErrorLogEntry<'_>),

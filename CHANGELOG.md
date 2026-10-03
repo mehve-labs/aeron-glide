@@ -87,6 +87,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `Counter::compare_and_set` could report success without writing on ARM
+  (an upstream bug in Aeron's GCC atomics, worked around in the shim).
+- Synchronous adds on a closed client (e.g. after a driver timeout) waited for
+  the whole driver timeout; they now fail at once with `IllegalState`.
 - The embedded driver's version labels (e.g. the "Aeron software" counter)
   carried the git commit of whatever repository the crate was built in.
 - Agent invoker mode was not thread-safe: the C client runs conductor work inline
@@ -255,7 +259,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`counters_reader`, read-only), its distinct-error log (`read_error_log`,
   with an `ErrorLogEntry` per error), its `constants` (`CncConstants`: PID,
   start time, buffer lengths, ...) and the driver's liveness
-  (`to_driver_heartbeat`, `is_driver_active`).
+  (`to_driver_heartbeat`, `is_driver_active`). A corrupt CnC file whose layout does not fit
+  the file is rejected, and errors the driver is still recording are skipped.
 - `heartbeat_timestamp` (C++ `HeartbeatTimestamp`): `CLIENT_HEARTBEAT_TYPE_ID`,
   `find_counter_id_by_registration_id` and `is_active`, to check whether a
   client is alive.

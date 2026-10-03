@@ -209,3 +209,23 @@ fn map_without_waiting() {
     assert_eq!(err.kind(), ErrorKind::Io, "{err}");
     assert!(start.elapsed() < Duration::from_secs(1));
 }
+
+#[test]
+fn rejects_nul_and_corrupt_files() {
+    let driver = TestDriver::start();
+    let err = CncFile::map_existing(&format!("{}\0/elsewhere", driver.dir)).expect_err("NUL");
+    assert_eq!(err.kind(), ErrorKind::IllegalArgument, "{err}");
+
+    // A CnC file whose buffer lengths wrap around when summed as size_t.
+    let dir = std::env::temp_dir().join(format!("aeron-glide-bad-cnc-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut file = vec![0u8; 4096];
+    let version: i32 = 2 << 8; // 0.2.0, the CnC version of this Aeron release
+    file[0..4].copy_from_slice(&version.to_le_bytes());
+    file[4..8].copy_from_slice(&(-(1i32 << 30)).to_le_bytes()); // to-driver buffer
+    file[16..20].copy_from_slice(&(1i32 << 30).to_le_bytes()); // counter values
+    std::fs::write(dir.join("cnc.dat"), &file).unwrap();
+    let result = CncFile::map_existing_with_timeout(dir.to_str().unwrap(), Duration::ZERO);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(result.expect_err("corrupt").kind(), ErrorKind::Io);
+}

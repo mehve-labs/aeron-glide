@@ -542,7 +542,8 @@ macro_rules! pending_add {
             }
 
             /// Poll until the resource is ready, up to the client's driver timeout. In
-            /// agent invoker mode this also runs the conductor while waiting.
+            /// agent invoker mode this also runs the conductor while waiting. Fails
+            /// with [`ErrorKind::IllegalState`] if the client is (or becomes) closed.
             ///
             /// Fails with [`ErrorKind::Reentrant`] from inside a client handler, where
             /// waiting would stall the conductor that has to answer.
@@ -551,6 +552,13 @@ macro_rules! pending_add {
                 let deadline = std::time::Instant::now() + self.client.driver_timeout();
                 let invoke = self.client.uses_agent_invoker();
                 loop {
+                    if self.client.is_closed() {
+                        // The driver will not answer a closed client.
+                        return Err(Error::new(
+                            ErrorKind::IllegalState,
+                            "the client is closed",
+                        ));
+                    }
                     if invoke {
                         self.client.invoke()?;
                     }

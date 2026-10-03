@@ -517,3 +517,51 @@ fn counter_dropped_from_a_handler_with_the_last_client_reference() {
         dropped.load(std::sync::atomic::Ordering::SeqCst)
     });
 }
+
+#[test]
+fn compare_and_set_increments_are_not_lost() {
+    // A failed compare-and-set must report failure: on ARM the upstream C++
+    // could report success without writing, losing increments here.
+    let driver = TestDriver::start();
+    let client = driver.client();
+    let counter = Arc::new(client.add_counter(TYPE_ID, &[], "cas").unwrap());
+    let threads: Vec<_> = (0..4)
+        .map(|_| {
+            let counter = counter.clone();
+            std::thread::spawn(move || {
+                for _ in 0..20_000 {
+                    loop {
+                        let value = counter.get();
+                        if counter.compare_and_set(value, value + 1) {
+                            break;
+                        }
+                    }
+                }
+            })
+        })
+        .collect();
+    for thread in threads {
+        thread.join().unwrap();
+    }
+    assert_eq!(counter.get(), 80_000);
+}
+
+#[test]
+fn adds_on_a_closed_client_fail_fast() {
+    let driver = TestDriver::start();
+    let client = driver.connect(
+        Context::new()
+            .driver_timeout(std::time::Duration::from_secs(1))
+            .error_handler(|_| {}),
+    );
+    drop(driver);
+    wait_until("the client to close", || client.is_closed());
+    let start = std::time::Instant::now();
+    let err = client
+        .add_counter(TYPE_ID, &[], "late")
+        .expect_err("closed");
+    assert!(
+        start.elapsed() < std::time::Duration::from_millis(500),
+        "{err}"
+    );
+}
