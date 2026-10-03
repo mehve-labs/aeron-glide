@@ -215,8 +215,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the atomic counter operations (`get`, `get_weak`, `set`, `set_ordered`,
   `set_weak`, `increment`, `increment_ordered`, `get_and_add`,
   `get_and_add_ordered`, `get_and_set`, `compare_and_set`); it is
-  `Send + Sync`. `CountersReader::counter` gives a handle on any existing
-  counter. Keys and labels longer than `CountersReader::MAX_KEY_LENGTH` /
+  `Send + Sync`; its weak and ordered operations use relaxed/release atomics
+  instead of the C++ plain accesses, so sharing it between threads is not a
+  data race. `CountersReader::counter` (`unsafe`: writing a counter the client
+  relies on, such as a subscriber position, can make it read out of bounds)
+  gives a writable handle on an existing counter. Keys and labels longer than `CountersReader::MAX_KEY_LENGTH` /
   `MAX_LABEL_LENGTH` are rejected. Works around an upstream C++ bug: a counter
   holding the last reference to its client was closed after the client had
   freed it.
@@ -244,9 +247,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is also `Clone`, `PartialEq` and `Eq`.
 - `counter_types`: the counter type IDs of the media driver, archive and
   cluster (C++ `AeronCounters`), generated from the Aeron headers.
-- `CncFile`: map a running driver's CnC file without a client
-  (`CncFile::map_existing`), read its counters (`counters_reader`, read-only)
-  and its distinct-error log (`read_error_log`).
+- `CncFile`: map a driver's CnC file without a client
+  (`CncFile::map_existing`, or `map_existing_with_timeout`), read its counters
+  (`counters_reader`, read-only), its distinct-error log (`read_error_log`,
+  with an `ErrorLogEntry` per error), its `constants` (`CncConstants`: PID,
+  start time, buffer lengths, ...) and the driver's liveness
+  (`to_driver_heartbeat`, `is_driver_active`).
 - `heartbeat_timestamp` (C++ `HeartbeatTimestamp`): `CLIENT_HEARTBEAT_TYPE_ID`,
   `find_counter_id_by_registration_id` and `is_active`, to check whether a
   client is alive.

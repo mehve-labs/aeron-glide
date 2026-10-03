@@ -1,6 +1,7 @@
 //! Counters ([`Counter`], [`CountersReader`]) and the CnC file ([`CncFile`]).
 
 use super::*;
+use std::time::Duration;
 
 /// Reader for the media driver's CNC (Command and Control) counters.
 ///
@@ -17,8 +18,9 @@ impl Drop for CountersReader {
 }
 
 // SAFETY: the reader only reads the counters' shared memory (written by the media
-// driver with ordered stores), and holds a `shared_ptr<aeron::Aeron>` (atomic
-// reference count). All bridged methods are const.
+// driver with ordered stores), and holds a `shared_ptr` aliasing the client or the
+// CnC file that owns that memory (atomic reference count). All bridged methods
+// are const.
 unsafe impl Send for CountersReader {}
 unsafe impl Sync for CountersReader {}
 
@@ -56,7 +58,9 @@ impl CountersReader {
         Ok(self.inner.getCounterValue(id)?)
     }
 
-    /// Get the state of a counter (e.g., active, inactive). Fails for an out-of-range ID.
+    /// The record state of a counter: [`RECORD_ALLOCATED`](Self::RECORD_ALLOCATED),
+    /// [`RECORD_RECLAIMED`](Self::RECORD_RECLAIMED) or
+    /// [`RECORD_UNUSED`](Self::RECORD_UNUSED). Fails for an out-of-range ID.
     pub fn get_counter_state(&self, id: i32) -> Result<i32> {
         Ok(self.inner.getCounterState(id)?)
     }
@@ -105,8 +109,9 @@ impl CountersReader {
         Ok(self.inner.getCounterRegistrationId(id)?)
     }
 
-    /// The ID of the client that owns a counter (the driver's own counters have
-    /// the default owner ID). Fails for an out-of-range ID.
+    /// The ID of the client that owns a counter ([`AeronClient::client_id`]); -1
+    /// for the driver's system counters and for static counters. Fails for an
+    /// out-of-range ID.
     pub fn get_counter_owner_id(&self, id: i32) -> Result<i64> {
         Ok(self.inner.getCounterOwnerId(id)?)
     }
@@ -125,16 +130,26 @@ impl CountersReader {
         Ok(self.inner.getCounterKey(id)?)
     }
 
-    /// A [`Counter`] handle on the counter `counter_id`, e.g. to update a counter
-    /// another client allocated (C++ `Counter(CountersReader&, registrationId,
-    /// counterId)`). `registration_id` is only reported back by
+    /// A writable [`Counter`] handle on the counter `counter_id`, e.g. to update
+    /// a counter another client allocated (C++ `Counter(CountersReader&,
+    /// registrationId, counterId)`). `registration_id` is only reported back by
     /// [`Counter::registration_id`]. The handle does not own the counter: dropping
     /// it does not free it, and [`Counter::is_closed`] is always `false`.
     ///
     /// Fails if `counter_id` is out of range, and with
     /// [`ErrorKind::UnsupportedOperation`] for a reader from a [`CncFile`], which
     /// maps the counters read-only.
-    pub fn counter(&self, registration_id: i64, counter_id: i32) -> Result<Counter> {
+    ///
+    /// # Safety
+    ///
+    /// Aeron clients in this process trust the counters the media driver
+    /// allocates for them: an invalid value written to a subscriber position or
+    /// publisher limit counter (e.g. a negative position) makes them read out of
+    /// bounds. The counter must not be one of those, now or while the handle
+    /// writes to it: write only to counters whose type you control (not Aeron's
+    /// [`counter_types`](crate::counter_types)), and stop once the counter has
+    /// been freed, since its record can be reused.
+    pub unsafe fn counter(&self, registration_id: i64, counter_id: i32) -> Result<Counter> {
         Ok(Counter {
             inner: self.inner.counter(registration_id, counter_id)?,
         })
@@ -160,13 +175,19 @@ fn found(id: i32) -> Option<i32> {
 /// with [`AeronClient::add_counter`] or [`AeronClient::add_static_counter`], or a
 /// handle on an existing counter from [`CountersReader::counter`].
 ///
-/// An added counter is freed when its last handle is dropped (static counters
-/// are never freed). Other processes see it through their counters reader, e.g.
-/// with `AeronStat`.
+/// An added counter is freed when the `Counter` is dropped (static counters are
+/// never freed). The `Counter` keeps its client open until then, even if the
+/// [`AeronClient`] is dropped. If the client is closed by the driver (e.g. a
+/// driver timeout), its counters are freed and [`is_closed`](Self::is_closed)
+/// returns `true`: stop writing then, as the driver may reuse the record.
+/// Other processes see the counter through their counters reader, e.g. with
+/// `AeronStat`.
 ///
-/// `Send + Sync`. The plain operations are atomic. The `_ordered` and `_weak`
-/// operations are cheaper but assume a single writer: concurrent writes through
-/// them (from any thread or process) can lose updates.
+/// `Send + Sync`. Every operation is a single atomic access except
+/// [`increment_ordered`](Self::increment_ordered) and
+/// [`get_and_add_ordered`](Self::get_and_add_ordered), cheaper read-then-store
+/// sequences that lose updates if another thread or process writes the counter
+/// concurrently: use them only on a counter with a single writer.
 pub struct Counter {
     pub(crate) inner: cxx::UniquePtr<ffi::CounterWrapper>,
 }
@@ -200,24 +221,26 @@ impl Counter {
         self.inner.id()
     }
 
-    /// The registration ID: the add's correlation ID, or the ID given to
+    /// The registration ID: the add's correlation ID
+    /// ([`PendingAdd::registration_id`]), or the ID given to
     /// [`AeronClient::add_static_counter`].
     pub fn registration_id(&self) -> i64 {
         self.inner.registrationId()
     }
 
     /// The counter's record state, e.g. [`CountersReader::RECORD_ALLOCATED`].
-    pub fn state(&self) -> Result<i32> {
-        Ok(self.inner.state()?)
+    pub fn state(&self) -> i32 {
+        self.inner.state()
     }
 
     /// The counter's label. Invalid UTF-8 is replaced with `U+FFFD`.
-    pub fn label(&self) -> Result<String> {
-        Ok(self.inner.label()?)
+    pub fn label(&self) -> String {
+        self.inner.label()
     }
 
-    /// Returns `true` once the counter has been closed, e.g. because the client
-    /// closed. Always `false` for a handle from [`CountersReader::counter`].
+    /// Returns `true` once the counter has been closed by its client, e.g. after
+    /// a driver timeout. Always `false` for a handle from
+    /// [`CountersReader::counter`].
     pub fn is_closed(&self) -> bool {
         self.inner.isClosed()
     }
@@ -227,7 +250,7 @@ impl Counter {
         self.inner.get()
     }
 
-    /// The current value, without ordering guarantees (plain read).
+    /// The current value, without ordering guarantees (relaxed read).
     pub fn get_weak(&self) -> i64 {
         self.inner.getWeak()
     }
@@ -242,7 +265,7 @@ impl Counter {
         self.inner.setOrdered(value)
     }
 
-    /// Set the value without ordering guarantees (plain store).
+    /// Set the value without ordering guarantees (relaxed store).
     pub fn set_weak(&self, value: i64) {
         self.inner.setWeak(value)
     }
@@ -280,21 +303,68 @@ impl Counter {
     }
 }
 
-/// The command-and-control (CnC) file of a running media driver, read without
-/// connecting a client (C++ `aeron::CncFileReader`): the driver's counters and
-/// its error log, as used by tools like `AeronStat` and `ErrorStat`.
+/// One distinct error in a media driver's error log, passed to
+/// [`CncFile::read_error_log`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ErrorLogEntry<'a> {
+    /// How many times the error was observed.
+    pub observation_count: i32,
+    /// When it was first observed, in milliseconds since the epoch.
+    pub first_observation_timestamp: i64,
+    /// When it was last observed, in milliseconds since the epoch.
+    pub last_observation_timestamp: i64,
+    /// The error (invalid UTF-8 replaced with `U+FFFD`).
+    pub error: &'a str,
+}
+
+/// The constants of a CnC file (C `aeron_cnc_constants_t`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct CncConstants {
+    /// The CnC format version (semantic version as `major << 16 | minor << 8 | patch`).
+    pub cnc_version: i32,
+    /// Length of the clients-to-driver command buffer.
+    pub to_driver_buffer_length: usize,
+    /// Length of the driver-to-clients broadcast buffer.
+    pub to_clients_buffer_length: usize,
+    /// Length of the counters metadata buffer.
+    pub counter_metadata_buffer_length: usize,
+    /// Length of the counters values buffer.
+    pub counter_values_buffer_length: usize,
+    /// Length of the error log buffer.
+    pub error_log_buffer_length: usize,
+    /// How long the driver waits for a client keepalive before closing it.
+    pub client_liveness_timeout: Duration,
+    /// When the driver started, in milliseconds since the epoch.
+    pub start_timestamp: i64,
+    /// The process ID of the driver.
+    pub pid: i64,
+    /// The page size used for the file.
+    pub file_page_size: usize,
+}
+
+/// The command-and-control (CnC) file of a media driver, read without
+/// connecting a client (C++ `aeron::CncFileReader`): the driver's counters, its
+/// error log and its liveness, as used by tools like `AeronStat` and `ErrorStat`.
+///
+/// Mapping the file does not mean the driver is running: a driver that stopped
+/// without deleting its directory leaves the file behind. Check
+/// [`is_driver_active`](Self::is_driver_active).
 ///
 /// The file is mapped read-only. `Send + Sync`.
 ///
 /// ```no_run
 /// use aeron_glide::CncFile;
+/// use std::time::Duration;
 ///
 /// let cnc = CncFile::map_existing("/dev/shm/aeron")?;
-/// cnc.counters_reader()?.for_each(|id, _, _, label| {
+/// println!("driver active: {}", cnc.is_driver_active(Duration::from_secs(10)));
+/// cnc.counters_reader().for_each(|id, _, _, label| {
 ///     println!("{id}: {label}");
 /// })?;
-/// cnc.read_error_log(0, |count, _first, last, error| {
-///     println!("{count} observations, last at {last} ms: {error}");
+/// cnc.read_error_log(0, |entry| {
+///     println!("{} observations: {}", entry.observation_count, entry.error);
 /// })?;
 /// # Ok::<(), aeron_glide::Error>(())
 /// ```
@@ -310,36 +380,86 @@ unsafe impl Sync for CncFile {}
 
 impl std::fmt::Debug for CncFile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CncFile").finish_non_exhaustive()
+        f.debug_struct("CncFile")
+            .field("file_name", &self.file_name())
+            .finish_non_exhaustive()
     }
 }
 
 impl CncFile {
-    /// Map the CnC file in `aeron_dir`, waiting up to 10 seconds for it to
-    /// exist and be initialised by a media driver (C++
-    /// `CncFileReader::mapExisting`). Fails with [`ErrorKind::Io`] if it does not.
+    /// Map the CnC file in `aeron_dir`, waiting up to 10 seconds for it to exist
+    /// and be initialised by a media driver (C++ `CncFileReader::mapExisting`).
+    /// Fails with [`ErrorKind::Io`] if it does not, or at once if the file's
+    /// version is incompatible.
     pub fn map_existing(aeron_dir: &str) -> Result<Self> {
+        Self::map_existing_with_timeout(aeron_dir, Duration::from_secs(10))
+    }
+
+    /// [`map_existing`](Self::map_existing), waiting up to `timeout` (zero: fail
+    /// at once if the file is not ready).
+    pub fn map_existing_with_timeout(aeron_dir: &str, timeout: Duration) -> Result<Self> {
+        let timeout_ms = i64::try_from(timeout.as_millis()).unwrap_or(i64::MAX);
         Ok(Self {
-            inner: ffi::mapCncFile(aeron_dir)?,
+            inner: ffi::mapCncFile(aeron_dir, timeout_ms)?,
         })
+    }
+
+    /// The path of the mapped file.
+    pub fn file_name(&self) -> String {
+        self.inner.fileName()
+    }
+
+    /// The file's constants: buffer lengths, the driver's PID and start time, ...
+    pub fn constants(&self) -> Result<CncConstants> {
+        let c = self.inner.constants()?;
+        let length = |n: i32| usize::try_from(n).unwrap_or(0);
+        Ok(CncConstants {
+            cnc_version: c.cnc_version,
+            to_driver_buffer_length: length(c.to_driver_buffer_length),
+            to_clients_buffer_length: length(c.to_clients_buffer_length),
+            counter_metadata_buffer_length: length(c.counter_metadata_buffer_length),
+            counter_values_buffer_length: length(c.counter_values_buffer_length),
+            error_log_buffer_length: length(c.error_log_buffer_length),
+            client_liveness_timeout: Duration::from_nanos(
+                u64::try_from(c.client_liveness_timeout_ns).unwrap_or(0),
+            ),
+            start_timestamp: c.start_timestamp_ms,
+            pid: c.pid,
+            file_page_size: length(c.file_page_size),
+        })
+    }
+
+    /// When the driver last showed it is alive (its consumer heartbeat on the
+    /// command buffer), in milliseconds since the epoch; 0 if it never has.
+    pub fn to_driver_heartbeat(&self) -> i64 {
+        self.inner.toDriverHeartbeat()
+    }
+
+    /// Returns `true` if the driver's heartbeat is at most `timeout` old (Java
+    /// `CommonContext.isDriverActive`), i.e. a driver is running in this
+    /// directory. Clients use their driver timeout (10 seconds by default).
+    pub fn is_driver_active(&self, timeout: Duration) -> bool {
+        let heartbeat = self.to_driver_heartbeat();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX));
+        let timeout = i64::try_from(timeout.as_millis()).unwrap_or(i64::MAX);
+        heartbeat > 0 && now <= heartbeat.saturating_add(timeout)
     }
 
     /// A reader for the driver's counters. It keeps the file mapped.
-    pub fn counters_reader(&self) -> Result<CountersReader> {
-        Ok(CountersReader {
-            inner: self.inner.countersReader()?,
-        })
+    pub fn counters_reader(&self) -> CountersReader {
+        CountersReader {
+            inner: self.inner.countersReader(),
+        }
     }
 
-    /// Read the driver's distinct-error log: `consumer(observation_count,
-    /// first_observation_timestamp, last_observation_timestamp, error)` is called
-    /// for each distinct error last observed at or after `since_timestamp`
-    /// (milliseconds since the epoch; 0 for all). Returns the number of errors read.
-    ///
-    /// Invalid UTF-8 in an error is replaced with `U+FFFD`.
+    /// Read the driver's distinct-error log: `consumer` is called for each
+    /// distinct error last observed at or after `since_timestamp` (milliseconds
+    /// since the epoch; 0 for all). Returns the number of errors read.
     pub fn read_error_log<F>(&self, since_timestamp: i64, consumer: F) -> Result<usize>
     where
-        F: FnMut(i32, i64, i64, &str),
+        F: FnMut(&ErrorLogEntry<'_>),
     {
         let mut cb = Callback::new(consumer);
         let result = self

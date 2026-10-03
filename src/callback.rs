@@ -67,8 +67,8 @@ where
         return;
     }
     struct SendPtr<T: cxx::memory::UniquePtrTarget>(#[allow(dead_code)] cxx::UniquePtr<T>);
-    // SAFETY: only used for the types below, which are `Send` themselves (the
-    // client, publications, subscriptions and the counters reader).
+    // SAFETY: only used for the types that call it, which are `Send` themselves
+    // (the client, publications, subscriptions, counters and counters readers).
     unsafe impl<T: cxx::memory::UniquePtrTarget> Send for SendPtr<T> {}
     let ptr = SendPtr(std::mem::replace(inner, cxx::UniquePtr::null()));
     std::thread::spawn(move || drop(ptr));
@@ -162,9 +162,8 @@ pub(crate) fn reserved_value<F: FnMut(&[u8]) -> i64>(ctx: usize, frame: &[u8]) -
     cb.call(0, |f| f(frame))
 }
 
-/// Error log consumer: `(observation_count, first_observation_timestamp,
-/// last_observation_timestamp, encoded_exception)`.
-pub(crate) fn error_log<F: FnMut(i32, i64, i64, &str)>(
+/// Error log consumer.
+pub(crate) fn error_log<F: FnMut(&crate::ErrorLogEntry<'_>)>(
     ctx: usize,
     observation_count: i32,
     first_observation_timestamp: i64,
@@ -174,14 +173,13 @@ pub(crate) fn error_log<F: FnMut(i32, i64, i64, &str)>(
     // SAFETY: as in `fragment`.
     let cb = unsafe { Callback::<F>::from_ctx(ctx) };
     let error = String::from_utf8_lossy(error);
-    cb.call((), |f| {
-        f(
-            observation_count,
-            first_observation_timestamp,
-            last_observation_timestamp,
-            &error,
-        )
-    });
+    let entry = crate::ErrorLogEntry {
+        observation_count,
+        first_observation_timestamp,
+        last_observation_timestamp,
+        error: &error,
+    };
+    cb.call((), |f| f(&entry));
 }
 
 /// Counter metadata handler: `(counter_id, type_id, key, label)`.

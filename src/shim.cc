@@ -656,7 +656,8 @@ std::unique_ptr<CounterWrapper> CountersReaderWrapper::counter(int64_t registrat
             "counters read from a CnC file are read-only", SOURCEINFO, EPERM);
     }
     auto view = std::make_shared<aeron::Counter>(*reader_, registration_id, counter_id);
-    return std::unique_ptr<CounterWrapper>(new CounterWrapper(std::move(view), reader_, lock_));
+    int64_t *addr = reader_->getCounterAddress(counter_id);
+    return std::unique_ptr<CounterWrapper>(new CounterWrapper(std::move(view), addr, reader_, lock_));
 }
 
 int32_t CountersReaderWrapper::maxCounterId() const {
@@ -687,18 +688,16 @@ void CountersReaderWrapper::forEach(CounterFn handler, size_t ctx) const {
     });
 }
 
-CncFileWrapper::CncFileWrapper(rust::Str directory) {
+CncFileWrapper::CncFileWrapper(rust::Str directory, int64_t timeout_ms) {
     std::string dir(directory);
-    std::unique_ptr<aeron::CncFileReader> file;
-    try {
-        // C++17 guarantees the prvalue is constructed in place, never copied (a
-        // copy would close the mapping when the temporary is destroyed).
-        file.reset(new aeron::CncFileReader(aeron::CncFileReader::mapExisting(dir.c_str())));
-    } catch (const aeron::util::IOException &e) {
-        // Keep the reason (e.g. a timeout) the C++ wrapper drops.
-        throw aeron::util::IOException(std::string(e.what()) + ": " + aeron_errmsg(), SOURCEINFO, e.errorCode());
+    aeron_cnc_t *cnc = nullptr;
+    if (aeron_cnc_init(&cnc, dir.c_str(), timeout_ms) < 0) {
+        throw aeron::util::IOException(
+            "failed to open existing cnc file in: " + dir + ": " + aeron_errmsg(), SOURCEINFO, aeron_errcode());
     }
-    state_ = std::make_shared<State>(std::move(file));
+    std::unique_ptr<aeron_cnc_t, void (*)(aeron_cnc_t *)> owned(cnc, aeron_cnc_close);
+    state_ = std::make_shared<State>(cnc);
+    owned.release();
 }
 
 std::unique_ptr<CountersReaderWrapper> CncFileWrapper::countersReader() const {
@@ -706,31 +705,48 @@ std::unique_ptr<CountersReaderWrapper> CncFileWrapper::countersReader() const {
     return std::unique_ptr<CountersReaderWrapper>(new CountersReaderWrapper(std::move(reader), nullptr, false));
 }
 
+namespace {
+struct ErrorLogConsumer {
+    ErrorLogFn handler;
+    size_t ctx;
+};
+
+// Called from C: noexcept, and builds nothing that could throw.
+void errorLogCallback(int32_t observations, int64_t first, int64_t last, const char *error, size_t length,
+                      void *clientd) noexcept {
+    auto *consumer = static_cast<ErrorLogConsumer *>(clientd);
+    consumer->handler(consumer->ctx, observations, first, last,
+                      rust::Slice<const uint8_t>(reinterpret_cast<const uint8_t *>(error), length));
+}
+} // namespace
+
 int32_t CncFileWrapper::readErrorLog(ErrorLogFn handler, size_t ctx, int64_t since_timestamp) const {
-    // The consumer is called from C: keep C++ exceptions from unwinding through
-    // it and rethrow them afterwards.
-    std::exception_ptr failure;
-    int count = state_->file->readErrorLog(
-        [&](int32_t observations, int64_t first, int64_t last, const std::string &error) {
-            if (failure) {
-                return;
-            }
-            try {
-                handler(ctx, observations, first, last,
-                        rust::Slice<const uint8_t>(reinterpret_cast<const uint8_t *>(error.data()), error.size()));
-            } catch (...) {
-                failure = std::current_exception();
-            }
-        },
-        since_timestamp);
-    if (failure) {
-        std::rethrow_exception(failure);
-    }
-    return count;
+    ErrorLogConsumer consumer{handler, ctx};
+    return static_cast<int32_t>(aeron_cnc_error_log_read(state_->cnc, errorLogCallback, &consumer, since_timestamp));
 }
 
-std::unique_ptr<CncFileWrapper> mapCncFile(rust::Str directory) {
-    return std::unique_ptr<CncFileWrapper>(new CncFileWrapper(directory));
+CncConstants CncFileWrapper::constants() const {
+    using namespace aeron::util;
+    aeron_cnc_constants_t c = {};
+    if (aeron_cnc_constants(state_->cnc, &c) < 0) {
+        AERON_MAP_ERRNO_TO_SOURCED_EXCEPTION_AND_THROW;
+    }
+    CncConstants out;
+    out.cnc_version = c.cnc_version;
+    out.to_driver_buffer_length = c.to_driver_buffer_length;
+    out.to_clients_buffer_length = c.to_clients_buffer_length;
+    out.counter_metadata_buffer_length = c.counter_metadata_buffer_length;
+    out.counter_values_buffer_length = c.counter_values_buffer_length;
+    out.error_log_buffer_length = c.error_log_buffer_length;
+    out.client_liveness_timeout_ns = c.client_liveness_timeout;
+    out.start_timestamp_ms = c.start_timestamp;
+    out.pid = c.pid;
+    out.file_page_size = c.file_page_size;
+    return out;
+}
+
+std::unique_ptr<CncFileWrapper> mapCncFile(rust::Str directory, int64_t timeout_ms) {
+    return std::unique_ptr<CncFileWrapper>(new CncFileWrapper(directory, timeout_ms));
 }
 
 int64_t AeronWrapper::addPublication(rust::Str channel, int32_t stream_id) const {
@@ -784,7 +800,11 @@ std::unique_ptr<CounterWrapper> AeronWrapper::findCounter(int64_t registration_i
     // (a member) before ~AtomicCounter (its base) closes the C counter, which the
     // client has freed if that was the last reference. Keep the client alive
     // until the counter is destroyed.
-    return counter ? std::unique_ptr<CounterWrapper>(new CounterWrapper(counter, aeron, lock_)) : nullptr;
+    if (!counter) {
+        return nullptr;
+    }
+    int64_t *addr = aeron_counter_addr(counter->c_counter());
+    return std::unique_ptr<CounterWrapper>(new CounterWrapper(std::move(counter), addr, aeron, lock_));
 }
 
 std::unique_ptr<CountersReaderWrapper> AeronWrapper::countersReader() const {

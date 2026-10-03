@@ -19,8 +19,8 @@ fn added_counter_is_visible_to_readers() {
         .unwrap();
     assert!(counter.id() >= 0);
     assert!(counter.registration_id() > 0);
-    assert_eq!(counter.label().unwrap(), "my counter");
-    assert_eq!(counter.state().unwrap(), CountersReader::RECORD_ALLOCATED);
+    assert_eq!(counter.label(), "my counter");
+    assert_eq!(counter.state(), CountersReader::RECORD_ALLOCATED);
     assert!(!counter.is_closed());
 
     counter.set(42);
@@ -102,23 +102,43 @@ fn dropped_counter_is_freed() {
 }
 
 #[test]
-fn counters_are_freed_when_the_client_closes() {
+fn a_counter_keeps_its_client_open() {
     let driver = TestDriver::start();
     let reader = driver.client().counters_reader();
     let client = driver.client();
-    let id = client.add_counter(TYPE_ID, &[], "owned").unwrap().id();
-    // Keep a handle on it past the client: the handle keeps the client open.
+    let client_id = client.client_id();
     let counter = client.add_counter(TYPE_ID, &[], "kept").unwrap();
+    let id = counter.id();
     drop(client);
+    // The client is still open: its heartbeat stays and the counter is usable.
+    std::thread::sleep(std::time::Duration::from_millis(100));
     assert!(!counter.is_closed());
-    let kept = counter.id();
-    wait_until("the first counter to be freed", || {
+    assert_eq!(reader.get_counter_owner_id(id).unwrap(), client_id);
+    counter.increment();
+    assert_eq!(reader.get_counter_value(id).unwrap(), 1);
+    drop(counter);
+    wait_until("the counter to be freed", || {
         state(&reader, id) != CountersReader::RECORD_ALLOCATED
     });
+}
+
+#[test]
+fn counters_close_when_the_driver_times_out_the_client() {
+    let driver = TestDriver::start();
+    let client = driver.connect(
+        aeron_glide::Context::new()
+            .driver_timeout(std::time::Duration::from_millis(500))
+            .error_handler(|_| {}),
+    );
+    let counter = client.add_counter(TYPE_ID, &[], "orphan").unwrap();
+    counter.set(3);
+    drop(driver);
+    wait_until("the client to close", || counter.is_closed());
+    // The handle stays usable (the memory stays mapped) and drops cleanly.
+    counter.increment();
+    assert!(client.is_closed());
+    drop(client);
     drop(counter);
-    wait_until("the second counter to be freed", || {
-        state(&reader, kept) != CountersReader::RECORD_ALLOCATED
-    });
 }
 
 #[test]
@@ -157,12 +177,11 @@ fn counter_handles_from_a_reader() {
     let counter = client.add_counter(TYPE_ID, &[], "viewed").unwrap();
     let reader = driver.client().counters_reader();
 
-    let view = reader
-        .counter(counter.registration_id(), counter.id())
-        .unwrap();
+    // SAFETY: a counter of our own type.
+    let view = unsafe { reader.counter(counter.registration_id(), counter.id()) }.unwrap();
     assert_eq!(view.id(), counter.id());
     assert_eq!(view.registration_id(), counter.registration_id());
-    assert_eq!(view.label().unwrap(), "viewed");
+    assert_eq!(view.label(), "viewed");
     view.get_and_add(3);
     assert_eq!(counter.get(), 3);
 
@@ -173,14 +192,19 @@ fn counter_handles_from_a_reader() {
         state(&reader, counter.id()),
         CountersReader::RECORD_ALLOCATED
     );
-    assert!(!reader.counter(0, counter.id()).unwrap().is_closed());
+    // SAFETY (here and below): only our own counter is written.
+    assert!(
+        !unsafe { reader.counter(0, counter.id()) }
+            .unwrap()
+            .is_closed()
+    );
 
     for id in [-1, reader.max_counter_id() + 1, i32::MAX] {
-        let err = reader.counter(0, id).expect_err("out of range");
+        let err = unsafe { reader.counter(0, id) }.expect_err("out of range");
         assert_eq!(err.kind(), ErrorKind::IllegalArgument, "{err}");
     }
     // The view outlives the reader and the client it came from.
-    let view = reader.counter(0, counter.id()).unwrap();
+    let view = unsafe { reader.counter(0, counter.id()) }.unwrap();
     drop(reader);
     view.increment();
     assert_eq!(counter.get(), 4);
@@ -203,11 +227,12 @@ fn async_counter_adds() {
         ErrorKind::IllegalState
     );
 
-    let counter = client
+    // A static counter's registration ID is the given one, not the add's ID.
+    let pending = client
         .add_static_counter_async(TYPE_ID, &[], "async static", 9)
-        .unwrap()
-        .wait()
         .unwrap();
+    assert_ne!(pending.registration_id(), 9);
+    let counter = pending.wait().unwrap();
     assert_eq!(counter.registration_id(), 9);
 }
 
@@ -259,11 +284,11 @@ fn oversized_keys_and_labels() {
     assert_eq!(err.kind(), ErrorKind::IllegalArgument, "{err}");
 
     let counter = client.add_counter(TYPE_ID, &[], &label[1..]).unwrap();
-    assert_eq!(counter.label().unwrap(), label[1..]);
+    assert_eq!(counter.label(), label[1..]);
 
     let key = [1u8; CountersReader::MAX_KEY_LENGTH];
     let counter = client.add_counter(TYPE_ID, &key, "max key").unwrap();
-    assert_eq!(counter.label().unwrap(), "max key");
+    assert_eq!(counter.label(), "max key");
 }
 
 #[test]
@@ -432,4 +457,63 @@ fn driver_counters_have_known_types() {
             .unwrap(),
         DRIVER_PUBLISHER_LIMIT_TYPE_ID
     );
+}
+
+#[test]
+fn owners_states_and_static_conflicts() {
+    let driver = TestDriver::start();
+    let client = driver.client();
+    let reader = client.counters_reader();
+    // System counters and static counters have no owner.
+    assert_eq!(reader.get_counter_owner_id(0).unwrap(), -1);
+    let static_counter = client.add_static_counter(TYPE_ID, &[], "s", 55).unwrap();
+    assert_eq!(
+        reader.get_counter_owner_id(static_counter.id()).unwrap(),
+        -1
+    );
+    assert_eq!(
+        reader.get_counter_state(reader.max_counter_id()).unwrap(),
+        CountersReader::RECORD_UNUSED
+    );
+
+    // A static counter cannot take the (type, registration ID) of a normal one.
+    let counter = client.add_counter(TYPE_ID, b"key", "normal").unwrap();
+    let err = client
+        .add_static_counter(TYPE_ID, &[], "clash", counter.registration_id())
+        .expect_err("conflict");
+    assert_eq!(err.kind(), ErrorKind::Aeron, "{err}");
+    assert!(err.code() < 0, "{err}");
+
+    // A freed counter is reclaimed and its key cleared.
+    let id = counter.id();
+    drop(counter);
+    wait_until("the counter to be freed", || {
+        state(&reader, id) == CountersReader::RECORD_RECLAIMED
+    });
+    assert_eq!(
+        reader.get_counter_key(id).unwrap(),
+        [0; CountersReader::MAX_KEY_LENGTH]
+    );
+}
+
+#[test]
+fn counter_dropped_from_a_handler_with_the_last_client_reference() {
+    let driver = TestDriver::start();
+    let slot: Arc<Mutex<Option<aeron_glide::Counter>>> = Arc::new(Mutex::new(None));
+    let handler_slot = slot.clone();
+    let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = dropped.clone();
+    let client = driver.connect(Context::new().on_unavailable_counter(move |_| {
+        // Drops the last handle on the client, on its conductor thread.
+        if handler_slot.lock().unwrap().take().is_some() {
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }));
+    let watched = client.add_counter(TYPE_ID, &[], "trigger").unwrap();
+    *slot.lock().unwrap() = Some(client.add_counter(TYPE_ID, &[], "owner").unwrap());
+    drop(client);
+    drop(watched); // its unavailable event runs the handler
+    wait_until("the handler to drop the counter", || {
+        dropped.load(std::sync::atomic::Ordering::SeqCst)
+    });
 }

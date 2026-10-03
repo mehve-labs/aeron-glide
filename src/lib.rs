@@ -42,7 +42,7 @@
 //!
 //! | Type | `Send` | `Sync` |
 //! |---|---|---|
-//! | [`AeronClient`], [`Publication`], [`Counter`], [`CountersReader`] | yes | yes |
+//! | [`AeronClient`], [`Publication`], [`Counter`], [`CountersReader`], [`CncFile`] | yes | yes |
 //! | [`ExclusivePublication`], [`Subscription`] | yes | no |
 //! | [`Image`] (borrows its `Subscription`) | no | no |
 //!
@@ -94,7 +94,9 @@ use callback::Callback;
 pub use channel::{ChannelBuilder, ChannelUri, ControlMode};
 pub use client::{AeronClient, PendingAdd};
 pub use context::Context;
-pub use counters::{CncFile, Counter, CountersReader, heartbeat_timestamp};
+pub use counters::{
+    CncConstants, CncFile, Counter, CountersReader, ErrorLogEntry, heartbeat_timestamp,
+};
 pub use driver::{IdleStrategy, MediaDriver, MediaDriverBuilder, ThreadingMode};
 pub use driver_gen::{InferableBoolean, ThreadNaming};
 pub use error::{Error, ErrorKind, OfferError, Result};
@@ -127,6 +129,20 @@ pub(crate) mod ffi {
         term_buffer_length: i32,
         position_bits_to_shift: i32,
         source_identity: String,
+    }
+
+    /// The constants of a CnC file (`aeron_cnc_constants_t`).
+    struct CncConstants {
+        cnc_version: i32,
+        to_driver_buffer_length: i32,
+        to_clients_buffer_length: i32,
+        counter_metadata_buffer_length: i32,
+        counter_values_buffer_length: i32,
+        error_log_buffer_length: i32,
+        client_liveness_timeout_ns: i64,
+        start_timestamp_ms: i64,
+        pid: i64,
+        file_page_size: i32,
     }
 
     /// A claimed frame (header included): its address and length.
@@ -556,8 +572,11 @@ pub(crate) mod ffi {
             registration_id: i64,
         ) -> Result<bool>;
 
-        fn mapCncFile(directory: &str) -> Result<UniquePtr<CncFileWrapper>>;
-        fn countersReader(self: &CncFileWrapper) -> Result<UniquePtr<CountersReaderWrapper>>;
+        fn mapCncFile(directory: &str, timeout_ms: i64) -> Result<UniquePtr<CncFileWrapper>>;
+        fn countersReader(self: &CncFileWrapper) -> UniquePtr<CountersReaderWrapper>;
+        fn toDriverHeartbeat(self: &CncFileWrapper) -> i64;
+        fn constants(self: &CncFileWrapper) -> Result<CncConstants>;
+        fn fileName(self: &CncFileWrapper) -> String;
         fn readErrorLog(
             self: &CncFileWrapper,
             handler: fn(usize, i32, i64, i64, &[u8]),
@@ -573,8 +592,8 @@ pub(crate) mod ffi {
 
         fn id(self: &CounterWrapper) -> i32;
         fn registrationId(self: &CounterWrapper) -> i64;
-        fn state(self: &CounterWrapper) -> Result<i32>;
-        fn label(self: &CounterWrapper) -> Result<String>;
+        fn state(self: &CounterWrapper) -> i32;
+        fn label(self: &CounterWrapper) -> String;
         fn isClosed(self: &CounterWrapper) -> bool;
         fn get(self: &CounterWrapper) -> i64;
         fn getWeak(self: &CounterWrapper) -> i64;

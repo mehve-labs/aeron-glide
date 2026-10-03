@@ -2,11 +2,11 @@
 #include <cstring>
 #include <deque>
 #include <exception>
+#include <atomic>
 #include <mutex>
 #include <memory>
 #include <string>
 #include <Aeron.h>
-#include <CncFileReader.h>
 #include <HeartbeatTimestamp.h>
 #include <ControlledFragmentAssembler.h>
 #include "rust/cxx.h"
@@ -544,13 +544,33 @@ private:
 // Counter(CountersReader&, registrationId, counterId) constructor).
 // AtomicCounter's operations are non-const in C++ but only touch the counter's
 // shared memory, so they are bridged as const.
+namespace detail {
+// Relaxed and release accesses to a counter. AtomicCounter's weak and ordered
+// operations use plain loads and stores, a data race when the counter is shared
+// between threads; these compile to the same instructions without the race.
+#if defined(__GNUC__) || defined(__clang__)
+inline int64_t loadRelaxed(int64_t *p) { return __atomic_load_n(p, __ATOMIC_RELAXED); }
+inline void storeRelaxed(int64_t *p, int64_t v) { __atomic_store_n(p, v, __ATOMIC_RELAXED); }
+inline void storeRelease(int64_t *p, int64_t v) { __atomic_store_n(p, v, __ATOMIC_RELEASE); }
+#else
+// MSVC: aligned 64-bit volatile accesses are single, atomic accesses on x64 and ARM64.
+inline int64_t loadRelaxed(int64_t *p) { return *static_cast<volatile int64_t *>(p); }
+inline void storeRelaxed(int64_t *p, int64_t v) { *static_cast<volatile int64_t *>(p) = v; }
+inline void storeRelease(int64_t *p, int64_t v) {
+    std::atomic_thread_fence(std::memory_order_release);
+    *static_cast<volatile int64_t *>(p) = v;
+}
+#endif
+} // namespace detail
+
 class CounterWrapper {
 public:
     // `keepalive` is released after the counter: it owns what a view's reader
     // points into (the client or CnC file), or the client of an added counter.
-    CounterWrapper(std::shared_ptr<aeron::Counter> counter, std::shared_ptr<const void> keepalive,
+    // `addr` is the counter's value.
+    CounterWrapper(std::shared_ptr<aeron::Counter> counter, int64_t *addr, std::shared_ptr<const void> keepalive,
                    std::shared_ptr<ConductorLock> lock)
-        : counter_(std::move(counter)), keepalive_(std::move(keepalive)), lock_(std::move(lock)) {}
+        : counter_(std::move(counter)), addr_(addr), keepalive_(std::move(keepalive)), lock_(std::move(lock)) {}
     // Closing an added counter is conductor work, and either member may hold the
     // last reference to the client.
     ~CounterWrapper() {
@@ -566,19 +586,25 @@ public:
     bool isClosed() const { return counter_->isClosed(); }
 
     int64_t get() const { return counter_->get(); }
-    int64_t getWeak() const { return counter_->getWeak(); }
+    int64_t getWeak() const { return detail::loadRelaxed(addr_); }
     void set(int64_t value) const { counter_->set(value); }
-    void setOrdered(int64_t value) const { counter_->setOrdered(value); }
-    void setWeak(int64_t value) const { counter_->setWeak(value); }
+    void setOrdered(int64_t value) const { detail::storeRelease(addr_, value); }
+    void setWeak(int64_t value) const { detail::storeRelaxed(addr_, value); }
     void increment() const { counter_->increment(); }
-    void incrementOrdered() const { counter_->incrementOrdered(); }
+    // Single-writer read-modify-write, as in AtomicCounter (not atomic as a whole).
+    void incrementOrdered() const { detail::storeRelease(addr_, detail::loadRelaxed(addr_) + 1); }
     int64_t getAndAdd(int64_t value) const { return counter_->getAndAdd(value); }
-    int64_t getAndAddOrdered(int64_t value) const { return counter_->getAndAddOrdered(value); }
+    int64_t getAndAddOrdered(int64_t value) const {
+        int64_t current = detail::loadRelaxed(addr_);
+        detail::storeRelease(addr_, current + value);
+        return current;
+    }
     int64_t getAndSet(int64_t value) const { return counter_->getAndSet(value); }
     bool compareAndSet(int64_t expected, int64_t update) const { return counter_->compareAndSet(expected, update); }
 
 private:
     std::shared_ptr<aeron::Counter> counter_;
+    int64_t *addr_;
     std::shared_ptr<const void> keepalive_;
     std::shared_ptr<ConductorLock> lock_;
 };
@@ -629,27 +655,35 @@ private:
     bool writable_;
 };
 
-// The CnC file of a media driver, mapped read-only without a client (C3,
-// aeron::CncFileReader).
+struct CncConstants; // shared with Rust (lib.rs)
+
+// The CnC file of a media driver, mapped read-only without a client (C3). Uses
+// the aeron_cnc_* functions aeron::CncFileReader wraps, since CncFileReader keeps
+// its handle private: they also give the driver heartbeat and the file constants.
 class CncFileWrapper {
 public:
-    // Waits up to 10 seconds for the file (CncFileReader::mapExisting).
-    explicit CncFileWrapper(rust::Str directory);
+    // Waits up to `timeout_ms` for the file (CncFileReader::mapExisting waits 10 s).
+    CncFileWrapper(rust::Str directory, int64_t timeout_ms);
 
     std::unique_ptr<CountersReaderWrapper> countersReader() const;
     int32_t readErrorLog(ErrorLogFn handler, size_t ctx, int64_t since_timestamp) const;
+    int64_t toDriverHeartbeat() const { return aeron_cnc_to_driver_heartbeat(state_->cnc); }
+    CncConstants constants() const;
+    rust::String fileName() const { return rust::String::lossy(aeron_cnc_filename(state_->cnc)); }
 
 private:
     struct State {
-        explicit State(std::unique_ptr<aeron::CncFileReader> mapped)
-            : file(std::move(mapped)), reader(file->countersReader()) {}
-        std::unique_ptr<aeron::CncFileReader> file;
-        aeron::CountersReader reader; // points into `file`'s mapping
+        explicit State(aeron_cnc_t *cnc) : cnc(cnc), reader(aeron_cnc_counters_reader(cnc)) {}
+        ~State() { aeron_cnc_close(cnc); }
+        State(const State &) = delete;
+        State &operator=(const State &) = delete;
+        aeron_cnc_t *cnc;
+        aeron::CountersReader reader; // points into the mapping
     };
     std::shared_ptr<State> state_;
 };
 
-std::unique_ptr<CncFileWrapper> mapCncFile(rust::Str directory);
+std::unique_ptr<CncFileWrapper> mapCncFile(rust::Str directory, int64_t timeout_ms);
 
 class AeronWrapper {
 public:

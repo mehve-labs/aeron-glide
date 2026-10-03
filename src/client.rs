@@ -257,8 +257,11 @@ impl AeronClient {
     /// [`ErrorKind::IllegalArgument`], as in the Java client (the C++ client lets
     /// the driver truncate them).
     ///
-    /// The counter is freed when the returned [`Counter`] (and every handle on it)
-    /// is dropped, or when this client closes.
+    /// The counter is freed when the returned [`Counter`] is dropped (which keeps
+    /// this client open until then).
+    ///
+    /// Fails like [`add_publication`](Self::add_publication), e.g. with the
+    /// driver's error (a negative [`Error::code`]) when the counters file is full.
     pub fn add_counter(&self, type_id: i32, key: &[u8], label: &str) -> Result<Counter> {
         self.add_counter_async(type_id, key, label)?.wait()
     }
@@ -281,7 +284,11 @@ impl AeronClient {
     /// and `registration_id`, waiting until it is ready (C++ `addStaticCounter`).
     ///
     /// A static counter is never freed: it outlives this client and the
-    /// returned [`Counter`], so another client can find it again.
+    /// returned [`Counter`], so another client can find it again. Its owner ID is
+    /// -1 and its registration ID is `registration_id`.
+    ///
+    /// Fails with the driver's error ([`ErrorKind::Aeron`]) if a non-static
+    /// counter with the same type ID and registration ID exists.
     pub fn add_static_counter(
         &self,
         type_id: i32,
@@ -491,7 +498,9 @@ impl<'a, T> PendingAdd<'a, T> {
         }
     }
 
-    /// The registration ID the resource will have.
+    /// The ID of this add: the registration ID the resource will have, except
+    /// for a static counter, whose registration ID is the one given to
+    /// [`AeronClient::add_static_counter_async`].
     pub fn registration_id(&self) -> i64 {
         self.registration_id
     }

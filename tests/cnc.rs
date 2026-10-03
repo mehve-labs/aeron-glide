@@ -15,7 +15,7 @@ fn counters_through_the_cnc_file() {
     counter.set(99);
 
     let cnc = CncFile::map_existing(&driver.dir).unwrap();
-    let reader = cnc.counters_reader().unwrap();
+    let reader = cnc.counters_reader();
     assert_eq!(reader.get_counter_label(0).unwrap(), "Bytes sent");
     assert_eq!(
         reader.get_counter_label(counter.id()).unwrap(),
@@ -28,9 +28,9 @@ fn counters_through_the_cnc_file() {
     );
 
     // The mapping is read-only: no writable counter handles.
-    let err = reader
-        .counter(counter.registration_id(), counter.id())
-        .expect_err("read-only");
+    // SAFETY: refused before any write.
+    let err =
+        unsafe { reader.counter(counter.registration_id(), counter.id()) }.expect_err("read-only");
     assert_eq!(err.kind(), ErrorKind::UnsupportedOperation, "{err}");
 
     // The reader keeps the file mapped.
@@ -43,7 +43,7 @@ fn counters_through_the_cnc_file() {
 fn driver_errors_are_in_the_error_log() {
     let driver = TestDriver::start();
     let cnc = CncFile::map_existing(&driver.dir).unwrap();
-    assert_eq!(cnc.read_error_log(0, |_, _, _, _| {}).unwrap(), 0);
+    assert_eq!(cnc.read_error_log(0, |_| {}).unwrap(), 0);
 
     let client = driver.client();
     let channel = "aeron:udp?endpoint=not-a-host-name.invalid:1";
@@ -54,8 +54,13 @@ fn driver_errors_are_in_the_error_log() {
     let mut errors = Vec::new();
     wait_until("the error to be logged", || {
         errors.clear();
-        cnc.read_error_log(0, |count, first, last, error| {
-            errors.push((count, first, last, error.to_string()))
+        cnc.read_error_log(0, |e| {
+            errors.push((
+                e.observation_count,
+                e.first_observation_timestamp,
+                e.last_observation_timestamp,
+                e.error.to_string(),
+            ))
         })
         .unwrap();
         !errors.is_empty()
@@ -68,7 +73,7 @@ fn driver_errors_are_in_the_error_log() {
     // Only errors observed at or after the timestamp.
     let future = SystemTime::now().duration_since(UNIX_EPOCH).unwrap() + Duration::from_secs(60);
     assert_eq!(
-        cnc.read_error_log(future.as_millis() as i64, |_, _, _, _| panic!("none"))
+        cnc.read_error_log(future.as_millis() as i64, |_| panic!("none"))
             .unwrap(),
         0
     );
@@ -86,15 +91,15 @@ fn error_log_consumer_panics_propagate() {
     );
     let cnc = CncFile::map_existing(&driver.dir).unwrap();
     wait_until("the error to be logged", || {
-        cnc.read_error_log(0, |_, _, _, _| {}).unwrap() > 0
+        cnc.read_error_log(0, |_| {}).unwrap() > 0
     });
     let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        cnc.read_error_log(0, |_, _, _, _| panic!("consumer panic"))
+        cnc.read_error_log(0, |_| panic!("consumer panic"))
     }))
     .expect_err("the panic propagates");
     assert_eq!(panic.downcast_ref::<&str>(), Some(&"consumer panic"));
     // The file is still usable.
-    assert!(cnc.read_error_log(0, |_, _, _, _| {}).unwrap() > 0);
+    assert!(cnc.read_error_log(0, |_| {}).unwrap() > 0);
 }
 
 #[test]
@@ -158,7 +163,7 @@ fn client_liveness_through_heartbeats() {
 
     // The same works through the CnC file.
     let cnc = CncFile::map_existing(&driver.dir).unwrap();
-    let reader = cnc.counters_reader().unwrap();
+    let reader = cnc.counters_reader();
     let observer_id = observer.client_id();
     let id = find_counter_id_by_registration_id(&reader, CLIENT_HEARTBEAT_TYPE_ID, observer_id)
         .expect("observer heartbeat");
@@ -168,4 +173,39 @@ fn client_liveness_through_heartbeats() {
         CLIENT_HEARTBEAT_TYPE_ID,
         observer_id
     ));
+}
+
+#[test]
+fn driver_liveness_and_constants() {
+    let driver = TestDriver::start();
+    let cnc = CncFile::map_existing(&driver.dir).unwrap();
+    assert!(cnc.file_name().ends_with("cnc.dat"), "{}", cnc.file_name());
+    wait_until("the driver heartbeat", || {
+        cnc.is_driver_active(Duration::from_secs(10))
+    });
+    let constants = cnc.constants().unwrap();
+    assert_eq!(constants.pid, i64::from(std::process::id()));
+    assert!(constants.start_timestamp > 0);
+    assert!(constants.client_liveness_timeout > Duration::ZERO);
+    assert!(constants.counter_values_buffer_length > 0);
+    assert_eq!(
+        cnc.counters_reader().max_counter_id() as usize + 1,
+        constants.counter_values_buffer_length / 128
+    );
+
+    // The mapping outlives the driver, which stops heartbeating (a clean
+    // shutdown clears the heartbeat).
+    drop(driver);
+    std::thread::sleep(Duration::from_millis(50));
+    assert!(!cnc.is_driver_active(Duration::from_secs(60)));
+}
+
+#[test]
+fn map_without_waiting() {
+    let dir = std::env::temp_dir().join(format!("aeron-glide-no-cnc-{}", std::process::id()));
+    let start = Instant::now();
+    let err = CncFile::map_existing_with_timeout(dir.to_str().unwrap(), Duration::ZERO)
+        .expect_err("no driver");
+    assert_eq!(err.kind(), ErrorKind::Io, "{err}");
+    assert!(start.elapsed() < Duration::from_secs(1));
 }
