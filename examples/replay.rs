@@ -54,7 +54,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create Aeron client and subscribe to the replay channel
     let client = AeronClient::new()?;
-    client.start();
 
     let mut sub = client.add_subscription(REPLAY_CHANNEL, REPLAY_STREAM_ID)?;
 

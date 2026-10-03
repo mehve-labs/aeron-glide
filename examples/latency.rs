@@ -80,7 +80,6 @@ fn run_pong(
     pong_channel: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let client = AeronClient::new()?;
-    client.start();
 
     // Pong subscribes to pong channel (receives pings) and publishes to ping channel (sends pongs)
     let mut pong_sub = client.add_subscription(pong_channel, PONG_STREAM_ID)?;
@@ -115,7 +114,6 @@ fn run_ping(
     pong_channel: &str,
 ) -> Result<Histogram<u64>, Box<dyn std::error::Error>> {
     let client = AeronClient::new()?;
-    client.start();
 
     // Ping publishes to pong channel (sends pings) and subscribes to ping channel (receives pongs)
     let mut pong_pub = client.add_publication(pong_channel, PONG_STREAM_ID)?;

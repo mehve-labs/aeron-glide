@@ -30,7 +30,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pub_channel = channel.to_string();
     let pub_thread = thread::spawn(move || {
         let client = AeronClient::new().expect("Failed to create publisher client");
-        client.start();
         let mut publication = client
             .add_exclusive_publication(&pub_channel, STREAM_ID)
             .expect("Failed to add publication");
@@ -67,7 +66,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- Subscriber (main thread, own client) ---
     let client = AeronClient::new()?;
-    client.start();
     let mut subscription = client.add_subscription(channel, STREAM_ID)?;
 
     let mut message_count: u64 = 0;

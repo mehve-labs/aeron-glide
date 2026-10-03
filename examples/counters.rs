@@ -5,7 +5,6 @@ use std::time::Duration;
 fn main() {
     println!("Connecting to Media Driver for Counters...");
     let client = AeronClient::new().expect("Failed to create AeronClient");
-    client.start();
 
     // Give it a moment to connect and synchronize CNC metadata
     thread::sleep(Duration::from_millis(500));

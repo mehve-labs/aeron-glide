@@ -39,7 +39,6 @@ fn main() {
     println!("Starting Aeron Client (channel: {})...", args.channel);
     // The Media Driver should already be running from the ping process
     let client = AeronClient::new().expect("Failed to start Aeron");
-    client.start();
 
     let mut sub = client
         .add_subscription(&args.channel, PING_STREAM_ID)

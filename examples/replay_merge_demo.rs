@@ -33,7 +33,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let client = AeronClient::new()?;
-    client.start();
 
     // --- Phase 1: Create publication, then record ---
     println!("--- Phase 1: Recording Messages ---\n");

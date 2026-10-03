@@ -40,6 +40,7 @@ pub struct Context {
     resource_linger_timeout: Option<Duration>,
     idle_sleep_duration: Option<Duration>,
     pre_touch_mapped_memory: Option<bool>,
+    use_conductor_agent_invoker: Option<bool>,
     handlers: Vec<Installer>,
 }
 
@@ -88,6 +89,14 @@ impl Context {
     /// Pre-touch memory-mapped log buffers so later accesses don't page fault.
     pub fn pre_touch_mapped_memory(mut self, value: bool) -> Self {
         self.pre_touch_mapped_memory = Some(value);
+        self
+    }
+
+    /// Run the client conductor on your own thread instead of a dedicated one:
+    /// call [`AeronClient::invoke`] regularly (e.g. in your event loop) to do its
+    /// work. Handlers then run inside `invoke`.
+    pub fn use_conductor_agent_invoker(mut self, value: bool) -> Self {
+        self.use_conductor_agent_invoker = Some(value);
         self
     }
 
@@ -268,6 +277,9 @@ impl Context {
         if let Some(value) = self.pre_touch_mapped_memory {
             ctx.pin_mut().setPreTouchMappedMemory(value)?;
         }
+        if let Some(value) = self.use_conductor_agent_invoker {
+            ctx.pin_mut().setUseConductorAgentInvoker(value)?;
+        }
         // C++ takes ownership of each handler and releases it when the client is
         // destroyed (or the handler is replaced).
         for install in self.handlers {
@@ -275,6 +287,7 @@ impl Context {
         }
         Ok(AeronClient {
             inner: ffi::create_aeron(ctx)?,
+            invoker: std::sync::Mutex::new(()),
         })
     }
 }

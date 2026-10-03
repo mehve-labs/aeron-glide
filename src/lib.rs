@@ -11,7 +11,6 @@
 //! use aeron_glide::AeronClient;
 //!
 //! let mut client = AeronClient::new().unwrap();
-//! client.start();
 //!
 //! let pub1 = client.add_publication("aeron:ipc", 1001).unwrap();
 //! let mut sub1 = client.add_subscription("aeron:ipc", 1001).unwrap();
@@ -179,6 +178,7 @@ pub(crate) mod ffi {
         fn setResourceLingerTimeoutMs(self: Pin<&mut ContextWrapper>, value: i64) -> Result<()>;
         fn setIdleSleepDurationMs(self: Pin<&mut ContextWrapper>, value: i64) -> Result<()>;
         fn setPreTouchMappedMemory(self: Pin<&mut ContextWrapper>, value: bool) -> Result<()>;
+        fn setUseConductorAgentInvoker(self: Pin<&mut ContextWrapper>, value: bool) -> Result<()>;
         fn setErrorHandler(
             self: Pin<&mut ContextWrapper>,
             handler: fn(usize, &[u8]),
@@ -242,7 +242,6 @@ pub(crate) mod ffi {
         fn create_aeron(context: UniquePtr<ContextWrapper>) -> Result<UniquePtr<AeronWrapper>>;
         fn create_media_driver() -> Result<UniquePtr<MediaDriverWrapper>>;
 
-        fn start(self: &AeronWrapper);
         fn isClosed(self: &AeronWrapper) -> bool;
         fn addPublication(self: &AeronWrapper, channel: &str, stream_id: i32) -> Result<i64>;
         fn addExclusivePublication(
@@ -268,6 +267,8 @@ pub(crate) mod ffi {
         fn aeronDir(self: &AeronWrapper) -> String;
         fn cncFileName(self: &AeronWrapper) -> Result<String>;
         fn driverTimeoutMs(self: &AeronWrapper) -> i64;
+        fn usesAgentInvoker(self: &AeronWrapper) -> bool;
+        fn invokeConductor(self: &AeronWrapper) -> Result<i32>;
         #[allow(clippy::too_many_arguments)]
         fn addSubscriptionWithImageHandlers(
             self: &AeronWrapper,

@@ -10,7 +10,6 @@ fn main() {
     println!("Starting large_pong (controlled flow + fragment assembler)...");
 
     let client = AeronClient::new().expect("Failed to start Aeron");
-    client.start();
 
     let mut sub = client.add_subscription(CHANNEL, PING_STREAM_ID).unwrap();
     let publ = client.add_publication(CHANNEL, PONG_STREAM_ID).unwrap();

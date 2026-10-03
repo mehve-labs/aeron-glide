@@ -57,7 +57,6 @@ fn main() {
 
     println!("Starting Aeron Client (channel: {})...", args.channel);
     let client = AeronClient::new().expect("Failed to start Aeron");
-    client.start();
 
     let mut publ = if args.exclusive {
         println!("Using ExclusivePublication");

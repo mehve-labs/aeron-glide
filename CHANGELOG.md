@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** `AeronClient::start` is removed. It did nothing: the client
+  starts when it connects.
 - **Breaking:** the cxx bridge module `aeron_glide::ffi` is private. It exposed
   raw, unchecked C++ calls (e.g. committing a forged buffer claim) to safe code.
 - **Breaking:** fallible APIs return `aeron_glide::Result<T>` with a typed
@@ -132,6 +134,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `subscription_registration_id`, `is_publication_revoked`,
   `active_transport_count`, `reject`, `controlled_poll` (without reassembly),
   `bounded_poll`, `bounded_controlled_poll` and `block_poll`.
+- Agent invoker mode: `Context::use_conductor_agent_invoker` runs the client
+  conductor inside `AeronClient::invoke()` on your own thread instead of a
+  dedicated one (`AeronClient::uses_agent_invoker`). Synchronous adds invoke
+  the conductor while they wait.
 - Lifecycle handlers, run on the client conductor thread: `Context` gains
   `on_available_image`, `on_unavailable_image`, `on_new_publication`,
   `on_new_exclusive_publication`, `on_new_subscription`,

@@ -10,6 +10,8 @@ use std::marker::PhantomData;
 /// publications and subscriptions from any thread.
 pub struct AeronClient {
     pub(crate) inner: cxx::UniquePtr<ffi::AeronWrapper>,
+    /// Serialises `invoke`: the conductor's duty cycle must not run concurrently.
+    pub(crate) invoker: std::sync::Mutex<()>,
 }
 
 impl Drop for AeronClient {
@@ -36,11 +38,6 @@ impl AeronClient {
     /// Create a new Aeron client connected to the media driver, configured by `context`.
     pub fn connect(context: Context) -> Result<Self> {
         context.connect()
-    }
-
-    /// Start the client conductor thread.
-    pub fn start(&self) {
-        self.inner.start();
     }
 
     /// Returns `true` if the client has been closed.
@@ -231,6 +228,28 @@ impl AeronClient {
         ))
     }
 
+    /// Returns `true` if the client runs its conductor through [`invoke`](Self::invoke)
+    /// (see [`Context::use_conductor_agent_invoker`]).
+    pub fn uses_agent_invoker(&self) -> bool {
+        self.inner.usesAgentInvoker()
+    }
+
+    /// In agent invoker mode, run one duty cycle of the client conductor on this
+    /// thread: process driver responses, run handlers, send keepalives. Returns
+    /// the amount of work done (0 when idle). Call it regularly; concurrent calls
+    /// are serialised.
+    ///
+    /// Fails with [`ErrorKind::IllegalState`] unless the client was created with
+    /// [`Context::use_conductor_agent_invoker`]. Errors raised by the conductor go
+    /// to the client's error handler, as in threaded mode.
+    pub fn invoke(&self) -> Result<i32> {
+        let _guard = self
+            .invoker
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Ok(self.inner.invokeConductor()?)
+    }
+
     /// The ID the media driver assigned to this client.
     pub fn client_id(&self) -> i64 {
         self.inner.clientId()
@@ -327,10 +346,15 @@ macro_rules! pending_add {
                 Ok(Some($resource { inner }))
             }
 
-            /// Poll until the resource is ready, up to the client's driver timeout.
+            /// Poll until the resource is ready, up to the client's driver timeout. In
+            /// agent invoker mode this also runs the conductor while waiting.
             pub fn wait(mut self) -> Result<$resource> {
                 let deadline = std::time::Instant::now() + self.client.driver_timeout();
+                let invoke = self.client.uses_agent_invoker();
                 loop {
+                    if invoke {
+                        self.client.invoke()?;
+                    }
                     if let Some(resource) = self.poll()? {
                         return Ok(resource);
                     }

@@ -165,6 +165,7 @@ public:
     void setResourceLingerTimeoutMs(int64_t value);
     void setIdleSleepDurationMs(int64_t value);
     void setPreTouchMappedMemory(bool value);
+    void setUseConductorAgentInvoker(bool value);
     // Each takes ownership of `ctx`: `release(ctx)` runs when the last copy of the
     // handler is destroyed, i.e. when the C++ client is destroyed.
     void setErrorHandler(ErrorFn handler, ReleaseFn release, size_t ctx);
@@ -473,7 +474,6 @@ public:
     AeronWrapper(std::shared_ptr<ContextWrapper> context);
     ~AeronWrapper();
     
-    void start() const;
     bool isClosed() const;
     
     // const: aeron::Aeron is thread-safe for adding resources.
@@ -491,6 +491,11 @@ public:
     rust::String aeronDir() const { return rust::String::lossy(aeron->context().aeronDir()); }
     rust::String cncFileName() const { return rust::String::lossy(aeron->context().cncFileName()); }
     int64_t driverTimeoutMs() const { return aeron->context().mediaDriverTimeout(); }
+
+    // Agent invoker mode (P12): run the client conductor's duty cycle on the
+    // calling thread. Throws IllegalStateException unless the context enabled it.
+    bool usesAgentInvoker() const { return aeron->usesAgentInvoker(); }
+    int32_t invokeConductor() const { return aeron->conductorAgentInvoker().invoke(); }
 
     // Lifecycle handlers added at runtime (P11); each takes ownership of its ctx.
     int64_t addSubscriptionWithImageHandlers(

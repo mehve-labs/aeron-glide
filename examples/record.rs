@@ -36,7 +36,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Connect an Aeron client and publish messages
     let client = AeronClient::new()?;
-    client.start();
 
     let publ = client.add_publication(RECORDING_CHANNEL, RECORDING_STREAM_ID)?;
 

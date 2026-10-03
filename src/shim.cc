@@ -217,6 +217,10 @@ void ContextWrapper::setPreTouchMappedMemory(bool value) {
     ctx->preTouchMappedMemory(value);
 }
 
+void ContextWrapper::setUseConductorAgentInvoker(bool value) {
+    ctx->useConductorAgentInvoker(value);
+}
+
 void ContextWrapper::setErrorHandler(ErrorFn handler, ReleaseFn release, size_t context) {
     auto owner = std::make_shared<RustOwned>(release, context);
     ctx->errorHandler([owner, handler](const std::exception &e) {
@@ -314,10 +318,6 @@ AeronWrapper::AeronWrapper(std::shared_ptr<ContextWrapper> context)
     : aeron(aeron::Aeron::connect(*context->ctx)) {}
 
 AeronWrapper::~AeronWrapper() {}
-
-void AeronWrapper::start() const {
-    // connect handles starting under the hood in C++
-}
 
 bool AeronWrapper::isClosed() const {
     if (aeron) {

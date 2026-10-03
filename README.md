@@ -40,7 +40,6 @@ aeron-glide = "0.3"
 use aeron_glide::AeronClient;
 
 let client = AeronClient::new()?;
-client.start();
 
 let pub1 = client.add_publication("aeron:ipc", 1001)?;
 let mut sub1 = client.add_subscription("aeron:ipc", 1001)?;

@@ -13,7 +13,6 @@ fn pick_stream_id() -> i32 {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stream_id = pick_stream_id();
     let client = AeronClient::new()?;
-    client.start();
 
     // Exclusive publications each get their own session — this is what creates
     // separate Images on the subscriber side. Regular publications on the same
