@@ -109,7 +109,7 @@ pub mod ffi {
             fragment_limit: i32,
             handler_id: usize,
         ) -> Result<i32>;
-        fn image(self: Pin<&mut ReplayMergeWrapper>) -> Result<UniquePtr<ImageWrapper>>;
+        fn image(self: Pin<&mut ReplayMergeWrapper>) -> UniquePtr<ImageWrapper>;
         fn isMerged(self: &ReplayMergeWrapper) -> bool;
         fn hasFailed(self: &ReplayMergeWrapper) -> bool;
         fn isLiveAdded(self: &ReplayMergeWrapper) -> bool;
@@ -138,6 +138,7 @@ pub mod ffi {
     }
 }
 
+use crate::Result;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -238,7 +239,7 @@ impl AeronArchive {
         control_request_stream_id: i32,
         control_response_channel: &str,
         control_response_stream_id: i32,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> Result<Self> {
         let inner = ffi::connect_archive(
             control_request_channel,
             control_request_stream_id,
@@ -255,7 +256,7 @@ impl AeronArchive {
         stream_id: i32,
         source: SourceLocation,
         auto_stop: bool,
-    ) -> Result<i64, Box<dyn std::error::Error>> {
+    ) -> Result<i64> {
         Ok(self
             .inner
             .pin_mut()
@@ -263,10 +264,7 @@ impl AeronArchive {
     }
 
     /// Stop a recording by subscription ID.
-    pub fn stop_recording(
-        &mut self,
-        subscription_id: i64,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn stop_recording(&mut self, subscription_id: i64) -> Result<()> {
         self.inner.pin_mut().stopRecording(subscription_id)?;
         Ok(())
     }
@@ -276,7 +274,7 @@ impl AeronArchive {
         &mut self,
         channel: &str,
         stream_id: i32,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<()> {
         self.inner
             .pin_mut()
             .stopRecordingByChannelAndStream(channel, stream_id)?;
@@ -284,34 +282,22 @@ impl AeronArchive {
     }
 
     /// Get the current recording position for an active recording.
-    pub fn get_recording_position(
-        &mut self,
-        recording_id: i64,
-    ) -> Result<i64, Box<dyn std::error::Error>> {
+    pub fn get_recording_position(&mut self, recording_id: i64) -> Result<i64> {
         Ok(self.inner.pin_mut().getRecordingPosition(recording_id)?)
     }
 
     /// Get the start position of a recording.
-    pub fn get_start_position(
-        &mut self,
-        recording_id: i64,
-    ) -> Result<i64, Box<dyn std::error::Error>> {
+    pub fn get_start_position(&mut self, recording_id: i64) -> Result<i64> {
         Ok(self.inner.pin_mut().getStartPosition(recording_id)?)
     }
 
     /// Get the stop position of a recording (NULL_POSITION if still active).
-    pub fn get_stop_position(
-        &mut self,
-        recording_id: i64,
-    ) -> Result<i64, Box<dyn std::error::Error>> {
+    pub fn get_stop_position(&mut self, recording_id: i64) -> Result<i64> {
         Ok(self.inner.pin_mut().getStopPosition(recording_id)?)
     }
 
     /// Get the max recorded position across all active recordings for a given recording ID.
-    pub fn get_max_recorded_position(
-        &mut self,
-        recording_id: i64,
-    ) -> Result<i64, Box<dyn std::error::Error>> {
+    pub fn get_max_recorded_position(&mut self, recording_id: i64) -> Result<i64> {
         Ok(self.inner.pin_mut().getMaxRecordedPosition(recording_id)?)
     }
 
@@ -322,7 +308,7 @@ impl AeronArchive {
         from_recording_id: i64,
         record_count: i32,
         mut handler: F,
-    ) -> Result<i32, Box<dyn std::error::Error>>
+    ) -> Result<i32>
     where
         F: FnMut(RecordingDescriptor),
     {
@@ -358,7 +344,7 @@ impl AeronArchive {
         channel_fragment: &str,
         stream_id: i32,
         mut handler: F,
-    ) -> Result<i32, Box<dyn std::error::Error>>
+    ) -> Result<i32>
     where
         F: FnMut(RecordingDescriptor),
     {
@@ -397,7 +383,7 @@ impl AeronArchive {
         channel_fragment: &str,
         stream_id: i32,
         session_id: i32,
-    ) -> Result<i64, Box<dyn std::error::Error>> {
+    ) -> Result<i64> {
         Ok(self.inner.pin_mut().findLastMatchingRecording(
             min_recording_id,
             channel_fragment,
@@ -417,7 +403,7 @@ impl AeronArchive {
         replay_stream_id: i32,
         position: i64,
         length: i64,
-    ) -> Result<i64, Box<dyn std::error::Error>> {
+    ) -> Result<i64> {
         Ok(self.inner.pin_mut().startReplay(
             recording_id,
             replay_channel,
@@ -428,29 +414,19 @@ impl AeronArchive {
     }
 
     /// Stop a replay by its session ID.
-    pub fn stop_replay(
-        &mut self,
-        replay_session_id: i64,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn stop_replay(&mut self, replay_session_id: i64) -> Result<()> {
         self.inner.pin_mut().stopReplay(replay_session_id)?;
         Ok(())
     }
 
     /// Stop all replays for a given recording ID.
-    pub fn stop_all_replays(
-        &mut self,
-        recording_id: i64,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn stop_all_replays(&mut self, recording_id: i64) -> Result<()> {
         self.inner.pin_mut().stopAllReplays(recording_id)?;
         Ok(())
     }
 
     /// Truncate a stopped recording to a given position.
-    pub fn truncate_recording(
-        &mut self,
-        recording_id: i64,
-        position: i64,
-    ) -> Result<i64, Box<dyn std::error::Error>> {
+    pub fn truncate_recording(&mut self, recording_id: i64, position: i64) -> Result<i64> {
         Ok(self
             .inner
             .pin_mut()
@@ -459,12 +435,12 @@ impl AeronArchive {
 
     /// Poll the archive for an error response. Returns the error message string
     /// (empty if no error).
-    pub fn poll_for_error_response(&mut self) -> Result<String, Box<dyn std::error::Error>> {
+    pub fn poll_for_error_response(&mut self) -> Result<String> {
         Ok(self.inner.pin_mut().pollForErrorResponse()?)
     }
 
     /// Check for an error response from the archive. Throws if an error is present.
-    pub fn check_for_error_response(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn check_for_error_response(&mut self) -> Result<()> {
         self.inner.pin_mut().checkForErrorResponse()?;
         Ok(())
     }
@@ -518,7 +494,7 @@ impl ReplayMerge {
         live_destination: &str,
         recording_id: i64,
         start_position: i64,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> Result<Self> {
         let inner = ffi::create_replay_merge(
             subscription.inner_pin_mut(),
             archive.inner.pin_mut(),
@@ -534,7 +510,7 @@ impl ReplayMerge {
 
     /// Drive the replay merge state machine. Call this regularly in your event loop.
     /// Returns the number of work items processed.
-    pub fn do_work(&mut self) -> Result<i32, Box<dyn std::error::Error>> {
+    pub fn do_work(&mut self) -> Result<i32> {
         Ok(self.inner.pin_mut().doWork()?)
     }
 
@@ -567,11 +543,11 @@ impl ReplayMerge {
         result
     }
 
-    /// Get the merged Image. Available after `is_merged()` returns true.
-    /// Can also be used during the merge to access the current image.
-    pub fn image(&mut self) -> Result<crate::Image, Box<dyn std::error::Error>> {
-        let wrapper = self.inner.pin_mut().image()?;
-        Ok(crate::Image::from_raw(wrapper))
+    /// Get the merged Image, or `None` if it is not available yet. Available after
+    /// `is_merged()` returns true; can also be used during the merge.
+    pub fn image(&mut self) -> Option<crate::Image> {
+        let wrapper = self.inner.pin_mut().image();
+        (!wrapper.is_null()).then(|| crate::Image::from_raw(wrapper))
     }
 
     /// Returns true when the replay and live streams have been successfully merged.

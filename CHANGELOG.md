@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking:** fallible APIs return `aeron_glide::Result<T>` with a typed
+  `aeron_glide::Error` (`kind()`, `code()`, `message()`, `is_fatal()`) instead
+  of `Box<dyn Error>`. `Error` is `Send + Sync + 'static`. Aeron C++ exceptions
+  and media driver errors are mapped to an `ErrorKind` matching the Aeron
+  exception class, with the Aeron error code preserved.
+- **Breaking:** `Subscription::image_by_index`, `Subscription::image_by_session_id`
+  and `ReplayMerge::image` return `Option<Image>` instead of an error when there
+  is no such image.
+
 ## [0.3.1] - 2026-10-03
 
 ### Added

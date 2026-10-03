@@ -47,6 +47,9 @@
 #[cfg_attr(docsrs, doc(cfg(feature = "archive")))]
 pub mod archive;
 
+mod error;
+pub use error::{Error, ErrorKind, Result};
+
 #[cxx::bridge(namespace = "aeron_rs")]
 pub mod ffi {
     unsafe extern "C++" {
@@ -134,11 +137,11 @@ pub mod ffi {
         fn imageByIndex(
             self: Pin<&mut SubscriptionWrapper>,
             index: usize,
-        ) -> Result<UniquePtr<ImageWrapper>>;
+        ) -> UniquePtr<ImageWrapper>;
         fn imageBySessionId(
             self: Pin<&mut SubscriptionWrapper>,
             session_id: i32,
-        ) -> Result<UniquePtr<ImageWrapper>>;
+        ) -> UniquePtr<ImageWrapper>;
 
         type ImageWrapper;
         fn sessionId(self: &ImageWrapper) -> i32;
@@ -188,7 +191,7 @@ pub struct AeronClient {
 
 impl AeronClient {
     /// Create a new Aeron client connected to the media driver.
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new() -> Result<Self> {
         let ctx = ffi::create_context();
         let aeron = ffi::create_aeron(ctx)?;
 
@@ -207,11 +210,7 @@ impl AeronClient {
 
     /// Add a concurrent publication on the given channel and stream ID.
     /// Multiple publishers can share the same channel+stream.
-    pub fn add_publication(
-        &mut self,
-        channel: &str,
-        stream_id: i32,
-    ) -> Result<Publication, Box<dyn std::error::Error>> {
+    pub fn add_publication(&mut self, channel: &str, stream_id: i32) -> Result<Publication> {
         let pub_inner = self.inner.pin_mut().addPublication(channel, stream_id)?;
         Ok(Publication { inner: pub_inner })
     }
@@ -222,7 +221,7 @@ impl AeronClient {
         &mut self,
         channel: &str,
         stream_id: i32,
-    ) -> Result<ExclusivePublication, Box<dyn std::error::Error>> {
+    ) -> Result<ExclusivePublication> {
         let pub_inner = self
             .inner
             .pin_mut()
@@ -231,11 +230,7 @@ impl AeronClient {
     }
 
     /// Add a subscription on the given channel and stream ID.
-    pub fn add_subscription(
-        &mut self,
-        channel: &str,
-        stream_id: i32,
-    ) -> Result<Subscription, Box<dyn std::error::Error>> {
+    pub fn add_subscription(&mut self, channel: &str, stream_id: i32) -> Result<Subscription> {
         let sub_inner = self.inner.pin_mut().addSubscription(channel, stream_id)?;
         Ok(Subscription { inner: sub_inner })
     }
@@ -529,19 +524,17 @@ impl Subscription {
         self.inner.imageCount()
     }
 
-    /// Get an image by its index (0-based). Images appear in the order they were connected.
-    pub fn image_by_index(&mut self, index: usize) -> Result<Image, Box<dyn std::error::Error>> {
-        let img = self.inner.pin_mut().imageByIndex(index)?;
-        Ok(Image { inner: img })
+    /// Get an image by its index (0-based), or `None` if there is no image at that index.
+    /// Images appear in the order they were connected.
+    pub fn image_by_index(&mut self, index: usize) -> Option<Image> {
+        let img = self.inner.pin_mut().imageByIndex(index);
+        (!img.is_null()).then_some(Image { inner: img })
     }
 
-    /// Get an image by the publisher's session ID.
-    pub fn image_by_session_id(
-        &mut self,
-        session_id: i32,
-    ) -> Result<Image, Box<dyn std::error::Error>> {
-        let img = self.inner.pin_mut().imageBySessionId(session_id)?;
-        Ok(Image { inner: img })
+    /// Get an image by the publisher's session ID, or `None` if no such image exists.
+    pub fn image_by_session_id(&mut self, session_id: i32) -> Option<Image> {
+        let img = self.inner.pin_mut().imageBySessionId(session_id);
+        (!img.is_null()).then_some(Image { inner: img })
     }
 }
 
@@ -794,141 +787,105 @@ pub struct MediaDriver {
 
 impl MediaDriver {
     /// Create a new media driver with default settings.
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new() -> Result<Self> {
         let inner = ffi::create_media_driver()?;
         Ok(Self { inner })
     }
 
     /// Start the media driver. Must be called before any clients can connect.
-    pub fn start(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn start(&mut self) -> Result<()> {
         self.inner.pin_mut().start()?;
         Ok(())
     }
 
     /// Set the Aeron directory for shared memory files.
-    pub fn set_dir(&mut self, dir: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_dir(&mut self, dir: &str) -> Result<()> {
         self.inner.pin_mut().setDir(dir)?;
         Ok(())
     }
 
-    pub fn set_dir_delete_on_start(
-        &mut self,
-        value: bool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_dir_delete_on_start(&mut self, value: bool) -> Result<()> {
         self.inner.pin_mut().setDirDeleteOnStart(value)?;
         Ok(())
     }
 
-    pub fn set_dir_delete_on_shutdown(
-        &mut self,
-        value: bool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_dir_delete_on_shutdown(&mut self, value: bool) -> Result<()> {
         self.inner.pin_mut().setDirDeleteOnShutdown(value)?;
         Ok(())
     }
 
-    pub fn set_threading_mode(
-        &mut self,
-        mode: ThreadingMode,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_threading_mode(&mut self, mode: ThreadingMode) -> Result<()> {
         self.inner.pin_mut().setThreadingMode(mode as i32)?;
         Ok(())
     }
 
-    pub fn set_conductor_idle_strategy(
-        &mut self,
-        strategy: IdleStrategy,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_conductor_idle_strategy(&mut self, strategy: IdleStrategy) -> Result<()> {
         self.inner
             .pin_mut()
             .setConductorIdleStrategy(strategy.as_str())?;
         Ok(())
     }
 
-    pub fn set_sender_idle_strategy(
-        &mut self,
-        strategy: IdleStrategy,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_sender_idle_strategy(&mut self, strategy: IdleStrategy) -> Result<()> {
         self.inner
             .pin_mut()
             .setSenderIdleStrategy(strategy.as_str())?;
         Ok(())
     }
 
-    pub fn set_receiver_idle_strategy(
-        &mut self,
-        strategy: IdleStrategy,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_receiver_idle_strategy(&mut self, strategy: IdleStrategy) -> Result<()> {
         self.inner
             .pin_mut()
             .setReceiverIdleStrategy(strategy.as_str())?;
         Ok(())
     }
 
-    pub fn set_term_buffer_length(
-        &mut self,
-        value: usize,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_term_buffer_length(&mut self, value: usize) -> Result<()> {
         self.inner.pin_mut().setTermBufferLength(value)?;
         Ok(())
     }
 
-    pub fn set_ipc_term_buffer_length(
-        &mut self,
-        value: usize,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_ipc_term_buffer_length(&mut self, value: usize) -> Result<()> {
         self.inner.pin_mut().setIpcTermBufferLength(value)?;
         Ok(())
     }
 
-    pub fn set_mtu_length(&mut self, value: usize) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_mtu_length(&mut self, value: usize) -> Result<()> {
         self.inner.pin_mut().setMtuLength(value)?;
         Ok(())
     }
 
-    pub fn set_ipc_mtu_length(&mut self, value: usize) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_ipc_mtu_length(&mut self, value: usize) -> Result<()> {
         self.inner.pin_mut().setIpcMtuLength(value)?;
         Ok(())
     }
 
-    pub fn set_socket_so_rcvbuf(&mut self, value: usize) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_socket_so_rcvbuf(&mut self, value: usize) -> Result<()> {
         self.inner.pin_mut().setSocketSoRcvbuf(value)?;
         Ok(())
     }
 
-    pub fn set_socket_so_sndbuf(&mut self, value: usize) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_socket_so_sndbuf(&mut self, value: usize) -> Result<()> {
         self.inner.pin_mut().setSocketSoSndbuf(value)?;
         Ok(())
     }
 
-    pub fn set_print_configuration(
-        &mut self,
-        value: bool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_print_configuration(&mut self, value: bool) -> Result<()> {
         self.inner.pin_mut().setPrintConfiguration(value)?;
         Ok(())
     }
 
-    pub fn set_conductor_cpu_affinity(
-        &mut self,
-        cpu_id: i32,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_conductor_cpu_affinity(&mut self, cpu_id: i32) -> Result<()> {
         self.inner.pin_mut().setConductorCpuAffinity(cpu_id)?;
         Ok(())
     }
 
-    pub fn set_sender_cpu_affinity(
-        &mut self,
-        cpu_id: i32,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_sender_cpu_affinity(&mut self, cpu_id: i32) -> Result<()> {
         self.inner.pin_mut().setSenderCpuAffinity(cpu_id)?;
         Ok(())
     }
 
-    pub fn set_receiver_cpu_affinity(
-        &mut self,
-        cpu_id: i32,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_receiver_cpu_affinity(&mut self, cpu_id: i32) -> Result<()> {
         self.inner.pin_mut().setReceiverCpuAffinity(cpu_id)?;
         Ok(())
     }
@@ -1123,6 +1080,16 @@ mod tests {
         assert_eq!(received, 1, "large message should be reassembled");
         assert!(sub.delete_session_buffer(sid));
         assert!(!sub.delete_session_buffer(sid));
+    }
+
+    #[test]
+    fn driver_errors_are_classified() {
+        let mut driver = MediaDriver::new().unwrap();
+        driver.set_dir("/dev/null/aeron-glide").unwrap();
+        let err = driver.start().unwrap_err();
+        assert_ne!(err.kind(), ErrorKind::Other, "{err}");
+        assert_ne!(err.code(), 0, "{err}");
+        assert!(err.message().starts_with("Failed to init driver"), "{err}");
     }
 
     #[test]

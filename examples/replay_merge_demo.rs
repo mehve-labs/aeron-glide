@@ -218,14 +218,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if merge.is_merged() {
         match merge.image() {
-            Ok(image) => {
+            Some(image) => {
                 println!(
                     "  Merged image: session_id={} position={}",
                     image.session_id(),
                     image.position()
                 );
             }
-            Err(e) => println!("  Could not get merged image: {}", e),
+            None => println!("  Merged image not available yet"),
         }
     }
 

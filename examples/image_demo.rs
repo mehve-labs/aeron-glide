@@ -49,7 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== {} Active Images (one per publisher) ===\n", count);
 
     for i in 0..count as usize {
-        let image = sub.image_by_index(i)?;
+        let image = sub.image_by_index(i).ok_or("no image")?;
         println!(
             "  Image[{}]: session_id={:<10} correlation_id={} join_position={} source=\"{}\"",
             i,
@@ -70,7 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Per-Image Raw Poll ===");
     println!("  (Each image only contains messages from its publisher)\n");
     for i in 0..count as usize {
-        let mut image = sub.image_by_index(i)?;
+        let mut image = sub.image_by_index(i).ok_or("no image")?;
         let sid = image.session_id();
         let fragments = image.poll(10, |data| {
             let msg = std::str::from_utf8(data).unwrap_or("<binary>");
@@ -99,7 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Assembled poll with auto-Continue
     println!("=== Per-Image Assembled Poll ===\n");
     for i in 0..count as usize {
-        let mut image = sub.image_by_index(i)?;
+        let mut image = sub.image_by_index(i).ok_or("no image")?;
         let sid = image.session_id();
         let fragments = image.poll_assembled(10, |data| {
             let msg = std::str::from_utf8(data).unwrap_or("<binary>");
@@ -123,7 +123,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     thread::sleep(Duration::from_millis(100));
 
     for i in 0..count as usize {
-        let mut image = sub.image_by_index(i)?;
+        let mut image = sub.image_by_index(i).ok_or("no image")?;
         let sid = image.session_id();
         let pos_before = image.position();
 
@@ -148,9 +148,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Lookup by session_id
     println!("=== Lookup by Session ID ===\n");
-    let img0 = sub.image_by_index(0)?;
+    let img0 = sub.image_by_index(0).ok_or("no image")?;
     let sid = img0.session_id();
-    let img_lookup = sub.image_by_session_id(sid)?;
+    let img_lookup = sub.image_by_session_id(sid).ok_or("no image")?;
     println!(
         "  image_by_session_id({}) -> position={}",
         sid,
@@ -160,7 +160,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Final positions
     println!("\n=== Final Position Tracking ===\n");
     for i in 0..count as usize {
-        let image = sub.image_by_index(i)?;
+        let image = sub.image_by_index(i).ok_or("no image")?;
         println!(
             "  Image[{}] session={}: position={}",
             i,

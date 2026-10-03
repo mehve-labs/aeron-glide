@@ -1,4 +1,5 @@
 #pragma once
+#include <exception>
 #include <memory>
 #include <string>
 #include <Aeron.h>
@@ -13,6 +14,69 @@
 #include <client/archive/ReplayParams.h>
 #include <client/archive/ReplayMerge.h>
 #endif
+
+namespace aeron_rs {
+namespace detail {
+
+// Encodes an exception as "aeron-glide<RS>kind<RS>code<RS>message", decoded by
+// `Error::from(cxx::Exception)` in src/error.rs. Most-derived classes first.
+inline std::string encode_exception(const std::exception &e) {
+    using namespace aeron::util;
+    const char *kind = "other";
+    std::int32_t code = 0;
+    if (auto *s = dynamic_cast<const SourcedException *>(&e)) {
+        code = s->errorCode();
+        if (dynamic_cast<const RegistrationException *>(&e)) kind = "registration";
+        else if (dynamic_cast<const TimeoutException *>(&e)) kind = "timeout";
+        else if (dynamic_cast<const ChannelEndpointException *>(&e)) kind = "channel_endpoint";
+        else if (dynamic_cast<const IllegalArgumentException *>(&e)) kind = "illegal_argument";
+        else if (dynamic_cast<const IllegalStateException *>(&e)) kind = "illegal_state";
+        else if (dynamic_cast<const IOException *>(&e)) kind = "io";
+        else if (dynamic_cast<const FormatException *>(&e)) kind = "format";
+        else if (dynamic_cast<const OutOfBoundsException *>(&e)) kind = "out_of_bounds";
+        else if (dynamic_cast<const ParseException *>(&e)) kind = "parse";
+        else if (dynamic_cast<const ElementNotFound *>(&e)) kind = "element_not_found";
+        else if (dynamic_cast<const DriverTimeoutException *>(&e)) kind = "driver_timeout";
+        else if (dynamic_cast<const ConductorServiceTimeoutException *>(&e)) kind = "conductor_service_timeout";
+        else if (dynamic_cast<const ClientTimeoutException *>(&e)) kind = "client_timeout";
+        else if (dynamic_cast<const UnknownSubscriptionException *>(&e)) kind = "unknown_subscription";
+        else if (dynamic_cast<const ReentrantException *>(&e)) kind = "reentrant";
+        else if (dynamic_cast<const UnsupportedOperationException *>(&e)) kind = "unsupported_operation";
+#ifdef AERON_ARCHIVE
+        else if (dynamic_cast<const ArchiveException *>(&e)) kind = "archive";
+#endif
+        else kind = "aeron";
+    } else if (dynamic_cast<const std::out_of_range *>(&e)) {
+        kind = "out_of_bounds";
+    } else if (dynamic_cast<const std::invalid_argument *>(&e)) {
+        kind = "illegal_argument";
+    }
+    std::string out("aeron-glide\x1e");
+    out += kind;
+    out += '\x1e';
+    out += std::to_string(code);
+    out += '\x1e';
+    out += e.what();
+    return out;
+}
+
+} // namespace detail
+} // namespace aeron_rs
+
+// Custom cxx exception conversion: every bridged `Result` function reports the
+// Aeron exception class and error code, not just the message.
+namespace rust {
+namespace behavior {
+template <typename Try, typename Fail>
+static void trycatch(Try &&func, Fail &&fail) noexcept try {
+    func();
+} catch (const std::exception &e) {
+    fail(aeron_rs::detail::encode_exception(e).c_str());
+} catch (...) {
+    fail("aeron-glide\x1eother\x1e" "0\x1eunknown C++ exception");
+}
+} // namespace behavior
+} // namespace rust
 
 // Forward declarations for C driver types (defined in aeronmd.h)
 extern "C" {
