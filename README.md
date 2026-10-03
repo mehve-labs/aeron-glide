@@ -244,6 +244,32 @@ Aeron C code. On an Apple M4 Pro, against one shared media driver (Aeron
 `taskset` on Linux, and how to reproduce them with
 [`scripts/benchmark.py`](scripts/benchmark.py).
 
+## Built with AI
+
+This project would not exist without AI. aeron-glide is developed with
+AI coding agents doing most of the writing, and humans deciding what to build,
+setting the bar and checking the results. We say so plainly because it shaped
+the project.
+
+A safe binding for Aeron means reading, line by line, Aeron's Java, C and C++
+clients and media driver; checking every wrapper against them; and asking at
+each call what happens on another thread, inside a handler, after the driver
+dies, or with a corrupt file. AI agents made that amount of work possible:
+
+- they compared each API with Aeron's own code and tests, phase by phase;
+- separate agents reviewed every phase adversarially, looking for ways to break
+  it, and those findings were fixed and turned into regression tests;
+- they ran the suite on Linux x86_64 and arm64 and under AddressSanitizer, and
+  ran the benchmarks against rusteron;
+- along the way they found and reproduced the Aeron bugs the shim works around.
+
+Nothing is trusted because an AI wrote it: changes land only when the tests,
+the sanitizer and the reviews agree.
+
+If you don't want AI-developed code in your stack, this crate is not for you,
+and that's fine. If you do use it, the same tools can help you read, extend or
+fork it.
+
 ## Documentation
 
 API documentation is on [docs.rs](https://docs.rs/aeron-glide), and
