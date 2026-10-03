@@ -1,4 +1,4 @@
-use aeron_glide::{AeronClient, ExclusivePublication, Publication};
+use aeron_glide::{AeronClient, ExclusivePublication, OfferError, Publication};
 use clap::Parser;
 use std::thread;
 use std::time::Duration;
@@ -25,7 +25,7 @@ enum Pub {
 }
 
 impl Pub {
-    fn offer(&mut self, buf: &[u8]) -> i64 {
+    fn offer(&mut self, buf: &[u8]) -> Result<i64, OfferError> {
         match self {
             Pub::Regular(p) => p.offer(buf),
             Pub::Exclusive(p) => p.offer(buf),
@@ -70,7 +70,7 @@ fn main() {
             );
 
             // Re-offer the exact same message bytes back to the other stream
-            while publ.offer(data) < 0 {
+            while publ.offer(data).is_err() {
                 // back pressure or unconnected
                 thread::yield_now();
             }

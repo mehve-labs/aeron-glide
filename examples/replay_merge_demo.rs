@@ -73,7 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let initial_count = 20;
     for i in 0..initial_count {
         let msg = format!("recorded-msg-{}", i);
-        while pub1.offer(msg.as_bytes()) < 0 {
+        while pub1.offer(msg.as_bytes()).is_err() {
             thread::yield_now();
         }
     }
@@ -185,7 +185,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // for the ATTEMPT_LIVE_JOIN -> MERGED transition.
         if !merge.is_merged() && merge.is_live_added() {
             let msg = format!("live-msg-{}", live_published);
-            if pub1.offer(msg.as_bytes()) > 0 {
+            if pub1.offer(msg.as_bytes()).is_ok() {
                 live_published += 1;
             }
         }

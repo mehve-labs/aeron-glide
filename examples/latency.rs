@@ -100,9 +100,9 @@ fn run_pong(
                 buf.copy_from_slice(data);
                 true
             });
-            if result < 0 {
+            if result.is_err() {
                 // Fallback to offer if claim fails
-                while ping_pub.offer(data) < 0 {}
+                while ping_pub.offer(data).is_err() {}
             }
         });
     }
@@ -180,7 +180,7 @@ fn record_rtt(
     buffer[..8].copy_from_slice(&now.to_le_bytes());
 
     // Send
-    while publication.offer(buffer) < 0 {}
+    while publication.offer(buffer).is_err() {}
 
     // Receive
     let mut received = false;

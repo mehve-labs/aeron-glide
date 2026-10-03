@@ -176,6 +176,97 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// Why an `offer` or `try_claim` did not publish.
+///
+/// The first three variants are transient: retrying (after idling, or once a
+/// subscriber connects) can succeed. See [`OfferError::is_retryable`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum OfferError {
+    /// No subscriber is connected (`NOT_CONNECTED`, -1).
+    NotConnected,
+    /// Flow control or a full term is applying back pressure (`BACK_PRESSURED`, -2).
+    BackPressured,
+    /// An administrative action such as a term rotation is in progress (`ADMIN_ACTION`, -3).
+    AdminAction,
+    /// The publication is closed (`PUBLICATION_CLOSED`, -4).
+    Closed,
+    /// The maximum stream position was reached; a new publication is required
+    /// (`MAX_POSITION_EXCEEDED`, -5).
+    MaxPositionExceeded,
+    /// Aeron raised an error, e.g. a message longer than the maximum message length.
+    Error(Error),
+}
+
+impl OfferError {
+    /// Map a negative offer / try_claim result to an `OfferError`.
+    pub(crate) fn from_position(position: i64) -> Self {
+        match position {
+            -1 => Self::NotConnected,
+            -2 => Self::BackPressured,
+            -3 => Self::AdminAction,
+            -4 => Self::Closed,
+            -5 => Self::MaxPositionExceeded,
+            other => Self::Error(Error::new(
+                ErrorKind::Aeron,
+                format!("unexpected offer result {other}"),
+            )),
+        }
+    }
+
+    /// Returns `true` if retrying the same offer can succeed:
+    /// [`NotConnected`](Self::NotConnected), [`BackPressured`](Self::BackPressured)
+    /// or [`AdminAction`](Self::AdminAction).
+    pub fn is_retryable(&self) -> bool {
+        matches!(
+            self,
+            Self::NotConnected | Self::BackPressured | Self::AdminAction
+        )
+    }
+
+    /// Returns `true` for [`BackPressured`](Self::BackPressured).
+    pub fn is_back_pressured(&self) -> bool {
+        matches!(self, Self::BackPressured)
+    }
+}
+
+impl From<cxx::Exception> for OfferError {
+    fn from(e: cxx::Exception) -> Self {
+        Self::Error(e.into())
+    }
+}
+
+impl fmt::Display for OfferError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotConnected => f.write_str("publication is not connected"),
+            Self::BackPressured => f.write_str("publication is back pressured"),
+            Self::AdminAction => f.write_str("publication admin action in progress"),
+            Self::Closed => f.write_str("publication is closed"),
+            Self::MaxPositionExceeded => f.write_str("publication max position exceeded"),
+            Self::Error(e) => write!(f, "offer failed: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for OfferError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Error(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+/// Convert a raw offer / try_claim position into a `Result`.
+pub(crate) fn offer_result(position: i64) -> Result<i64, OfferError> {
+    if position >= 0 {
+        Ok(position)
+    } else {
+        Err(OfferError::from_position(position))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,8 +295,22 @@ mod tests {
     }
 
     #[test]
+    fn maps_offer_codes() {
+        assert_eq!(offer_result(128), Ok(128));
+        assert_eq!(offer_result(-1), Err(OfferError::NotConnected));
+        assert_eq!(offer_result(-2), Err(OfferError::BackPressured));
+        assert_eq!(offer_result(-3), Err(OfferError::AdminAction));
+        assert_eq!(offer_result(-4), Err(OfferError::Closed));
+        assert_eq!(offer_result(-5), Err(OfferError::MaxPositionExceeded));
+        assert!(matches!(offer_result(-6), Err(OfferError::Error(_))));
+        assert!(OfferError::BackPressured.is_retryable());
+        assert!(!OfferError::Closed.is_retryable());
+    }
+
+    #[test]
     fn is_send_sync_static() {
         fn assert<T: Send + Sync + 'static + std::error::Error>() {}
         assert::<Error>();
+        assert::<OfferError>();
     }
 }

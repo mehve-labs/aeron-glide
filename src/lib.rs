@@ -17,7 +17,7 @@
 //! let mut sub1 = client.add_subscription("aeron:ipc", 1001).unwrap();
 //!
 //! // Publish
-//! while pub1.offer(b"hello aeron") < 0 {}
+//! while pub1.offer(b"hello aeron").is_err() {}
 //!
 //! // Subscribe
 //! sub1.poll(10, |data| {
@@ -48,7 +48,7 @@
 pub mod archive;
 
 mod error;
-pub use error::{Error, ErrorKind, Result};
+pub use error::{Error, ErrorKind, OfferError, Result};
 
 #[cxx::bridge(namespace = "aeron_rs")]
 pub mod ffi {
@@ -106,17 +106,21 @@ pub mod ffi {
         fn setSenderCpuAffinity(self: Pin<&mut MediaDriverWrapper>, cpu_id: i32) -> Result<()>;
         fn setReceiverCpuAffinity(self: Pin<&mut MediaDriverWrapper>, cpu_id: i32) -> Result<()>;
 
-        fn offer(self: Pin<&mut PublicationWrapper>, buffer: &[u8]) -> i64;
-        fn tryClaim(self: Pin<&mut PublicationWrapper>, length: usize, handler_id: usize) -> i64;
+        fn offer(self: Pin<&mut PublicationWrapper>, buffer: &[u8]) -> Result<i64>;
+        fn tryClaim(
+            self: Pin<&mut PublicationWrapper>,
+            length: usize,
+            handler_id: usize,
+        ) -> Result<i64>;
         fn isConnected(self: &PublicationWrapper) -> bool;
         fn sessionId(self: &PublicationWrapper) -> i32;
 
-        fn offer(self: Pin<&mut ExclusivePublicationWrapper>, buffer: &[u8]) -> i64;
+        fn offer(self: Pin<&mut ExclusivePublicationWrapper>, buffer: &[u8]) -> Result<i64>;
         fn tryClaim(
             self: Pin<&mut ExclusivePublicationWrapper>,
             length: usize,
             handler_id: usize,
-        ) -> i64;
+        ) -> Result<i64>;
         fn isConnected(self: &ExclusivePublicationWrapper) -> bool;
 
         fn poll(self: Pin<&mut SubscriptionWrapper>, fragment_limit: i32, handler_id: usize)
@@ -244,23 +248,27 @@ impl AeronClient {
 }
 
 /// A concurrent publication for sending messages on a channel+stream.
-///
-/// Returns negative values from [`offer`](Publication::offer) on back-pressure or when closed.
 pub struct Publication {
     inner: cxx::UniquePtr<ffi::PublicationWrapper>,
 }
 
 impl Publication {
-    /// Publish a message. Returns the new stream position on success,
-    /// or a negative value on back-pressure / not connected / closed.
-    pub fn offer(&mut self, buffer: &[u8]) -> i64 {
-        self.inner.pin_mut().offer(buffer)
+    /// Publish a message. Returns the new stream position on success.
+    ///
+    /// On failure, [`OfferError::is_retryable`] tells whether retrying can succeed
+    /// (not connected, back pressured, admin action).
+    pub fn offer(&mut self, buffer: &[u8]) -> std::result::Result<i64, OfferError> {
+        error::offer_result(self.inner.pin_mut().offer(buffer)?)
     }
 
     /// Zero-copy publish: claims a region of the log buffer, calls `handler` with a mutable
     /// slice pointing directly into shared memory, then commits or aborts based on the return value.
-    /// Returns the stream position (>0 on success, negative on back-pressure/closed).
-    pub fn try_claim<F>(&mut self, length: usize, mut handler: F) -> i64
+    /// Returns the new stream position if the claim succeeded.
+    pub fn try_claim<F>(
+        &mut self,
+        length: usize,
+        mut handler: F,
+    ) -> std::result::Result<i64, OfferError>
     where
         F: FnMut(&mut [u8]) -> bool,
     {
@@ -282,7 +290,7 @@ impl Publication {
             handlers.borrow_mut().remove(&handler_id);
         });
 
-        result
+        error::offer_result(result?)
     }
 
     /// Returns `true` if there is at least one subscriber connected to this publication.
@@ -302,16 +310,22 @@ pub struct ExclusivePublication {
 }
 
 impl ExclusivePublication {
-    /// Publish a message. Returns the new stream position on success,
-    /// or a negative value on back-pressure / not connected / closed.
-    pub fn offer(&mut self, buffer: &[u8]) -> i64 {
-        self.inner.pin_mut().offer(buffer)
+    /// Publish a message. Returns the new stream position on success.
+    ///
+    /// On failure, [`OfferError::is_retryable`] tells whether retrying can succeed
+    /// (not connected, back pressured, admin action).
+    pub fn offer(&mut self, buffer: &[u8]) -> std::result::Result<i64, OfferError> {
+        error::offer_result(self.inner.pin_mut().offer(buffer)?)
     }
 
     /// Zero-copy publish: claims a region of the log buffer, calls `handler` with a mutable
     /// slice pointing directly into shared memory, then commits or aborts based on the return value.
-    /// Returns the stream position (>0 on success, negative on back-pressure/closed).
-    pub fn try_claim<F>(&mut self, length: usize, mut handler: F) -> i64
+    /// Returns the new stream position if the claim succeeded.
+    pub fn try_claim<F>(
+        &mut self,
+        length: usize,
+        mut handler: F,
+    ) -> std::result::Result<i64, OfferError>
     where
         F: FnMut(&mut [u8]) -> bool,
     {
@@ -333,7 +347,7 @@ impl ExclusivePublication {
             handlers.borrow_mut().remove(&handler_id);
         });
 
-        result
+        error::offer_result(result?)
     }
 
     /// Returns `true` if there is at least one subscriber connected to this publication.
@@ -1044,7 +1058,7 @@ mod tests {
         assert!(sub.is_connected(), "subscription should connect");
 
         // Publish a message so the image is active
-        while publ.offer(b"hello") < 0 {
+        while publ.offer(b"hello").is_err() {
             std::thread::yield_now();
         }
 
@@ -1066,7 +1080,7 @@ mod tests {
         // allocates a session buffer that delete_session_buffer can free.
         let mut received = 0;
         let large = vec![7u8; 16 * 1024];
-        while publ.offer(&large) < 0 {
+        while publ.offer(&large).is_err() {
             std::thread::yield_now();
         }
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -1080,6 +1094,17 @@ mod tests {
         assert_eq!(received, 1, "large message should be reassembled");
         assert!(sub.delete_session_buffer(sid));
         assert!(!sub.delete_session_buffer(sid));
+
+        // Oversized offers and claims are errors, not process aborts.
+        let too_big = vec![0u8; 32 * 1024 * 1024];
+        match publ.offer(&too_big) {
+            Err(OfferError::Error(e)) => assert_eq!(e.kind(), ErrorKind::IllegalArgument),
+            other => panic!("expected IllegalArgument, got {other:?}"),
+        }
+        match publ.try_claim(64 * 1024, |_| true) {
+            Err(OfferError::Error(e)) => assert_eq!(e.kind(), ErrorKind::IllegalArgument),
+            other => panic!("expected IllegalArgument, got {other:?}"),
+        }
     }
 
     #[test]

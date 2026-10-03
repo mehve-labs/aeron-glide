@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Publishing {} messages...", MESSAGE_COUNT);
     for i in 0..MESSAGE_COUNT {
         let msg = format!("Hello Archive! Message #{}", i);
-        while publ.offer(msg.as_bytes()) < 0 {
+        while publ.offer(msg.as_bytes()).is_err() {
             thread::yield_now();
         }
         println!("  Sent: {}", msg);

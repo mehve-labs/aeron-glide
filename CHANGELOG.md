@@ -14,9 +14,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of `Box<dyn Error>`. `Error` is `Send + Sync + 'static`. Aeron C++ exceptions
   and media driver errors are mapped to an `ErrorKind` matching the Aeron
   exception class, with the Aeron error code preserved.
+- **Breaking:** `offer` and `try_claim` on `Publication` and `ExclusivePublication`
+  return `Result<i64, OfferError>` instead of a raw position. Aeron errors such
+  as an oversized message are returned as `OfferError::Error` instead of
+  aborting the process.
 - **Breaking:** `Subscription::image_by_index`, `Subscription::image_by_session_id`
   and `ReplayMerge::image` return `Option<Image>` instead of an error when there
   is no such image.
+
+### Added
+
+- `OfferError` (`NotConnected`, `BackPressured`, `AdminAction`, `Closed`,
+  `MaxPositionExceeded`, `Error`) with `is_retryable()` and `is_back_pressured()`.
 
 ## [0.3.1] - 2026-10-03
 

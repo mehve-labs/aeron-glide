@@ -23,7 +23,7 @@ fn main() {
         let _ = sub.poll_assembled(10, |data| -> ControlledAction {
             let seq = u32::from_le_bytes(data[..4].try_into().unwrap());
 
-            if publ.offer(data) < 0 {
+            if publ.offer(data).is_err() {
                 // Back-pressure: can't send right now, tell Aeron to retry
                 println!("  seq={}: back-pressure, aborting", seq);
                 return ControlledAction::Abort;

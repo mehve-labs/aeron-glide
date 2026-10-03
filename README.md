@@ -46,7 +46,7 @@ let mut pub1 = client.add_publication("aeron:ipc", 1001)?;
 let mut sub1 = client.add_subscription("aeron:ipc", 1001)?;
 
 // Publish
-while pub1.offer(b"hello aeron") < 0 {}
+while pub1.offer(b"hello aeron").is_err() {}
 
 // Subscribe
 sub1.poll(10, |data| {

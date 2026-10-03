@@ -38,7 +38,7 @@ fn main() {
             *byte = ((j + 4) % 256) as u8;
         }
 
-        while publ.offer(&msg) < 0 {
+        while publ.offer(&msg).is_err() {
             thread::yield_now();
         }
         println!("Sent ping {} ({} bytes)", i, MESSAGE_SIZE);

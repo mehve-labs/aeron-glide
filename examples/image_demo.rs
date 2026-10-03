@@ -32,12 +32,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Publish some messages from each publisher
     for i in 0..5 {
         let msg1 = format!("pub1: message #{}", i);
-        while pub1.offer(msg1.as_bytes()) < 0 {
+        while pub1.offer(msg1.as_bytes()).is_err() {
             thread::yield_now();
         }
 
         let msg2 = format!("pub2: message #{}", i);
-        while pub2.offer(msg2.as_bytes()) < 0 {
+        while pub2.offer(msg2.as_bytes()).is_err() {
             thread::yield_now();
         }
     }
@@ -86,11 +86,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Publish more messages for assembled poll demo
     for i in 5..10 {
         let msg1 = format!("pub1: message #{}", i);
-        while pub1.offer(msg1.as_bytes()) < 0 {
+        while pub1.offer(msg1.as_bytes()).is_err() {
             thread::yield_now();
         }
         let msg2 = format!("pub2: message #{}", i);
-        while pub2.offer(msg2.as_bytes()) < 0 {
+        while pub2.offer(msg2.as_bytes()).is_err() {
             thread::yield_now();
         }
     }
@@ -112,11 +112,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Flow Control: Break after 2 messages ===\n");
     for j in 10..15 {
         let msg1 = format!("pub1: extra #{}", j);
-        while pub1.offer(msg1.as_bytes()) < 0 {
+        while pub1.offer(msg1.as_bytes()).is_err() {
             thread::yield_now();
         }
         let msg2 = format!("pub2: extra #{}", j);
-        while pub2.offer(msg2.as_bytes()) < 0 {
+        while pub2.offer(msg2.as_bytes()).is_err() {
             thread::yield_now();
         }
     }

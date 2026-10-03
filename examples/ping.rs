@@ -1,4 +1,4 @@
-use aeron_glide::{AeronClient, ExclusivePublication, Publication};
+use aeron_glide::{AeronClient, ExclusivePublication, OfferError, Publication};
 use clap::Parser;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -29,13 +29,13 @@ enum Pub {
 }
 
 impl Pub {
-    fn offer(&mut self, buf: &[u8]) -> i64 {
+    fn offer(&mut self, buf: &[u8]) -> Result<i64, OfferError> {
         match self {
             Pub::Regular(p) => p.offer(buf),
             Pub::Exclusive(p) => p.offer(buf),
         }
     }
-    fn try_claim<F>(&mut self, length: usize, handler: F) -> i64
+    fn try_claim<F>(&mut self, length: usize, handler: F) -> Result<i64, OfferError>
     where
         F: FnMut(&mut [u8]) -> bool,
     {
@@ -91,16 +91,18 @@ fn main() {
 
     for i in 0..10u32 {
         if args.zero_copy {
-            while publ.try_claim(5, |buf| {
-                buf[..5].copy_from_slice(b"ping!");
-                true
-            }) < 0
+            while publ
+                .try_claim(5, |buf| {
+                    buf[..5].copy_from_slice(b"ping!");
+                    true
+                })
+                .is_err()
             {
                 thread::yield_now();
             }
         } else {
             let msg = b"ping!";
-            while publ.offer(msg) < 0 {
+            while publ.offer(msg).is_err() {
                 thread::yield_now();
             }
         }

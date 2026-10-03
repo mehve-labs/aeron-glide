@@ -50,7 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut total_messages: u64 = 0;
 
         while running_pub.load(Ordering::Acquire) {
-            while publication.offer(&buffer) < 0 {
+            while publication.offer(&buffer).is_err() {
                 back_pressure_count += 1;
                 if !running_pub.load(Ordering::Acquire) {
                     break;
