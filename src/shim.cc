@@ -198,18 +198,6 @@ bool AeronWrapper::isClosed() const {
 
 namespace {
 
-// Points `slot` at the handler for the duration of a poll, and clears it on exit
-// (including by exception) so the assembler never sees a dangling handler.
-struct ScopedHandler {
-    ScopedHandler(const ControlledFragmentFn *&slot, size_t &ctx_slot, const ControlledFragmentFn &handler, size_t ctx)
-        : slot_(slot) {
-        slot = &handler;
-        ctx_slot = ctx;
-    }
-    ~ScopedHandler() { slot_ = nullptr; }
-    const ControlledFragmentFn *&slot_;
-};
-
 aeron::ControlledPollAction dispatchControlled(
     const ControlledFragmentFn *handler, size_t ctx, aeron::AtomicBuffer& buffer, aeron::util::index_t offset,
     aeron::util::index_t length, aeron::Header& header) {
@@ -222,11 +210,28 @@ aeron::ControlledPollAction dispatchControlled(
 
 } // namespace
 
-SubscriptionWrapper::SubscriptionWrapper(std::shared_ptr<aeron::Subscription> sub)
-    : sub(sub),
-      controlled_assembler_([this](aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
-          return dispatchControlled(controlled_handler_, controlled_ctx_, buffer, offset, length, header);
+AssemblerState::AssemblerState()
+    : assembler_([this](aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
+          return dispatchControlled(handler_, ctx_, buffer, offset, length, header);
       }) {}
+
+AssemblerState::Scope::Scope(AssemblerState &state, const ControlledFragmentFn &handler, size_t ctx) : state_(state) {
+    if (state.handler_ != nullptr) {
+        throw aeron::util::ReentrantException(
+            "an assembled poll on this subscription is already running", SOURCEINFO, EPERM);
+    }
+    state.handler_ = &handler;
+    state.ctx_ = ctx;
+}
+
+// Clears the handler on exit (including by exception) so the assembler never sees
+// a dangling handler.
+AssemblerState::Scope::~Scope() {
+    state_.handler_ = nullptr;
+}
+
+SubscriptionWrapper::SubscriptionWrapper(std::shared_ptr<aeron::Subscription> sub)
+    : sub(sub), assembly_(std::make_shared<AssemblerState>()) {}
 
 SubscriptionWrapper::~SubscriptionWrapper() {}
 
@@ -239,8 +244,8 @@ int SubscriptionWrapper::poll(int fragment_limit, FragmentFn handler, size_t ctx
 }
 
 int SubscriptionWrapper::controlledPollAssembled(int fragment_limit, ControlledFragmentFn handler, size_t ctx) {
-    ScopedHandler scope(controlled_handler_, controlled_ctx_, handler, ctx);
-    return sub->controlledPoll(controlled_assembler_.handler(), fragment_limit);
+    AssemblerState::Scope scope(*assembly_, handler, ctx);
+    return sub->controlledPoll(assembly_->assembler().handler(), fragment_limit);
 }
 
 int SubscriptionWrapper::controlledPoll(int fragment_limit, ControlledFragmentFn handler, size_t ctx) {
@@ -261,14 +266,14 @@ int64_t SubscriptionWrapper::blockPoll(int block_length_limit, BlockFn handler, 
 }
 
 std::unique_ptr<ImageListWrapper> SubscriptionWrapper::copyOfImageList() const {
-    return std::unique_ptr<ImageListWrapper>(new ImageListWrapper(sub->copyOfImageList(), sub));
+    return std::unique_ptr<ImageListWrapper>(new ImageListWrapper(sub->copyOfImageList(), sub, assembly_));
 }
 
 std::unique_ptr<ImageWrapper> ImageListWrapper::get(size_t index) const {
     if (!images_ || index >= images_->size()) {
         return nullptr;
     }
-    return std::unique_ptr<ImageWrapper>(new ImageWrapper((*images_)[index], subscription_));
+    return std::unique_ptr<ImageWrapper>(new ImageWrapper((*images_)[index], subscription_, assembly_));
 }
 
 bool SubscriptionWrapper::isConnected() const {
@@ -276,7 +281,7 @@ bool SubscriptionWrapper::isConnected() const {
 }
 
 bool SubscriptionWrapper::deleteSessionBuffer(int32_t session_id) {
-    return controlled_assembler_.deleteSessionBuffer(session_id);
+    return assembly_->assembler().deleteSessionBuffer(session_id);
 }
 
 int SubscriptionWrapper::imageCount() const {
@@ -288,7 +293,7 @@ int SubscriptionWrapper::imageCount() const {
 std::unique_ptr<ImageWrapper> SubscriptionWrapper::imageByIndex(size_t index) const {
     try {
         auto image = sub->imageByIndex(index);
-        return image ? std::unique_ptr<ImageWrapper>(new ImageWrapper(image, sub)) : nullptr;
+        return image ? std::unique_ptr<ImageWrapper>(new ImageWrapper(image, sub, assembly_)) : nullptr;
     } catch (...) {
         return nullptr;
     }
@@ -297,7 +302,7 @@ std::unique_ptr<ImageWrapper> SubscriptionWrapper::imageByIndex(size_t index) co
 std::unique_ptr<ImageWrapper> SubscriptionWrapper::imageBySessionId(int32_t session_id) const {
     try {
         auto image = sub->imageBySessionId(session_id);
-        return image ? std::unique_ptr<ImageWrapper>(new ImageWrapper(image, sub)) : nullptr;
+        return image ? std::unique_ptr<ImageWrapper>(new ImageWrapper(image, sub, assembly_)) : nullptr;
     } catch (...) {
         return nullptr;
     }
@@ -305,12 +310,9 @@ std::unique_ptr<ImageWrapper> SubscriptionWrapper::imageBySessionId(int32_t sess
 
 // ImageWrapper
 
-ImageWrapper::ImageWrapper(std::shared_ptr<aeron::Image> image, std::shared_ptr<aeron::Subscription> subscription)
-    : subscription_(std::move(subscription)),
-      image_(std::move(image)),
-      controlled_assembler_([this](aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
-          return dispatchControlled(controlled_handler_, controlled_ctx_, buffer, offset, length, header);
-      }) {}
+ImageWrapper::ImageWrapper(std::shared_ptr<aeron::Image> image, std::shared_ptr<aeron::Subscription> subscription,
+                           std::shared_ptr<AssemblerState> assembly)
+    : subscription_(std::move(subscription)), image_(std::move(image)), assembly_(std::move(assembly)) {}
 
 ImageWrapper::~ImageWrapper() {}
 
@@ -355,8 +357,8 @@ int ImageWrapper::poll(int fragment_limit, FragmentFn handler, size_t ctx) {
 }
 
 int ImageWrapper::controlledPollAssembled(int fragment_limit, ControlledFragmentFn handler, size_t ctx) {
-    ScopedHandler scope(controlled_handler_, controlled_ctx_, handler, ctx);
-    return image_->controlledPoll(controlled_assembler_.handler(), fragment_limit);
+    AssemblerState::Scope scope(*assembly_, handler, ctx);
+    return image_->controlledPoll(assembly_->assembler().handler(), fragment_limit);
 }
 
 int ImageWrapper::controlledPoll(int fragment_limit, ControlledFragmentFn handler, size_t ctx) {
@@ -642,6 +644,7 @@ std::unique_ptr<ArchiveWrapper> connect_archive(
 
 ReplayMergeWrapper::ReplayMergeWrapper(
     const std::shared_ptr<aeron::Subscription>& subscription,
+    std::shared_ptr<AssemblerState> assembly,
     const std::shared_ptr<aeron::archive::client::AeronArchive>& archive,
     const std::string& replayChannel,
     const std::string& replayDestination,
@@ -650,6 +653,7 @@ ReplayMergeWrapper::ReplayMergeWrapper(
     int64_t startPosition,
     int64_t mergeProgressTimeoutMs)
     : subscription_(subscription),
+      assembly_(std::move(assembly)),
       merge_(std::make_unique<aeron::archive::client::ReplayMerge>(
           subscription, archive, replayChannel, replayDestination,
           liveDestination, recordingId, startPosition,
@@ -673,7 +677,7 @@ int ReplayMergeWrapper::poll(int fragment_limit, FragmentFn handler, size_t ctx)
 std::unique_ptr<ImageWrapper> ReplayMergeWrapper::image() {
     try {
         auto img = merge_->image();
-        return img ? std::unique_ptr<ImageWrapper>(new ImageWrapper(img, subscription_)) : nullptr;
+        return img ? std::unique_ptr<ImageWrapper>(new ImageWrapper(img, subscription_, assembly_)) : nullptr;
     } catch (...) {
         return nullptr;
     }
@@ -702,6 +706,7 @@ std::unique_ptr<ReplayMergeWrapper> create_replay_merge(
     int64_t merge_progress_timeout_ms) {
     return std::make_unique<ReplayMergeWrapper>(
         subscription.sharedSubscription(),
+        subscription.sharedAssembly(),
         archive.sharedArchive(),
         std::string(replay_channel.data(), replay_channel.size()),
         std::string(replay_destination.data(), replay_destination.size()),

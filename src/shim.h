@@ -6,7 +6,6 @@
 #include <string>
 #include <Aeron.h>
 #include <ControlledFragmentAssembler.h>
-#include <ImageControlledFragmentAssembler.h>
 #include "rust/cxx.h"
 
 #ifdef AERON_ARCHIVE
@@ -273,18 +272,50 @@ using ExclusivePublicationWrapper = PublicationWrapperT<aeron::ExclusivePublicat
 
 class ImageWrapper; // forward declaration
 
+// The reassembly state of a subscription (a C++ ControlledFragmentAssembler, keyed
+// by session id), shared by the subscription and all of its Image handles so that a
+// message split across polls on different handles is not lost.
+class AssemblerState {
+public:
+    AssemblerState();
+    AssemblerState(const AssemblerState &) = delete;
+    AssemblerState &operator=(const AssemblerState &) = delete;
+
+    aeron::ControlledFragmentAssembler &assembler() { return assembler_; }
+
+    // Installs the handler of one assembled poll. Throws ReentrantException if an
+    // assembled poll using this state is already running: it would modify the buffer
+    // the running handler's message points into.
+    class Scope {
+    public:
+        Scope(AssemblerState &state, const ControlledFragmentFn &handler, size_t ctx);
+        ~Scope();
+
+    private:
+        AssemblerState &state_;
+    };
+
+private:
+    friend class Scope;
+    const ControlledFragmentFn *handler_ = nullptr;
+    size_t ctx_ = 0;
+    aeron::ControlledFragmentAssembler assembler_;
+};
+
 // A snapshot of a subscription's images (Subscription::copyOfImageList).
 class ImageListWrapper {
 public:
     ImageListWrapper(std::shared_ptr<std::vector<std::shared_ptr<aeron::Image>>> images,
-                     std::shared_ptr<aeron::Subscription> subscription)
-        : images_(std::move(images)), subscription_(std::move(subscription)) {}
+                     std::shared_ptr<aeron::Subscription> subscription,
+                     std::shared_ptr<AssemblerState> assembly)
+        : images_(std::move(images)), subscription_(std::move(subscription)), assembly_(std::move(assembly)) {}
     size_t count() const { return images_ ? images_->size() : 0; }
     std::unique_ptr<ImageWrapper> get(size_t index) const;
 
 private:
     std::shared_ptr<std::vector<std::shared_ptr<aeron::Image>>> images_;
     std::shared_ptr<aeron::Subscription> subscription_;
+    std::shared_ptr<AssemblerState> assembly_;
 };
 
 class SubscriptionWrapper {
@@ -329,20 +360,21 @@ public:
 
     // Internal accessor for ReplayMerge (not exposed through cxx)
     const std::shared_ptr<aeron::Subscription>& sharedSubscription() const { return sub; }
+    const std::shared_ptr<AssemblerState>& sharedAssembly() const { return assembly_; }
 
 private:
     std::shared_ptr<aeron::Subscription> sub;
     // Handler of the controlledPollAssembled call in progress, used by the assembler.
-    const ControlledFragmentFn *controlled_handler_ = nullptr;
-    size_t controlled_ctx_ = 0;
-    aeron::ControlledFragmentAssembler controlled_assembler_;
+    std::shared_ptr<AssemblerState> assembly_;
 };
 
 class ImageWrapper {
 public:
     // `subscription` owns the image: aeron::Image only holds raw C pointers, so the
     // subscription (and through it the client) must outlive it.
-    ImageWrapper(std::shared_ptr<aeron::Image> image, std::shared_ptr<aeron::Subscription> subscription);
+    // `assembly` is the subscription's shared reassembly state.
+    ImageWrapper(std::shared_ptr<aeron::Image> image, std::shared_ptr<aeron::Subscription> subscription,
+                 std::shared_ptr<AssemblerState> assembly);
     ~ImageWrapper();
 
     // Metadata
@@ -381,9 +413,7 @@ private:
     std::shared_ptr<aeron::Subscription> subscription_;
     std::shared_ptr<aeron::Image> image_;
     // Handler of the controlledPollAssembled call in progress, used by the assembler.
-    const ControlledFragmentFn *controlled_handler_ = nullptr;
-    size_t controlled_ctx_ = 0;
-    aeron::ImageControlledFragmentAssembler controlled_assembler_;
+    std::shared_ptr<AssemblerState> assembly_;
 };
 
 class CountersReaderWrapper {
@@ -481,6 +511,7 @@ class ReplayMergeWrapper {
 public:
     ReplayMergeWrapper(
         const std::shared_ptr<aeron::Subscription>& subscription,
+        std::shared_ptr<AssemblerState> assembly,
         const std::shared_ptr<aeron::archive::client::AeronArchive>& archive,
         const std::string& replayChannel,
         const std::string& replayDestination,
@@ -499,6 +530,7 @@ public:
 
 private:
     std::shared_ptr<aeron::Subscription> subscription_;
+    std::shared_ptr<AssemblerState> assembly_;
     std::unique_ptr<aeron::archive::client::ReplayMerge> merge_;
 };
 

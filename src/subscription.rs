@@ -86,6 +86,10 @@ impl Subscription {
     /// The handler can return `()` (maps to Continue) or a `ControlledAction` for
     /// flow-control (Abort to retry, Break to stop, Commit to checkpoint, Continue to proceed).
     ///
+    /// Reassembly buffers are kept per publisher session and shared with this
+    /// subscription's [`Image`] handles; free one with
+    /// [`delete_session_buffer`](Self::delete_session_buffer).
+    ///
     /// # Panics
     ///
     /// If `handler` panics, the panic is resumed once Aeron returns from the poll;
@@ -269,8 +273,8 @@ impl Subscription {
     /// Images appear in the order they were connected.
     ///
     /// The image borrows this subscription, so the subscription cannot be polled
-    /// (or dropped) while the image is alive. Each call returns a new handle with
-    /// its own reassembly state (see [`Image::poll_assembled`]).
+    /// (or dropped) while the image is alive. Handles share the subscription's
+    /// reassembly state (see [`Image::poll_assembled`]).
     pub fn image_by_index(&self, index: usize) -> Option<Image<'_>> {
         Image::from_raw(self.inner.imageByIndex(index))
     }

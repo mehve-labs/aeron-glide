@@ -73,6 +73,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reassembly state is shared by a subscription and all of its `Image` handles
+  (one C++ `ControlledFragmentAssembler` per subscription), so a message whose
+  fragments are polled through different handles is no longer lost. A nested
+  assembled poll on the same subscription now fails with
+  `ErrorKind::Reentrant` instead of corrupting the buffer the outer handler is
+  reading.
 - `ExclusivePublication::channel_status` failed to link (Aeron 1.53.3 declares
   the C++ method but never defines it), and `local_socket_addresses` on
   publications read an uninitialised buffer for IPC or inactive channels (an

@@ -221,10 +221,10 @@ impl Image<'_> {
     /// Poll this image with automatic fragment reassembly, like
     /// [`Subscription::poll_assembled`].
     ///
-    /// Reassembly state belongs to this `Image` handle: if a message's fragments
-    /// are split across `poll_assembled` calls on different handles for the same
-    /// session (e.g. after fetching the image again), the partial message is lost.
-    /// Keep one `Image` for as long as you reassemble from it.
+    /// Reassembly state is shared with the subscription and its other `Image`
+    /// handles, so a message may be completed by any of them. Fails with
+    /// [`ErrorKind::Reentrant`](crate::ErrorKind::Reentrant) if called from inside
+    /// another assembled poll on the same subscription.
     ///
     /// # Panics
     ///
