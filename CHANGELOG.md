@@ -97,6 +97,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Strings with an interior NUL (channels, destinations, directories, client
+  name, image rejection reasons, media driver and archive settings) were
+  silently cut short at the NUL; they now fail with `IllegalArgument`.
 - `archive::NULL_POSITION` / `NULL_LENGTH` were `i64::MIN`; Aeron's null value
   is -1, so replays "from the start" or "to the end" used invalid values.
 - `ReplayMerge`'s default progress timeout is the C++ 5 seconds (was 10).

@@ -76,6 +76,17 @@ inline std::string encode_exception(const std::exception &e) {
     return out;
 }
 
+// A Rust string passed on as a C string: an interior NUL would silently cut
+// it short, so it is rejected.
+inline std::string cString(rust::Str s) {
+    std::string out(s.data(), s.size());
+    if (out.find('\0') != std::string::npos) {
+        throw aeron::util::IllegalArgumentException(
+            "string contains a NUL character: " + out.substr(0, out.find('\0')), SOURCEINFO, EINVAL);
+    }
+    return out;
+}
+
 } // namespace detail
 } // namespace aeron_rs
 
@@ -233,7 +244,7 @@ public:
     // A copy of `value` that lives as long as this wrapper: some C setters keep
     // the pointer they are given instead of copying the string.
     const char *keep(rust::Str value) {
-        strings_.emplace_back(value.data(), value.size());
+        strings_.push_back(detail::cString(value));
         return strings_.back().c_str();
     }
 
@@ -315,11 +326,11 @@ public:
     // findDestinationResponse until the driver has applied the change.
     int64_t addDestination(rust::Str endpoint) const {
         ConductorLock::Guard guard(lock_);
-        return pub->addDestination(std::string(endpoint));
+        return pub->addDestination(detail::cString(endpoint));
     }
     int64_t removeDestination(rust::Str endpoint) const {
         ConductorLock::Guard guard(lock_);
-        return pub->removeDestination(std::string(endpoint));
+        return pub->removeDestination(detail::cString(endpoint));
     }
     int64_t removeDestinationById(int64_t registrationId) const {
         ConductorLock::Guard guard(lock_);
@@ -467,11 +478,11 @@ public:
     // Multi-destination subscriptions (P5).
     int64_t addDestination(rust::Str endpoint) const {
         ConductorLock::Guard guard(assembly_->conductorLock);
-        return sub->addDestination(std::string(endpoint));
+        return sub->addDestination(detail::cString(endpoint));
     }
     int64_t removeDestination(rust::Str endpoint) const {
         ConductorLock::Guard guard(assembly_->conductorLock);
-        return sub->removeDestination(std::string(endpoint));
+        return sub->removeDestination(detail::cString(endpoint));
     }
     bool findDestinationResponse(int64_t correlationId) const {
         ConductorLock::Guard guard(assembly_->conductorLock);
@@ -533,7 +544,7 @@ public:
     int64_t subscriptionRegistrationId() const { return image_->subscriptionRegistrationId(); }
     bool isPublicationRevoked() const { return image_->isPublicationRevoked(); }
     int32_t activeTransportCount() const { return image_->activeTransportCount(); }
-    void reject(rust::Str reason) const { image_->reject(std::string(reason)); }
+    void reject(rust::Str reason) const { image_->reject(detail::cString(reason)); }
 
 private:
     std::shared_ptr<aeron::Subscription> subscription_;
@@ -762,7 +773,7 @@ private:
 
 // Static aeron::Context utilities (P13).
 inline bool requestDriverTermination(rust::Str directory, rust::Slice<const uint8_t> token) {
-    return aeron::Context::requestDriverTermination(std::string(directory), token.data(), token.size());
+    return aeron::Context::requestDriverTermination(detail::cString(directory), token.data(), token.size());
 }
 inline rust::String defaultAeronPath() { return rust::String::lossy(aeron::Context::defaultAeronPath()); }
 

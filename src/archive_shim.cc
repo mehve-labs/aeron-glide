@@ -24,7 +24,7 @@ rust::Slice<const uint8_t> bytesOf(const char *data, size_t length) {
 
 rust::Slice<const uint8_t> bytesOf(const std::string &s) { return bytesOf(s.data(), s.size()); }
 
-std::string str(rust::Str s) { return std::string(s.data(), s.size()); }
+std::string str(rust::Str s) { return detail::cString(s); }
 
 arc::AeronArchive::SourceLocation sourceLocation(int32_t value) {
     return value == 0 ? arc::AeronArchive::SourceLocation::LOCAL : arc::AeronArchive::SourceLocation::REMOTE;

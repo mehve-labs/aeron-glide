@@ -155,3 +155,37 @@ fn resources_format_with_debug() {
     assert!(output.contains("PendingAdd"), "{output}");
     assert!(format!("{:?}", driver.driver()).contains(&driver.dir));
 }
+
+#[test]
+fn interior_nul_characters_are_rejected() {
+    let driver = TestDriver::start();
+    let client = driver.client();
+    for result in [
+        client.add_publication("aeron:ipc\0junk", 1).map(drop),
+        client.add_subscription("aeron:ipc\0junk", 1).map(drop),
+        client
+            .add_exclusive_publication("aeron:ipc\0junk", 1)
+            .map(drop),
+    ] {
+        assert_eq!(result.unwrap_err().kind(), ErrorKind::IllegalArgument);
+    }
+    let publication = client
+        .add_publication("aeron:udp?control=localhost:40999|control-mode=manual", 2)
+        .unwrap();
+    assert_eq!(
+        publication
+            .add_destination("aeron:udp?endpoint=localhost:1\0")
+            .unwrap_err()
+            .kind(),
+        ErrorKind::IllegalArgument
+    );
+    let err =
+        aeron_glide::AeronClient::connect(Context::new().aeron_dir(format!("{}\0x", driver.dir)))
+            .expect_err("NUL in the directory");
+    assert_eq!(err.kind(), ErrorKind::IllegalArgument, "{err}");
+    let err = aeron_glide::MediaDriver::builder()
+        .dir("/tmp/a\0b")
+        .start()
+        .expect_err("NUL in the directory");
+    assert_eq!(err.kind(), ErrorKind::IllegalArgument, "{err}");
+}

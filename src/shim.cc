@@ -208,11 +208,11 @@ ContextWrapper::ContextWrapper() : ctx(std::make_shared<aeron::Context>()) {
 ContextWrapper::~ContextWrapper() {}
 
 void ContextWrapper::setAeronDir(rust::Str dir) {
-    ctx->aeronDir(std::string(dir.data(), dir.size()));
+    ctx->aeronDir(detail::cString(dir));
 }
 
 void ContextWrapper::setClientName(rust::Str name) {
-    ctx->clientName(std::string(name.data(), name.size()));
+    ctx->clientName(detail::cString(name));
 }
 
 void ContextWrapper::setDriverTimeoutMs(int64_t value) {
@@ -302,7 +302,7 @@ int64_t AeronWrapper::addSubscriptionWithImageHandlers(
     auto available = imageHandler("available image", on_available, release_available, available_ctx);
     auto unavailable = imageHandler("unavailable image", on_unavailable, release_unavailable, unavailable_ctx);
     ConductorLock::Guard guard(lock_);
-    return aeron->addSubscription(std::string(channel.data(), channel.size()), stream_id, available, unavailable);
+    return aeron->addSubscription(detail::cString(channel), stream_id, available, unavailable);
 }
 
 int64_t AeronWrapper::addAvailableCounterHandler(CounterEventFn handler, ReleaseFn release, size_t context) const {
@@ -778,17 +778,17 @@ std::unique_ptr<CncFileWrapper> mapCncFile(rust::Str directory, int64_t timeout_
 
 int64_t AeronWrapper::addPublication(rust::Str channel, int32_t stream_id) const {
     ConductorLock::Guard guard(lock_);
-    return aeron->addPublication(std::string(channel.data(), channel.size()), stream_id);
+    return aeron->addPublication(detail::cString(channel), stream_id);
 }
 
 int64_t AeronWrapper::addExclusivePublication(rust::Str channel, int32_t stream_id) const {
     ConductorLock::Guard guard(lock_);
-    return aeron->addExclusivePublication(std::string(channel.data(), channel.size()), stream_id);
+    return aeron->addExclusivePublication(detail::cString(channel), stream_id);
 }
 
 int64_t AeronWrapper::addSubscription(rust::Str channel, int32_t stream_id) const {
     ConductorLock::Guard guard(lock_);
-    return aeron->addSubscription(std::string(channel.data(), channel.size()), stream_id);
+    return aeron->addSubscription(detail::cString(channel), stream_id);
 }
 
 std::unique_ptr<PublicationWrapper> AeronWrapper::findPublication(int64_t registration_id) const {
