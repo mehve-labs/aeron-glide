@@ -184,20 +184,28 @@ cargo run --features archive --example replay
 
 ### Archive Client API
 
-The archive client API provides:
-- **Recording**: start/stop recording any channel+stream to the archive
-- **Replay**: replay recorded streams from any position
-- **Listing**: query recording descriptors by ID, channel, or stream
-- **Position queries**: get recording/start/stop/max positions
-- **Truncation**: truncate stopped recordings
+The archive client covers the C++ `AeronArchive` API:
+- **Connecting**: `archive::Context` (shared client, channels, timeouts, idle
+  strategy, credentials, recording signals), blocking or asynchronous
+- **Recording**: recorded publications, start/stop/extend recordings, purge,
+  truncate, update channels, segment management
+- **Replay**: `replay` / `start_replay` with `ReplayParams` (positions, lengths,
+  bounded replays), `ReplayMerge`, and `PersistentSubscription` (replay, then
+  follow the live stream)
+- **Queries**: recording descriptors, recording subscriptions, positions,
+  recording position counters (`archive::recording_pos`)
+- **Replication** between archives, and typed `ArchiveErrorCode`s
 
 ```rust
-use aeron_glide::archive::{AeronArchive, SourceLocation};
+use aeron_glide::AeronClient;
+use aeron_glide::archive::{self, ReplayParams, SourceLocation};
 
-let mut archive = AeronArchive::connect(
-    "aeron:udp?endpoint=localhost:8010", 10,  // control request
-    "aeron:udp?endpoint=localhost:0", 20,     // control response
-)?;
+let client = AeronClient::new()?;
+let archive = archive::Context::new()
+    .aeron(&client)
+    .control_request_channel("aeron:udp?endpoint=localhost:8010")
+    .control_response_channel("aeron:udp?endpoint=localhost:0")
+    .connect()?;
 
 // Start recording
 let sub_id = archive.start_recording("aeron:ipc", 1001, SourceLocation::Local, false)?;
@@ -207,9 +215,14 @@ archive.list_recordings(0, 100, |desc| {
     println!("Recording {}: stream={} channel={}", desc.recording_id, desc.stream_id, desc.stripped_channel);
 })?;
 
-// Replay
-let replay_session = archive.start_replay(0, "aeron:ipc", 1002, 0, i64::MAX)?;
+// Replay recording 0 from its start into a new subscription
+let mut replay = archive.replay(0, "aeron:ipc", 1002, &ReplayParams::new().position(0))?;
+replay.poll(10, |data, _| println!("{} bytes", data.len()))?;
 ```
+
+The archive tests (`cargo test --features archive`) start a Java
+`ArchivingMediaDriver` per test and are skipped when Java or the jar is not
+available (set `AERON_GLIDE_REQUIRE_ARCHIVE=1` to fail instead).
 
 ## Documentation
 

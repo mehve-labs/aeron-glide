@@ -1,0 +1,172 @@
+//! Merging a replay with a live stream ([`ReplayMerge`]).
+
+use super::client::AeronArchive;
+use super::ffi;
+use crate::Result;
+use crate::callback::{self, Callback};
+use std::marker::PhantomData;
+
+/// Default timeout for replay merge progress (C++
+/// `REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT_MS`).
+pub const REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT_MS: i64 = 5_000;
+
+/// Merges a replay of a recording with the live stream it records (C++
+/// `ReplayMerge`): a late joiner catches up from the archive, then switches to
+/// the live stream without a gap. UDP only.
+///
+/// The subscription must use `control-mode=manual`: the merge adds the replay
+/// and live destinations to it. It mutably borrows the subscription for its
+/// whole life, as it polls it internally.
+///
+/// ```compile_fail,E0505
+/// # use aeron_glide::{AeronClient, archive::{AeronArchive, ReplayMerge}};
+/// # let client = AeronClient::new().unwrap();
+/// # let archive = AeronArchive::connect_default().unwrap();
+/// let mut sub = client.add_subscription("aeron:udp?control-mode=manual", 1).unwrap();
+/// let mut merge = ReplayMerge::new(&mut sub, &archive, "", "", "", 0, 0).unwrap();
+/// std::thread::spawn(move || sub.poll(10, |_, _| {})); // error: `sub` is borrowed
+/// merge.do_work().unwrap();
+/// ```
+pub struct ReplayMerge<'a> {
+    inner: cxx::UniquePtr<ffi::ReplayMergeWrapper>,
+    _subscription: PhantomData<&'a mut crate::Subscription>,
+}
+
+impl Drop for ReplayMerge<'_> {
+    fn drop(&mut self) {
+        callback::drop_outside_conductor(&mut self.inner);
+    }
+}
+
+// SAFETY: it holds the subscription (borrowed mutably) and the archive client
+// (`Send + Sync`) through `shared_ptr`s, and is only used through `&mut self`.
+unsafe impl Send for ReplayMerge<'_> {}
+
+impl std::fmt::Debug for ReplayMerge<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReplayMerge")
+            .field("is_merged", &self.is_merged())
+            .field("has_failed", &self.has_failed())
+            .finish_non_exhaustive()
+    }
+}
+
+impl<'a> ReplayMerge<'a> {
+    /// Start merging, with the default progress timeout.
+    ///
+    /// - `replay_channel`: the channel the archive replays to, e.g.
+    ///   `aeron:udp?endpoint=localhost:0`.
+    /// - `replay_destination`: the destination added to `subscription` for the
+    ///   replay, e.g. `aeron:udp?endpoint=localhost:0`.
+    /// - `live_destination`: the destination added for the live stream.
+    /// - `recording_id` and `start_position`: what to replay from.
+    pub fn new(
+        subscription: &'a mut crate::Subscription,
+        archive: &AeronArchive,
+        replay_channel: &str,
+        replay_destination: &str,
+        live_destination: &str,
+        recording_id: i64,
+        start_position: i64,
+    ) -> Result<Self> {
+        Self::with_progress_timeout(
+            subscription,
+            archive,
+            replay_channel,
+            replay_destination,
+            live_destination,
+            recording_id,
+            start_position,
+            std::time::Duration::from_millis(REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT_MS as u64),
+        )
+    }
+
+    /// Like [`new`](Self::new), failing the merge if it makes no progress for
+    /// `merge_progress_timeout`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_progress_timeout(
+        subscription: &'a mut crate::Subscription,
+        archive: &AeronArchive,
+        replay_channel: &str,
+        replay_destination: &str,
+        live_destination: &str,
+        recording_id: i64,
+        start_position: i64,
+        merge_progress_timeout: std::time::Duration,
+    ) -> Result<Self> {
+        let inner = ffi::create_replay_merge(
+            subscription.inner_pin_mut(),
+            archive.wrapper(),
+            replay_channel,
+            replay_destination,
+            live_destination,
+            recording_id,
+            start_position,
+            i64::try_from(merge_progress_timeout.as_millis()).unwrap_or(i64::MAX),
+        )?;
+        Ok(Self {
+            inner,
+            _subscription: PhantomData,
+        })
+    }
+
+    /// Drive the merge. Call it regularly (or use [`poll`](Self::poll)). Returns
+    /// the amount of work done.
+    pub fn do_work(&mut self) -> Result<i32> {
+        Ok(self.inner.pin_mut().doWork()?)
+    }
+
+    /// Drive the merge and poll the merged stream (C++ `ReplayMerge::poll`).
+    ///
+    /// # Panics
+    ///
+    /// If `handler` panics, the panic is resumed once Aeron returns from the poll;
+    /// the remaining fragments of this poll are consumed without being delivered.
+    pub fn poll<F>(&mut self, fragment_limit: i32, handler: F) -> Result<i32>
+    where
+        F: FnMut(&[u8], &crate::Header),
+    {
+        let mut cb = Callback::new(handler);
+        let result = self
+            .inner
+            .pin_mut()
+            .poll(fragment_limit, callback::fragment::<F>, cb.ctx());
+        Ok(cb.finish(result)?)
+    }
+
+    /// Drive the merge and poll for reassembled messages:
+    /// [`do_work`](Self::do_work), then `Image::poll_assembled` on the image
+    /// being merged, if there is one yet.
+    pub fn poll_assembled<R, F>(&mut self, fragment_limit: i32, handler: F) -> Result<i32>
+    where
+        R: crate::PollAction,
+        F: FnMut(&[u8], &crate::Header) -> R,
+    {
+        self.do_work()?;
+        match self.image() {
+            Some(mut image) => image.poll_assembled(fragment_limit, handler),
+            None => Ok(0),
+        }
+    }
+
+    /// The image being merged, once the replay has started. It borrows the
+    /// merge, so the merge cannot be polled while it is alive.
+    pub fn image(&mut self) -> Option<crate::Image<'_>> {
+        crate::Image::from_raw(self.inner.pin_mut().image())
+    }
+
+    /// Returns `true` once the replay has merged with the live stream.
+    pub fn is_merged(&self) -> bool {
+        self.inner.isMerged()
+    }
+
+    /// Returns `true` if the merge failed.
+    pub fn has_failed(&self) -> bool {
+        self.inner.hasFailed()
+    }
+
+    /// Returns `true` once the live destination has been added.
+    pub fn is_live_added(&self) -> bool {
+        self.inner.isLiveAdded()
+    }
+}

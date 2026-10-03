@@ -1,5 +1,5 @@
 use aeron_glide::AeronClient;
-use aeron_glide::archive::{AeronArchive, SourceLocation};
+use aeron_glide::archive::{self, SourceLocation};
 use std::thread;
 use std::time::Duration;
 
@@ -9,12 +9,12 @@ const MESSAGE_COUNT: usize = 10;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Connecting to Aeron Archive...");
-    let mut archive = AeronArchive::connect(
-        "aeron:udp?endpoint=localhost:8010",
-        10,
-        "aeron:udp?endpoint=localhost:0",
-        20,
-    )?;
+    let archive = archive::Context::new()
+        .control_request_channel("aeron:udp?endpoint=localhost:8010")
+        .control_request_stream_id(10)
+        .control_response_channel("aeron:udp?endpoint=localhost:0")
+        .control_response_stream_id(20)
+        .connect()?;
     println!(
         "Connected (archive_id={}, session={})",
         archive.archive_id(),

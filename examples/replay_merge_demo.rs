@@ -1,5 +1,5 @@
 use aeron_glide::AeronClient;
-use aeron_glide::archive::{AeronArchive, ReplayMerge, SourceLocation};
+use aeron_glide::archive::{self, ReplayMerge, SourceLocation};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -20,12 +20,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- Setup ---
     println!("Connecting to Aeron Archive...");
-    let mut archive = AeronArchive::connect(
-        "aeron:udp?endpoint=localhost:8010",
-        10,
-        "aeron:udp?endpoint=localhost:0",
-        20,
-    )?;
+    let archive = archive::Context::new()
+        .control_request_channel("aeron:udp?endpoint=localhost:8010")
+        .control_request_stream_id(10)
+        .control_response_channel("aeron:udp?endpoint=localhost:0")
+        .control_response_stream_id(20)
+        .connect()?;
     println!(
         "Archive connected (id={}, session={})\n",
         archive.archive_id(),
@@ -133,7 +133,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut merge = ReplayMerge::new(
         &mut sub,
-        &mut archive,
+        &archive,
         &replay_channel,
         &replay_destination,
         &live_destination,

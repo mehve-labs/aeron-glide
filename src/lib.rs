@@ -36,7 +36,7 @@
 //! - **Image** access for per-session stream inspection
 //! - **Counters**: create your own ([`Counter`]) and read the driver's statistics ([`CountersReader`])
 //! - **Embedded media driver** ([`MediaDriver`]) with full configuration
-//! - **Archive client** (behind the `archive` feature flag): recording, replay, listing, and `ReplayMerge`
+//! - **Archive client** (behind the `archive` feature flag): recording, replay, replication, queries, `ReplayMerge` and `PersistentSubscription`
 //!
 //! # Thread safety
 //!
@@ -634,6 +634,15 @@ mod tests {
         send_sync::<MediaDriver>();
         send::<ExclusivePublication>();
         send::<Subscription>();
+        #[cfg(feature = "archive")]
+        {
+            send_sync::<archive::AeronArchive>();
+            send::<archive::AsyncConnect>();
+            send::<archive::Context>();
+            send::<archive::ReplayMerge<'static>>();
+            send::<archive::PersistentSubscription>();
+            send::<archive::PersistentSubscriptionBuilder>();
+        }
     }
 
     #[test]
@@ -660,6 +669,14 @@ mod tests {
         {
             debug::<archive::AeronArchive>();
             debug::<archive::ReplayMerge<'static>>();
+            debug::<archive::AsyncConnect>();
+            debug::<archive::Context>();
+            debug::<archive::ContextInfo>();
+            debug::<archive::PersistentSubscription>();
+            debug::<archive::PersistentSubscriptionBuilder>();
+            debug::<archive::ReplayParams>();
+            debug::<archive::ReplicationParams>();
+            debug::<archive::RecordingSignal>();
         }
     }
 }

@@ -60,6 +60,10 @@ wait with `common::wait_until` (it has a deadline) rather than open-ended loops.
   API, is the exception. Header-only C++ value types with no client state
   (the channel URI builder and parser) are ported to Rust instead of bound,
   keeping their output and validation, with Aeron's own test cases ported.
+- **Archive tests.** `tests/archive.rs` starts a Java `ArchivingMediaDriver`
+  (from the `aeron-all` jar the `archive` feature builds) per test; they are
+  skipped without Java unless `AERON_GLIDE_REQUIRE_ARCHIVE=1` is set, as it
+  should be in CI.
 - **Generated code.** `src/driver_gen.rs` and `src/driver_gen.h` (media driver
   settings) are generated from Aeron's `aeronmd.h` by
   `scripts/gen_driver_context.py`, and `src/counter_types.rs` and

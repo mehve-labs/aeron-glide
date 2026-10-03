@@ -5,6 +5,9 @@
 
 #![allow(dead_code)]
 
+#[cfg(feature = "archive")]
+pub mod archive;
+
 use aeron_glide::{
     AeronClient, Context, MediaDriver, MediaDriverBuilder, Subscription, ThreadingMode,
 };

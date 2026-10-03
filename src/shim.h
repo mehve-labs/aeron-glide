@@ -330,6 +330,9 @@ public:
         return pub->findDestinationResponse(correlationId);
     }
 
+    // For the archive shim (not bridged).
+    const std::shared_ptr<P> &shared() const { return pub; }
+
     // Exclusive publications only. revoke() frees the C publication; the Rust side
     // consumes the publication so nothing can be called on it afterwards.
     void revoke() const {
@@ -611,6 +614,10 @@ public:
 #endif
     }
 
+    // For the archive shim (not bridged).
+    const std::shared_ptr<aeron::Counter> &sharedCounter() const { return counter_; }
+    const std::shared_ptr<const void> &keepalive() const { return keepalive_; }
+
 private:
     std::shared_ptr<aeron::Counter> counter_;
     int64_t *addr_;
@@ -655,6 +662,9 @@ public:
         return counter_id >= 0 && counter_id <= reader_->maxCounterId() &&
                aeron::HeartbeatTimestamp::isActive(*reader_, counter_id, type_id, registration_id);
     }
+
+    // For the archive shim (not bridged).
+    aeron::CountersReader &reader() const { return *reader_; }
 
 private:
     void validateCounterId(int32_t id) const;
@@ -740,7 +750,11 @@ public:
     int64_t addCloseClientHandler(CloseClientFn handler, ReleaseFn release, size_t ctx) const;
     void removeCloseClientHandler(int64_t registration_id) const;
     std::unique_ptr<CountersReaderWrapper> countersReader() const;
-    
+
+    // For the archive shim (not bridged).
+    const std::shared_ptr<aeron::Aeron> &sharedAeron() const { return aeron; }
+    const std::shared_ptr<ConductorLock> &conductorLock() const { return lock_; }
+
 private:
     std::shared_ptr<aeron::Aeron> aeron;
     std::shared_ptr<ConductorLock> lock_;
@@ -757,98 +771,5 @@ std::unique_ptr<ContextWrapper> create_context();
 std::unique_ptr<AeronWrapper> create_aeron(std::unique_ptr<ContextWrapper> context);
 std::unique_ptr<MediaDriverWrapper> create_media_driver();
 
-#ifdef AERON_ARCHIVE
-// (ctx, control_session_id, correlation_id, recording_id, start_timestamp, stop_timestamp,
-//  start_position, stop_position, initial_term_id, segment_file_length, term_buffer_length,
-//  mtu_length, session_id, stream_id, stripped_channel, original_channel)
-using RecordingDescriptorFn = rust::Fn<void(
-    size_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
-    int32_t, int32_t, int32_t, int32_t, int32_t, int32_t,
-    rust::Slice<const uint8_t>, rust::Slice<const uint8_t>)>;
-
-class ArchiveWrapper {
-public:
-    ArchiveWrapper(std::shared_ptr<aeron::archive::client::AeronArchive> archive);
-    ~ArchiveWrapper();
-
-    // Recording
-    int64_t startRecording(::rust::Str channel, int32_t stream_id, int32_t source_location, bool auto_stop);
-    void stopRecording(int64_t subscription_id);
-    void stopRecordingByChannelAndStream(::rust::Str channel, int32_t stream_id);
-
-    // Position queries
-    int64_t getRecordingPosition(int64_t recording_id);
-    int64_t getStartPosition(int64_t recording_id);
-    int64_t getStopPosition(int64_t recording_id);
-    int64_t getMaxRecordedPosition(int64_t recording_id);
-
-    // Listing
-    int32_t listRecordings(int64_t from_recording_id, int32_t record_count, RecordingDescriptorFn handler, size_t ctx);
-    int32_t listRecordingsForUri(int64_t from_recording_id, int32_t record_count, ::rust::Str channel_fragment, int32_t stream_id, RecordingDescriptorFn handler, size_t ctx);
-    int64_t findLastMatchingRecording(int64_t min_recording_id, ::rust::Str channel_fragment, int32_t stream_id, int32_t session_id);
-
-    // Replay
-    int64_t startReplay(int64_t recording_id, ::rust::Str replay_channel, int32_t replay_stream_id, int64_t position, int64_t length);
-    void stopReplay(int64_t replay_session_id);
-    void stopAllReplays(int64_t recording_id);
-
-    // Truncate
-    int64_t truncateRecording(int64_t recording_id, int64_t position);
-
-    // Error polling
-    ::rust::String pollForErrorResponse();
-    void checkForErrorResponse();
-
-    int64_t archiveId() const;
-    int64_t controlSessionId() const;
-
-    // Internal accessor for ReplayMerge (not exposed through cxx)
-    const std::shared_ptr<aeron::archive::client::AeronArchive>& sharedArchive() const { return archive_; }
-
-private:
-    std::shared_ptr<aeron::archive::client::AeronArchive> archive_;
-};
-
-class ReplayMergeWrapper {
-public:
-    ReplayMergeWrapper(
-        const std::shared_ptr<aeron::Subscription>& subscription,
-        std::shared_ptr<AssemblerState> assembly,
-        const std::shared_ptr<aeron::archive::client::AeronArchive>& archive,
-        const std::string& replayChannel,
-        const std::string& replayDestination,
-        const std::string& liveDestination,
-        int64_t recordingId,
-        int64_t startPosition,
-        int64_t mergeProgressTimeoutMs);
-    ~ReplayMergeWrapper();
-
-    int doWork();
-    int poll(int fragment_limit, FragmentFn handler, size_t ctx);
-    std::unique_ptr<ImageWrapper> image();
-    bool isMerged() const;
-    bool hasFailed() const;
-    bool isLiveAdded() const;
-
-private:
-    std::shared_ptr<aeron::Subscription> subscription_;
-    std::shared_ptr<AssemblerState> assembly_;
-    std::unique_ptr<aeron::archive::client::ReplayMerge> merge_;
-};
-
-std::unique_ptr<ArchiveWrapper> connect_archive(
-    ::rust::Str control_request_channel, int32_t control_request_stream_id,
-    ::rust::Str control_response_channel, int32_t control_response_stream_id);
-
-std::unique_ptr<ReplayMergeWrapper> create_replay_merge(
-    SubscriptionWrapper& subscription,
-    ArchiveWrapper& archive,
-    ::rust::Str replay_channel,
-    ::rust::Str replay_destination,
-    ::rust::Str live_destination,
-    int64_t recording_id,
-    int64_t start_position,
-    int64_t merge_progress_timeout_ms);
-#endif
 
 } // namespace aeron_rs

@@ -102,8 +102,14 @@ fn main() {
     println!("cargo:rerun-if-changed=src/driver_gen.rs");
     println!("cargo:rerun-if-changed=src/driver_gen.h");
     if archive_enabled {
-        bridge_sources.push("src/archive.rs");
-        println!("cargo:rerun-if-changed=src/archive.rs");
+        bridge_sources.push("src/archive/mod.rs");
+        for file in [
+            "src/archive/mod.rs",
+            "src/archive_shim.h",
+            "src/archive_shim.cc",
+        ] {
+            println!("cargo:rerun-if-changed={file}");
+        }
     }
 
     let mut builder = cxx_build::bridges(bridge_sources);
@@ -120,6 +126,7 @@ fn main() {
         .flag_if_supported("-Wno-unused-parameter");
 
     if archive_enabled {
+        builder.file("src/archive_shim.cc");
         let archive_cpp_path = aeron_dir.join("aeron-archive/src/main/cpp_wrapper");
         let archive_c_path = aeron_dir.join("aeron-archive/src/main/c");
         builder

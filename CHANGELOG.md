@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** the archive client follows the C++ API. Connect with
+  `archive::Context` (`.aeron(&client)` shares a client; channels, stream ids,
+  `message_timeout`, `message_retry_attempts`, `idle_strategy`,
+  `delegating_invoker`, `error_handler`, `credentials_supplier`,
+  `recording_signal_consumer`, ...) and `connect()` / `connect_async()`,
+  instead of `AeronArchive::connect(channel, stream, channel, stream)`.
+  `AeronArchive` methods take `&self` (it is `Send + Sync`). `start_replay`
+  takes `&ReplayParams` instead of a position and a length.
+  `RecordingDescriptor` gains `source_identity` and is `#[non_exhaustive]`.
+  `ReplayMerge::new` borrows the archive immutably.
 - **Breaking:** `ChannelBuilder` covers every C++ `ChannelUriStringBuilder`
   option and validates like it: `build()` returns `Result<String>`, failing
   with the first invalid setting (e.g. an MTU that is not a multiple of 32, a
@@ -87,6 +97,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `archive::NULL_POSITION` / `NULL_LENGTH` were `i64::MIN`; Aeron's null value
+  is -1, so replays "from the start" or "to the end" used invalid values.
+- `ReplayMerge`'s default progress timeout is the C++ 5 seconds (was 10).
+- Works around upstream archive client bugs: reading the context's recording
+  events channel when unset crashed, replicating without credentials read
+  uninitialised memory, a custom idle strategy was dropped after connecting,
+  and some requests never ran an agent invoker client's conductor (hanging).
 - `Counter::compare_and_set` could report success without writing on ARM
   (an upstream bug in Aeron's GCC atomics, worked around in the shim).
 - Synchronous adds on a closed client (e.g. after a driver timeout) waited for
@@ -249,6 +266,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   module, with the `response_channel` example and an end-to-end test.
 - The `channel` module with the C++ URI parameter name constants
   (`ENDPOINT_PARAM_NAME`, ...).
+- Archive client (C++ `AeronArchive` parity): `add_recorded_publication`,
+  `add_recorded_exclusive_publication`, `extend_recording`,
+  `try_stop_recording`, `try_stop_recording_by_channel_and_stream`,
+  `try_stop_recording_by_identity`, `stop_recording_publication`,
+  `stop_recording_exclusive_publication`, `purge_recording`, `update_channel`,
+  `list_recording`, `list_recording_subscriptions`
+  (`RecordingSubscriptionDescriptor`), `poll_for_recording_signals`
+  (`RecordingSignal`, `RecordingSignalCode`), `replay` (returns a
+  `Subscription`), `ReplayParams` (bounded replays, file I/O length, replay
+  token, subscription registration id), `replicate` / `stop_replication` /
+  `try_stop_replication` with `ReplicationParams`, segment operations
+  (`detach_segments`, `delete_detached_segments`, `purge_segments`,
+  `attach_segments`, `migrate_segments`, `segment_file_base_position`),
+  `context()` (`ContextInfo`), `AsyncConnect`, `archive::recording_pos`
+  (recording position counters), `PersistentSubscription` /
+  `PersistentSubscriptionBuilder`, `ReplayMerge::with_progress_timeout`, and
+  `ArchiveErrorCode` (`ArchiveErrorCode::of(&error)`).
 - `Debug` for every public type (clients, publications, subscriptions, images,
   counters, contexts, the media driver and archive types); `ChannelBuilder`
   is also `Clone`.

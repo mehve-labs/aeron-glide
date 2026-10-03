@@ -1,5 +1,5 @@
 use aeron_glide::AeronClient;
-use aeron_glide::archive::AeronArchive;
+use aeron_glide::archive::{self, ReplayParams};
 use std::thread;
 use std::time::Duration;
 
@@ -8,12 +8,12 @@ const REPLAY_STREAM_ID: i32 = 1002;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Connecting to Aeron Archive...");
-    let mut archive = AeronArchive::connect(
-        "aeron:udp?endpoint=localhost:8010",
-        10,
-        "aeron:udp?endpoint=localhost:0",
-        20,
-    )?;
+    let archive = archive::Context::new()
+        .control_request_channel("aeron:udp?endpoint=localhost:8010")
+        .control_request_stream_id(10)
+        .control_response_channel("aeron:udp?endpoint=localhost:0")
+        .control_response_stream_id(20)
+        .connect()?;
     println!(
         "Connected (archive_id={}, session={})",
         archive.archive_id(),
@@ -62,8 +62,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         recording_id,
         REPLAY_CHANNEL,
         REPLAY_STREAM_ID,
-        target_start_pos,
-        length,
+        &ReplayParams::new()
+            .position(target_start_pos)
+            .length(length),
     )?;
     println!("Replay started (session={})", replay_session);
 
