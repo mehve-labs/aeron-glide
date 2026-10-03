@@ -132,6 +132,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `subscription_registration_id`, `is_publication_revoked`,
   `active_transport_count`, `reject`, `controlled_poll` (without reassembly),
   `bounded_poll`, `bounded_controlled_poll` and `block_poll`.
+- Lifecycle handlers, run on the client conductor thread: `Context` gains
+  `on_available_image`, `on_unavailable_image`, `on_new_publication`,
+  `on_new_exclusive_publication`, `on_new_subscription`,
+  `on_available_counter`, `on_unavailable_counter`, `on_close_client` and
+  `on_publication_error_frame` (events `ImageEvent`, `NewPublication`,
+  `NewSubscription`, `CounterEvent`, `PublicationErrorFrame`); `AeronClient`
+  gains `add_/remove_available_counter_handler`,
+  `add_/remove_unavailable_counter_handler`, `add_/remove_close_client_handler`
+  and `add_subscription_with_image_handlers` (plus `_async`). Handlers are
+  owned by the C++ client, may drop the client, and have their panics caught.
 - Asynchronous adds: `AeronClient::add_publication_async`,
   `add_exclusive_publication_async` and `add_subscription_async` return a
   `PendingAdd` to `poll()` (or `wait()`) for the resource. Also

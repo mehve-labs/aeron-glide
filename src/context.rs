@@ -1,13 +1,17 @@
 //! Client configuration ([`Context`]).
 
-use crate::callback::ConductorCallbackScope;
-use crate::{AeronClient, Error, Result, ffi};
+use crate::handlers::{self, into_ctx, release};
+use crate::{
+    AeronClient, CounterEvent, Error, ImageEvent, NewPublication, NewSubscription,
+    PublicationErrorFrame, Result, ffi,
+};
 use std::os::raw::c_long;
-use std::panic::{self, AssertUnwindSafe};
-use std::sync::Arc;
+use std::pin::Pin;
 use std::time::Duration;
 
-type ErrorHandler = Box<dyn Fn(&Error) + Send + Sync + 'static>;
+/// Installs one handler on the C++ context; the handler type is known here, so
+/// its trampoline is monomorphised and the closure needs no boxing.
+type Installer = Box<dyn FnOnce(Pin<&mut ffi::ContextWrapper>) + Send>;
 
 /// Configuration for an [`AeronClient`], mirroring the Aeron C++ `aeron::Context`.
 ///
@@ -36,7 +40,7 @@ pub struct Context {
     resource_linger_timeout: Option<Duration>,
     idle_sleep_duration: Option<Duration>,
     pre_touch_mapped_memory: Option<bool>,
-    error_handler: Option<ErrorHandler>,
+    handlers: Vec<Installer>,
 }
 
 impl Context {
@@ -99,11 +103,148 @@ impl Context {
     ///
     /// Without a handler, errors are printed to stderr. (The Aeron C++ default
     /// handler would call `exit(-1)`; aeron-glide never installs it.)
-    pub fn error_handler<F>(mut self, handler: F) -> Self
+    pub fn error_handler<F>(self, handler: F) -> Self
     where
         F: Fn(&Error) + Send + Sync + 'static,
     {
-        self.error_handler = Some(Box::new(handler));
+        self.install(move |ctx| {
+            ctx.setErrorHandler(handlers::error::<F>, release::<F>, into_ctx(handler))
+        })
+    }
+
+    /// Called when an image (a publisher session) becomes available on one of
+    /// this client's subscriptions (C++ `availableImageHandler`).
+    ///
+    /// Like every handler here, it runs on the client conductor thread: keep it
+    /// short and hand work off to other threads. Panics are caught and printed.
+    pub fn on_available_image<F>(self, handler: F) -> Self
+    where
+        F: Fn(&ImageEvent) + Send + Sync + 'static,
+    {
+        self.install(move |ctx| {
+            ctx.setAvailableImageHandler(
+                handlers::image_event::<F>,
+                release::<F>,
+                into_ctx(handler),
+            )
+        })
+    }
+
+    /// Called when an image becomes unavailable, e.g. its publisher closed or
+    /// timed out (C++ `unavailableImageHandler`).
+    pub fn on_unavailable_image<F>(self, handler: F) -> Self
+    where
+        F: Fn(&ImageEvent) + Send + Sync + 'static,
+    {
+        self.install(move |ctx| {
+            ctx.setUnavailableImageHandler(
+                handlers::image_event::<F>,
+                release::<F>,
+                into_ctx(handler),
+            )
+        })
+    }
+
+    /// Called when the media driver has added a concurrent publication for this
+    /// client (C++ `newPublicationHandler`).
+    pub fn on_new_publication<F>(self, handler: F) -> Self
+    where
+        F: Fn(&NewPublication) + Send + Sync + 'static,
+    {
+        self.install(move |ctx| {
+            ctx.setNewPublicationHandler(
+                handlers::new_publication::<F>,
+                release::<F>,
+                into_ctx(handler),
+            )
+        })
+    }
+
+    /// Called when the media driver has added an exclusive publication for this
+    /// client (C++ `newExclusivePublicationHandler`).
+    pub fn on_new_exclusive_publication<F>(self, handler: F) -> Self
+    where
+        F: Fn(&NewPublication) + Send + Sync + 'static,
+    {
+        self.install(move |ctx| {
+            ctx.setNewExclusivePublicationHandler(
+                handlers::new_publication::<F>,
+                release::<F>,
+                into_ctx(handler),
+            )
+        })
+    }
+
+    /// Called when the media driver has added a subscription for this client
+    /// (C++ `newSubscriptionHandler`).
+    pub fn on_new_subscription<F>(self, handler: F) -> Self
+    where
+        F: Fn(&NewSubscription) + Send + Sync + 'static,
+    {
+        self.install(move |ctx| {
+            ctx.setNewSubscriptionHandler(
+                handlers::new_subscription::<F>,
+                release::<F>,
+                into_ctx(handler),
+            )
+        })
+    }
+
+    /// Called when a counter becomes available (C++ `availableCounterHandler`).
+    /// More can be added later with `AeronClient::add_available_counter_handler`.
+    pub fn on_available_counter<F>(self, handler: F) -> Self
+    where
+        F: Fn(CounterEvent) + Send + Sync + 'static,
+    {
+        self.install(move |ctx| {
+            ctx.setAvailableCounterHandler(
+                handlers::counter_event::<F>,
+                release::<F>,
+                into_ctx(handler),
+            )
+        })
+    }
+
+    /// Called when a counter becomes unavailable (C++ `unavailableCounterHandler`).
+    pub fn on_unavailable_counter<F>(self, handler: F) -> Self
+    where
+        F: Fn(CounterEvent) + Send + Sync + 'static,
+    {
+        self.install(move |ctx| {
+            ctx.setUnavailableCounterHandler(
+                handlers::counter_event::<F>,
+                release::<F>,
+                into_ctx(handler),
+            )
+        })
+    }
+
+    /// Called when the client closes (C++ `closeClientHandler`).
+    pub fn on_close_client<F>(self, handler: F) -> Self
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        self.install(move |ctx| {
+            ctx.setCloseClientHandler(handlers::close_client::<F>, release::<F>, into_ctx(handler))
+        })
+    }
+
+    /// Called when one of this client's publications receives an error frame, e.g.
+    /// a subscriber rejected its image (C++ `errorFrameHandler`).
+    pub fn on_publication_error_frame<F>(self, handler: F) -> Self
+    where
+        F: Fn(&PublicationErrorFrame) + Send + Sync + 'static,
+    {
+        self.install(move |ctx| {
+            ctx.setErrorFrameHandler(handlers::error_frame::<F>, release::<F>, into_ctx(handler))
+        })
+    }
+
+    fn install(
+        mut self,
+        installer: impl FnOnce(Pin<&mut ffi::ContextWrapper>) + Send + 'static,
+    ) -> Self {
+        self.handlers.push(Box::new(installer));
         self
     }
 
@@ -127,11 +268,10 @@ impl Context {
         if let Some(value) = self.pre_touch_mapped_memory {
             ctx.pin_mut().setPreTouchMappedMemory(value)?;
         }
-        if let Some(handler) = self.error_handler {
-            let owned = Arc::into_raw(Arc::new(handler)).expose_provenance();
-            // C++ takes ownership and calls `release_error_handler` when the client is destroyed.
-            ctx.pin_mut()
-                .setErrorHandler(call_error_handler, release_error_handler, owned);
+        // C++ takes ownership of each handler and releases it when the client is
+        // destroyed (or the handler is replaced).
+        for install in self.handlers {
+            install(ctx.pin_mut());
         }
         Ok(AeronClient {
             inner: ffi::create_aeron(ctx)?,
@@ -144,25 +284,4 @@ impl Context {
 fn millis(duration: Duration) -> i64 {
     let max = (u64::MAX / 1_000_000).min(c_long::MAX as u64);
     duration.as_millis().min(u128::from(max)) as i64
-}
-
-fn call_error_handler(ctx: usize, encoded: &[u8]) {
-    let ptr = std::ptr::with_exposed_provenance::<ErrorHandler>(ctx);
-    // SAFETY: `ctx` is the `Arc` leaked in `connect`, and C++ holds that reference
-    // until `release_error_handler`. Taking a reference of our own keeps the handler
-    // alive even if this call drops the client and C++ releases its reference.
-    let handler = unsafe {
-        Arc::increment_strong_count(ptr);
-        Arc::from_raw(ptr)
-    };
-    let error = Error::from_encoded(&String::from_utf8_lossy(encoded));
-    let _scope = ConductorCallbackScope::enter();
-    if panic::catch_unwind(AssertUnwindSafe(|| handler(&error))).is_err() {
-        eprintln!("aeron-glide: the client error handler panicked while handling: {error}");
-    }
-}
-
-fn release_error_handler(ctx: usize) {
-    // SAFETY: as in `call_error_handler`; C++ calls this exactly once.
-    drop(unsafe { Arc::from_raw(std::ptr::with_exposed_provenance::<ErrorHandler>(ctx)) });
 }

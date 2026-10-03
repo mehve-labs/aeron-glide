@@ -120,25 +120,67 @@ void MediaDriverWrapper::setThreadingMode(int32_t mode) {
 
 namespace {
 
-// Owns a Rust error handler; shared by every copy of the std::function.
-class RustErrorHandler {
-public:
-    RustErrorHandler(ErrorFn handler, ReleaseFn release, size_t ctx)
-        : handler_(handler), release_(release), ctx_(ctx) {}
-    RustErrorHandler(const RustErrorHandler &) = delete;
-    RustErrorHandler &operator=(const RustErrorHandler &) = delete;
-    ~RustErrorHandler() { release_(ctx_); }
-
-    void operator()(const std::exception &e) const {
-        std::string encoded = detail::encode_exception(e);
-        handler_(ctx_, rust::Slice<const uint8_t>(reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
+// Lifecycle handlers run on the conductor thread, called from C: nothing may
+// unwind out of them. Rust handlers catch their own panics; this catches C++
+// exceptions (e.g. bad_alloc) raised while preparing the call.
+template <typename F>
+void noUnwind(const char *what, F &&f) noexcept {
+    try {
+        f();
+    } catch (const std::exception &e) {
+        std::cerr << "aeron-glide: " << what << " handler failed: " << e.what() << std::endl;
+    } catch (...) {
+        std::cerr << "aeron-glide: " << what << " handler failed" << std::endl;
     }
+}
 
-private:
-    ErrorFn handler_;
-    ReleaseFn release_;
-    size_t ctx_;
-};
+rust::Slice<const uint8_t> bytesOf(const std::string &s) {
+    return rust::Slice<const uint8_t>(reinterpret_cast<const uint8_t *>(s.data()), s.size());
+}
+
+ImageInfo imageInfo(aeron::Image &image) {
+    ImageInfo info;
+    info.session_id = image.sessionId();
+    info.correlation_id = image.correlationId();
+    info.subscription_registration_id = image.subscriptionRegistrationId();
+    info.join_position = image.joinPosition();
+    info.initial_term_id = image.initialTermId();
+    info.term_buffer_length = image.termBufferLength();
+    info.position_bits_to_shift = image.positionBitsToShift();
+    info.source_identity = rust::String::lossy(image.sourceIdentity());
+    try {
+        info.position = image.position();
+    } catch (...) {
+        info.position = -1;
+    }
+    return info;
+}
+
+aeron::on_available_image_t imageHandler(const char *what, ImageEventFn handler, ReleaseFn release, size_t ctx) {
+    auto owner = std::make_shared<RustOwned>(release, ctx);
+    return [owner, handler, what](aeron::Image &image) {
+        noUnwind(what, [&] { handler(owner->ctx(), imageInfo(image)); });
+    };
+}
+
+aeron::on_available_counter_t counterHandler(const char *what, CounterEventFn handler, ReleaseFn release, size_t ctx) {
+    auto owner = std::make_shared<RustOwned>(release, ctx);
+    return [owner, handler, what](aeron::CountersReader &, int64_t registration_id, int32_t counter_id) {
+        noUnwind(what, [&] { handler(owner->ctx(), registration_id, counter_id); });
+    };
+}
+
+aeron::on_new_publication_t newPublicationHandler(const char *what, NewPublicationFn handler, ReleaseFn release, size_t ctx) {
+    auto owner = std::make_shared<RustOwned>(release, ctx);
+    return [owner, handler, what](const std::string &channel, int32_t stream_id, int32_t session_id, int64_t correlation_id) {
+        noUnwind(what, [&] { handler(owner->ctx(), bytesOf(channel), stream_id, session_id, correlation_id); });
+    };
+}
+
+aeron::on_close_client_t closeClientHandler(CloseClientFn handler, ReleaseFn release, size_t ctx) {
+    auto owner = std::make_shared<RustOwned>(release, ctx);
+    return [owner, handler]() { noUnwind("close client", [&] { handler(owner->ctx()); }); };
+}
 
 } // namespace
 
@@ -176,8 +218,96 @@ void ContextWrapper::setPreTouchMappedMemory(bool value) {
 }
 
 void ContextWrapper::setErrorHandler(ErrorFn handler, ReleaseFn release, size_t context) {
-    auto owner = std::make_shared<RustErrorHandler>(handler, release, context);
-    ctx->errorHandler([owner](const std::exception &e) { (*owner)(e); });
+    auto owner = std::make_shared<RustOwned>(release, context);
+    ctx->errorHandler([owner, handler](const std::exception &e) {
+        noUnwind("error", [&] {
+            std::string encoded = detail::encode_exception(e);
+            handler(owner->ctx(), bytesOf(encoded));
+        });
+    });
+}
+
+void ContextWrapper::setAvailableImageHandler(ImageEventFn handler, ReleaseFn release, size_t context) {
+    ctx->availableImageHandler(imageHandler("available image", handler, release, context));
+}
+
+void ContextWrapper::setUnavailableImageHandler(ImageEventFn handler, ReleaseFn release, size_t context) {
+    ctx->unavailableImageHandler(imageHandler("unavailable image", handler, release, context));
+}
+
+void ContextWrapper::setNewPublicationHandler(NewPublicationFn handler, ReleaseFn release, size_t context) {
+    ctx->newPublicationHandler(newPublicationHandler("new publication", handler, release, context));
+}
+
+void ContextWrapper::setNewExclusivePublicationHandler(NewPublicationFn handler, ReleaseFn release, size_t context) {
+    ctx->newExclusivePublicationHandler(newPublicationHandler("new exclusive publication", handler, release, context));
+}
+
+void ContextWrapper::setNewSubscriptionHandler(NewSubscriptionFn handler, ReleaseFn release, size_t context) {
+    auto owner = std::make_shared<RustOwned>(release, context);
+    ctx->newSubscriptionHandler([owner, handler](const std::string &channel, int32_t stream_id, int64_t correlation_id) {
+        noUnwind("new subscription", [&] { handler(owner->ctx(), bytesOf(channel), stream_id, correlation_id); });
+    });
+}
+
+void ContextWrapper::setAvailableCounterHandler(CounterEventFn handler, ReleaseFn release, size_t context) {
+    ctx->availableCounterHandler(counterHandler("available counter", handler, release, context));
+}
+
+void ContextWrapper::setUnavailableCounterHandler(CounterEventFn handler, ReleaseFn release, size_t context) {
+    ctx->unavailableCounterHandler(counterHandler("unavailable counter", handler, release, context));
+}
+
+void ContextWrapper::setCloseClientHandler(CloseClientFn handler, ReleaseFn release, size_t context) {
+    ctx->closeClientHandler(closeClientHandler(handler, release, context));
+}
+
+void ContextWrapper::setErrorFrameHandler(ErrorFrameFn handler, ReleaseFn release, size_t context) {
+    auto owner = std::make_shared<RustOwned>(release, context);
+    aeron::on_publication_error_frame_t onErrorFrame = [owner, handler](aeron::status::PublicationErrorFrame &frame) {
+        noUnwind("publication error frame", [&] {
+            if (!frame.isValid()) {
+                return;
+            }
+            rust::Slice<const uint8_t> address(frame.sourceAddress(), 16);
+            handler(owner->ctx(), frame.registrationId(), frame.sessionId(), frame.streamId(), frame.groupTag(),
+                    frame.sourcePort(), frame.sourceAddressType(), address);
+        });
+    };
+    ctx->errorFrameHandler(onErrorFrame);
+}
+
+int64_t AeronWrapper::addSubscriptionWithImageHandlers(
+    rust::Str channel, int32_t stream_id,
+    ImageEventFn on_available, ReleaseFn release_available, size_t available_ctx,
+    ImageEventFn on_unavailable, ReleaseFn release_unavailable, size_t unavailable_ctx) const {
+    auto available = imageHandler("available image", on_available, release_available, available_ctx);
+    auto unavailable = imageHandler("unavailable image", on_unavailable, release_unavailable, unavailable_ctx);
+    return aeron->addSubscription(std::string(channel.data(), channel.size()), stream_id, available, unavailable);
+}
+
+int64_t AeronWrapper::addAvailableCounterHandler(CounterEventFn handler, ReleaseFn release, size_t context) const {
+    return aeron->addAvailableCounterHandler(counterHandler("available counter", handler, release, context));
+}
+
+void AeronWrapper::removeAvailableCounterHandler(int64_t registration_id) const {
+    aeron->removeAvailableCounterHandler(registration_id);
+}
+
+int64_t AeronWrapper::addUnavailableCounterHandler(CounterEventFn handler, ReleaseFn release, size_t context) const {
+    return aeron->addUnavailableCounterHandler(counterHandler("unavailable counter", handler, release, context));
+}
+
+void AeronWrapper::removeUnavailableCounterHandler(int64_t registration_id) const {
+    aeron->removeUnavailableCounterHandler(registration_id);
+}
+
+int64_t AeronWrapper::addCloseClientHandler(CloseClientFn handler, ReleaseFn release, size_t context) const {
+    return aeron->addCloseClientHandler(closeClientHandler(handler, release, context));
+}
+
+void AeronWrapper::removeCloseClientHandler(int64_t registration_id) const {
+    aeron->removeCloseClientHandler(registration_id);
 }
 
 AeronWrapper::AeronWrapper(std::shared_ptr<ContextWrapper> context) 

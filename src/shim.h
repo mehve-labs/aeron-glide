@@ -122,9 +122,36 @@ void claimSetHeaderType(ClaimFrame frame, uint16_t type);
 int64_t claimReservedValue(ClaimFrame frame);
 void claimSetReservedValue(ClaimFrame frame, int64_t value);
 using CounterFn = rust::Fn<void(size_t, int32_t, int32_t, rust::Slice<const uint8_t>, rust::Slice<const uint8_t>)>;
-// Long-lived handler: (ctx, encoded exception). The release function frees ctx.
+// Long-lived handlers, run on the client conductor thread. Each takes the opaque
+// Rust context first; the release function frees it (see RustOwned).
 using ErrorFn = rust::Fn<void(size_t, rust::Slice<const uint8_t>)>;
 using ReleaseFn = rust::Fn<void(size_t)>;
+struct ImageInfo; // shared with Rust (lib.rs)
+using ImageEventFn = rust::Fn<void(size_t, const ImageInfo &)>;
+// (ctx, channel, stream id, session id, correlation id)
+using NewPublicationFn = rust::Fn<void(size_t, rust::Slice<const uint8_t>, int32_t, int32_t, int64_t)>;
+// (ctx, channel, stream id, correlation id)
+using NewSubscriptionFn = rust::Fn<void(size_t, rust::Slice<const uint8_t>, int32_t, int64_t)>;
+// (ctx, registration id, counter id)
+using CounterEventFn = rust::Fn<void(size_t, int64_t, int32_t)>;
+using CloseClientFn = rust::Fn<void(size_t)>;
+// (ctx, registration id, session id, stream id, group tag, source port, address type, address bytes)
+using ErrorFrameFn = rust::Fn<void(size_t, int64_t, int32_t, int32_t, int64_t, uint16_t, int16_t, rust::Slice<const uint8_t>)>;
+
+// Owns a Rust handler context: releases it when the last std::function copy
+// holding this object is destroyed (e.g. when the C++ client is destroyed).
+class RustOwned {
+public:
+    RustOwned(ReleaseFn release, size_t ctx) : release_(release), ctx_(ctx) {}
+    RustOwned(const RustOwned &) = delete;
+    RustOwned &operator=(const RustOwned &) = delete;
+    ~RustOwned() { release_(ctx_); }
+    size_t ctx() const { return ctx_; }
+
+private:
+    ReleaseFn release_;
+    size_t ctx_;
+};
 
 // Client configuration, applied to aeron::Context before connecting.
 class ContextWrapper {
@@ -138,9 +165,18 @@ public:
     void setResourceLingerTimeoutMs(int64_t value);
     void setIdleSleepDurationMs(int64_t value);
     void setPreTouchMappedMemory(bool value);
-    // Takes ownership of `ctx`: `release(ctx)` runs when the last copy of the
+    // Each takes ownership of `ctx`: `release(ctx)` runs when the last copy of the
     // handler is destroyed, i.e. when the C++ client is destroyed.
     void setErrorHandler(ErrorFn handler, ReleaseFn release, size_t ctx);
+    void setAvailableImageHandler(ImageEventFn handler, ReleaseFn release, size_t ctx);
+    void setUnavailableImageHandler(ImageEventFn handler, ReleaseFn release, size_t ctx);
+    void setNewPublicationHandler(NewPublicationFn handler, ReleaseFn release, size_t ctx);
+    void setNewExclusivePublicationHandler(NewPublicationFn handler, ReleaseFn release, size_t ctx);
+    void setNewSubscriptionHandler(NewSubscriptionFn handler, ReleaseFn release, size_t ctx);
+    void setAvailableCounterHandler(CounterEventFn handler, ReleaseFn release, size_t ctx);
+    void setUnavailableCounterHandler(CounterEventFn handler, ReleaseFn release, size_t ctx);
+    void setCloseClientHandler(CloseClientFn handler, ReleaseFn release, size_t ctx);
+    void setErrorFrameHandler(ErrorFrameFn handler, ReleaseFn release, size_t ctx);
 
     std::shared_ptr<aeron::Context> ctx;
 };
@@ -455,6 +491,18 @@ public:
     rust::String aeronDir() const { return rust::String::lossy(aeron->context().aeronDir()); }
     rust::String cncFileName() const { return rust::String::lossy(aeron->context().cncFileName()); }
     int64_t driverTimeoutMs() const { return aeron->context().mediaDriverTimeout(); }
+
+    // Lifecycle handlers added at runtime (P11); each takes ownership of its ctx.
+    int64_t addSubscriptionWithImageHandlers(
+        rust::Str channel, int32_t stream_id,
+        ImageEventFn on_available, ReleaseFn release_available, size_t available_ctx,
+        ImageEventFn on_unavailable, ReleaseFn release_unavailable, size_t unavailable_ctx) const;
+    int64_t addAvailableCounterHandler(CounterEventFn handler, ReleaseFn release, size_t ctx) const;
+    void removeAvailableCounterHandler(int64_t registration_id) const;
+    int64_t addUnavailableCounterHandler(CounterEventFn handler, ReleaseFn release, size_t ctx) const;
+    void removeUnavailableCounterHandler(int64_t registration_id) const;
+    int64_t addCloseClientHandler(CloseClientFn handler, ReleaseFn release, size_t ctx) const;
+    void removeCloseClientHandler(int64_t registration_id) const;
     std::unique_ptr<CountersReaderWrapper> countersReader() const;
     
 private:

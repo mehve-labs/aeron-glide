@@ -85,6 +85,7 @@ mod counters;
 mod driver;
 mod driver_gen;
 mod error;
+mod handlers;
 mod header;
 mod image;
 mod publication;
@@ -97,6 +98,9 @@ pub use counters::CountersReader;
 pub use driver::{IdleStrategy, MediaDriver, MediaDriverBuilder, ThreadingMode};
 pub use driver_gen::{InferableBoolean, ThreadNaming};
 pub use error::{Error, ErrorKind, OfferError, Result};
+pub use handlers::{
+    CounterEvent, ImageEvent, NewPublication, NewSubscription, PublicationErrorFrame,
+};
 pub use header::Header;
 pub use image::Image;
 pub use publication::{BufferClaim, ChannelStatus, ExclusivePublication, Publication};
@@ -110,6 +114,19 @@ pub(crate) mod ffi {
     struct OfferPart {
         ptr: usize,
         len: usize,
+    }
+
+    /// An image passed to an available/unavailable image handler.
+    struct ImageInfo {
+        session_id: i32,
+        correlation_id: i64,
+        subscription_registration_id: i64,
+        join_position: i64,
+        position: i64,
+        initial_term_id: i32,
+        term_buffer_length: i32,
+        position_bits_to_shift: i32,
+        source_identity: String,
     }
 
     /// A claimed frame (header included): its address and length.
@@ -168,6 +185,60 @@ pub(crate) mod ffi {
             release: fn(usize),
             ctx: usize,
         );
+        fn setAvailableImageHandler(
+            self: Pin<&mut ContextWrapper>,
+            handler: fn(usize, &ImageInfo),
+            release: fn(usize),
+            ctx: usize,
+        );
+        fn setUnavailableImageHandler(
+            self: Pin<&mut ContextWrapper>,
+            handler: fn(usize, &ImageInfo),
+            release: fn(usize),
+            ctx: usize,
+        );
+        fn setNewPublicationHandler(
+            self: Pin<&mut ContextWrapper>,
+            handler: fn(usize, &[u8], i32, i32, i64),
+            release: fn(usize),
+            ctx: usize,
+        );
+        fn setNewExclusivePublicationHandler(
+            self: Pin<&mut ContextWrapper>,
+            handler: fn(usize, &[u8], i32, i32, i64),
+            release: fn(usize),
+            ctx: usize,
+        );
+        fn setNewSubscriptionHandler(
+            self: Pin<&mut ContextWrapper>,
+            handler: fn(usize, &[u8], i32, i64),
+            release: fn(usize),
+            ctx: usize,
+        );
+        fn setAvailableCounterHandler(
+            self: Pin<&mut ContextWrapper>,
+            handler: fn(usize, i64, i32),
+            release: fn(usize),
+            ctx: usize,
+        );
+        fn setUnavailableCounterHandler(
+            self: Pin<&mut ContextWrapper>,
+            handler: fn(usize, i64, i32),
+            release: fn(usize),
+            ctx: usize,
+        );
+        fn setCloseClientHandler(
+            self: Pin<&mut ContextWrapper>,
+            handler: fn(usize),
+            release: fn(usize),
+            ctx: usize,
+        );
+        fn setErrorFrameHandler(
+            self: Pin<&mut ContextWrapper>,
+            handler: fn(usize, i64, i32, i32, i64, u16, i16, &[u8]),
+            release: fn(usize),
+            ctx: usize,
+        );
         fn create_aeron(context: UniquePtr<ContextWrapper>) -> Result<UniquePtr<AeronWrapper>>;
         fn create_media_driver() -> Result<UniquePtr<MediaDriverWrapper>>;
 
@@ -197,6 +268,40 @@ pub(crate) mod ffi {
         fn aeronDir(self: &AeronWrapper) -> String;
         fn cncFileName(self: &AeronWrapper) -> Result<String>;
         fn driverTimeoutMs(self: &AeronWrapper) -> i64;
+        #[allow(clippy::too_many_arguments)]
+        fn addSubscriptionWithImageHandlers(
+            self: &AeronWrapper,
+            channel: &str,
+            stream_id: i32,
+            on_available: fn(usize, &ImageInfo),
+            release_available: fn(usize),
+            available_ctx: usize,
+            on_unavailable: fn(usize, &ImageInfo),
+            release_unavailable: fn(usize),
+            unavailable_ctx: usize,
+        ) -> Result<i64>;
+        fn addAvailableCounterHandler(
+            self: &AeronWrapper,
+            handler: fn(usize, i64, i32),
+            release: fn(usize),
+            ctx: usize,
+        ) -> Result<i64>;
+        fn removeAvailableCounterHandler(self: &AeronWrapper, registration_id: i64) -> Result<()>;
+        fn addUnavailableCounterHandler(
+            self: &AeronWrapper,
+            handler: fn(usize, i64, i32),
+            release: fn(usize),
+            ctx: usize,
+        ) -> Result<i64>;
+        fn removeUnavailableCounterHandler(self: &AeronWrapper, registration_id: i64)
+        -> Result<()>;
+        fn addCloseClientHandler(
+            self: &AeronWrapper,
+            handler: fn(usize),
+            release: fn(usize),
+            ctx: usize,
+        ) -> Result<i64>;
+        fn removeCloseClientHandler(self: &AeronWrapper, registration_id: i64) -> Result<()>;
         fn countersReader(self: &AeronWrapper) -> UniquePtr<CountersReaderWrapper>;
 
         fn start(self: Pin<&mut MediaDriverWrapper>) -> Result<()>;

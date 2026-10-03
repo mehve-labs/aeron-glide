@@ -1,6 +1,7 @@
 //! The Aeron client ([`AeronClient`]).
 
 use super::*;
+use crate::handlers;
 use std::marker::PhantomData;
 
 /// Aeron client — the main entry point for creating publications and subscriptions.
@@ -79,6 +80,116 @@ impl AeronClient {
     /// client's driver timeout.
     pub fn add_subscription(&self, channel: &str, stream_id: i32) -> Result<Subscription> {
         self.add_subscription_async(channel, stream_id)?.wait()
+    }
+
+    /// Add a subscription with its own image handlers (instead of the
+    /// [`Context`]'s), waiting until the media driver has created it.
+    ///
+    /// The handlers run on the client conductor thread, like the
+    /// [`Context::on_available_image`] handlers.
+    pub fn add_subscription_with_image_handlers<A, U>(
+        &self,
+        channel: &str,
+        stream_id: i32,
+        on_available_image: A,
+        on_unavailable_image: U,
+    ) -> Result<Subscription>
+    where
+        A: Fn(&ImageEvent) + Send + Sync + 'static,
+        U: Fn(&ImageEvent) + Send + Sync + 'static,
+    {
+        self.add_subscription_with_image_handlers_async(
+            channel,
+            stream_id,
+            on_available_image,
+            on_unavailable_image,
+        )?
+        .wait()
+    }
+
+    /// Start adding a subscription with its own image handlers without waiting.
+    pub fn add_subscription_with_image_handlers_async<A, U>(
+        &self,
+        channel: &str,
+        stream_id: i32,
+        on_available_image: A,
+        on_unavailable_image: U,
+    ) -> Result<PendingAdd<'_, Subscription>>
+    where
+        A: Fn(&ImageEvent) + Send + Sync + 'static,
+        U: Fn(&ImageEvent) + Send + Sync + 'static,
+    {
+        let id = self.inner.addSubscriptionWithImageHandlers(
+            channel,
+            stream_id,
+            handlers::image_event::<A>,
+            handlers::release::<A>,
+            handlers::into_ctx(on_available_image),
+            handlers::image_event::<U>,
+            handlers::release::<U>,
+            handlers::into_ctx(on_unavailable_image),
+        )?;
+        Ok(PendingAdd::new(self, id))
+    }
+
+    /// Add a handler called when a counter becomes available. Returns its
+    /// registration ID for [`remove_available_counter_handler`](Self::remove_available_counter_handler).
+    pub fn add_available_counter_handler<F>(&self, handler: F) -> Result<i64>
+    where
+        F: Fn(CounterEvent) + Send + Sync + 'static,
+    {
+        Ok(self.inner.addAvailableCounterHandler(
+            handlers::counter_event::<F>,
+            handlers::release::<F>,
+            handlers::into_ctx(handler),
+        )?)
+    }
+
+    /// Remove a handler added with
+    /// [`add_available_counter_handler`](Self::add_available_counter_handler).
+    pub fn remove_available_counter_handler(&self, registration_id: i64) -> Result<()> {
+        Ok(self.inner.removeAvailableCounterHandler(registration_id)?)
+    }
+
+    /// Add a handler called when a counter becomes unavailable. Returns its
+    /// registration ID for
+    /// [`remove_unavailable_counter_handler`](Self::remove_unavailable_counter_handler).
+    pub fn add_unavailable_counter_handler<F>(&self, handler: F) -> Result<i64>
+    where
+        F: Fn(CounterEvent) + Send + Sync + 'static,
+    {
+        Ok(self.inner.addUnavailableCounterHandler(
+            handlers::counter_event::<F>,
+            handlers::release::<F>,
+            handlers::into_ctx(handler),
+        )?)
+    }
+
+    /// Remove a handler added with
+    /// [`add_unavailable_counter_handler`](Self::add_unavailable_counter_handler).
+    pub fn remove_unavailable_counter_handler(&self, registration_id: i64) -> Result<()> {
+        Ok(self
+            .inner
+            .removeUnavailableCounterHandler(registration_id)?)
+    }
+
+    /// Add a handler called when the client closes. Returns its registration ID
+    /// for [`remove_close_client_handler`](Self::remove_close_client_handler).
+    pub fn add_close_client_handler<F>(&self, handler: F) -> Result<i64>
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        Ok(self.inner.addCloseClientHandler(
+            handlers::close_client::<F>,
+            handlers::release::<F>,
+            handlers::into_ctx(handler),
+        )?)
+    }
+
+    /// Remove a handler added with
+    /// [`add_close_client_handler`](Self::add_close_client_handler).
+    pub fn remove_close_client_handler(&self, registration_id: i64) -> Result<()> {
+        Ok(self.inner.removeCloseClientHandler(registration_id)?)
     }
 
     /// Start adding a concurrent publication without waiting: poll the returned
