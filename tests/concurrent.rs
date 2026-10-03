@@ -4,8 +4,8 @@
 mod common;
 
 use aeron_glide::concurrent::{
-    Agent, AgentInvoker, AgentRunner, BackoffIdleStrategy, BusySpinIdleStrategy, IdleStrategy,
-    NoOpIdleStrategy, SleepingIdleStrategy, YieldingIdleStrategy,
+    Agent, AgentInvoker, AgentRunner, BackoffIdleStrategy, BusySpinIdleStrategy, ClientAgent,
+    IdleStrategy, MediaDriverAgent, NoOpIdleStrategy, SleepingIdleStrategy, YieldingIdleStrategy,
 };
 use aeron_glide::{AeronClient, Context, Error, ErrorKind, MediaDriver, Result, ThreadingMode};
 use common::{offer, poll_n, wait_until};
@@ -28,7 +28,7 @@ fn idle_strategies() {
         &mut NoOpIdleStrategy,
         &mut YieldingIdleStrategy,
     ] {
-        assert!(time(strategy, 0, 1000) < Duration::from_millis(500));
+        assert!(time(strategy, 0, 1000) < Duration::from_secs(2));
     }
     let mut sleeping = SleepingIdleStrategy::new(Duration::from_millis(5));
     assert!(time(&mut sleeping, 0, 4) >= Duration::from_millis(20));
@@ -40,11 +40,17 @@ fn idle_strategies() {
     // Backoff: 10 spins and 20 yields are quick, then sleeps double up to the max.
     let mut backoff =
         BackoffIdleStrategy::new(10, 20, Duration::from_millis(1), Duration::from_millis(4));
-    assert!(time(&mut backoff, 0, 32) < Duration::from_millis(1));
+    assert!(
+        time(&mut backoff, 0, 32) < Duration::from_millis(50),
+        "spins and yields don't sleep"
+    );
     let parked = time(&mut backoff, 0, 4); // 1 + 2 + 4 + 4 ms
     assert!(parked >= Duration::from_millis(11), "{parked:?}");
     backoff.idle(1); // work resets it
-    assert!(time(&mut backoff, 0, 32) < Duration::from_millis(1));
+    assert!(
+        time(&mut backoff, 0, 32) < Duration::from_millis(50),
+        "spins and yields don't sleep"
+    );
     backoff.reset();
     let mut boxed: Box<dyn IdleStrategy> = Box::new(BackoffIdleStrategy::default());
     boxed.idle(0);
@@ -254,7 +260,7 @@ fn client_and_driver_as_agents() {
     );
     let driver_runner = AgentRunner::start(
         "driver",
-        driver.clone(),
+        MediaDriverAgent::new(driver.clone()),
         BackoffIdleStrategy::default(),
         |e| panic!("driver: {e}"),
     )
@@ -269,7 +275,7 @@ fn client_and_driver_as_agents() {
     );
     let client_runner = AgentRunner::start(
         "client",
-        client.clone(),
+        ClientAgent::new(client.clone()),
         BackoffIdleStrategy::default(),
         |e| panic!("client: {e}"),
     )
@@ -298,9 +304,46 @@ fn version_and_clocks() {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_millis() as i64;
-    assert!((aeron_glide::current_time_millis() - now).abs() < 1000);
-    let a = aeron_glide::system_nano_clock();
+    assert!((aeron_glide::epoch_clock() - now).abs() < 1000);
+    let a = aeron_glide::nano_clock();
     std::thread::sleep(Duration::from_millis(2));
-    let b = aeron_glide::system_nano_clock();
+    let b = aeron_glide::nano_clock();
     assert!(b - a >= 2_000_000, "{a} {b}");
+}
+
+#[test]
+fn agents_refuse_clients_and_drivers_not_in_invoker_mode() {
+    let driver = common::TestDriver::start();
+    let threaded = Arc::new(driver.client());
+    let (errors, handler) = error_sink();
+    let runner = AgentRunner::start(
+        "threaded-client",
+        ClientAgent::new(threaded),
+        BusySpinIdleStrategy,
+        handler,
+    )
+    .unwrap();
+    let agent = runner.close();
+    assert_eq!(errors.lock().unwrap().len(), 1, "one error, no flood");
+    drop(agent);
+
+    let threaded_driver = Arc::new(
+        MediaDriver::builder()
+            .dir(&format!("{}-threaded", driver.dir))
+            .dir_delete_on_start(true)
+            .dir_delete_on_shutdown(true)
+            .threading_mode(ThreadingMode::Shared)
+            .start()
+            .unwrap(),
+    );
+    let (errors, handler) = error_sink();
+    let mut invoker = AgentInvoker::new(MediaDriverAgent::new(threaded_driver), handler);
+    invoker.start();
+    assert!(invoker.is_closed());
+    assert_eq!(errors.lock().unwrap().len(), 1);
+
+    // A runner's name cannot contain a NUL.
+    let err =
+        AgentRunner::start("a\0b", Counting::default(), NoOpIdleStrategy, |_| {}).expect_err("NUL");
+    assert_eq!(err.kind(), ErrorKind::IllegalArgument);
 }

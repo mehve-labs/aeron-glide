@@ -40,8 +40,8 @@ pub enum ThreadingMode {
     SharedNetwork = 1,
     /// All three run on a single shared thread.
     Shared = 2,
-    /// Caller-driven — the application invokes the driver duty cycle.
-    /// Not supported yet by [`MediaDriverBuilder::start`].
+    /// No threads: the application runs the driver's duty cycle with
+    /// [`MediaDriver::do_work`].
     Invoker = 3,
 }
 
@@ -110,11 +110,21 @@ pub struct MediaDriver {
     pub(crate) duty_cycle: std::sync::Mutex<()>,
 }
 
-// SAFETY: a started driver runs on its own threads; the Rust handle only reads
-// the immutable directory name and closes the driver on drop, which the C driver
-// allows from any thread.
+// SAFETY: a started driver runs on its own threads (or, in invoker mode, on the
+// thread calling `do_work`, which the `duty_cycle` mutex serialises). The handle
+// otherwise only reads the driver's context, which is immutable once started,
+// and closes the driver on drop, which the C driver allows from any thread except
+// its own conductor (a drop inside a driver handler is moved to another thread).
 unsafe impl Send for MediaDriver {}
 unsafe impl Sync for MediaDriver {}
+
+impl Drop for MediaDriver {
+    fn drop(&mut self) {
+        // Inside a termination handler (on the conductor thread in threaded
+        // modes), closing the driver would join the thread it runs on.
+        callback::drop_outside_conductor(&mut self.inner);
+    }
+}
 
 impl std::fmt::Debug for MediaDriver {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -143,6 +153,9 @@ impl MediaDriver {
     ///
     /// Fails with [`ErrorKind::IllegalState`] for a driver in another threading
     /// mode, or while another call runs (e.g. from a termination handler).
+    ///
+    /// Clients can connect while nobody runs the driver, but their requests
+    /// time out, and after the driver timeout they no longer connect.
     pub fn do_work(&self) -> Result<i32> {
         let _cycle = self.cycle()?;
         Ok(self.inner.doWork()?)
@@ -174,7 +187,6 @@ impl MediaDriver {
 /// [`start`](Self::start).
 pub struct MediaDriverBuilder {
     inner: Result<cxx::UniquePtr<ffi::MediaDriverWrapper>>,
-    threading_mode: ThreadingMode,
 }
 
 // SAFETY: the builder owns an unshared driver context that no thread uses until
@@ -190,7 +202,12 @@ impl Default for MediaDriverBuilder {
 impl std::fmt::Debug for MediaDriverBuilder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MediaDriverBuilder")
-            .field("threading_mode", &self.threading_mode)
+            .field(
+                "threading_mode",
+                &self.inner.as_ref().ok().map(|w| {
+                    ThreadingMode::from_c(crate::driver_gen::ffi::driver_get_threading_mode(w))
+                }),
+            )
             .field("error", &self.inner.as_ref().err())
             .finish_non_exhaustive()
     }
@@ -201,7 +218,6 @@ impl MediaDriverBuilder {
     pub fn new() -> Self {
         Self {
             inner: ffi::create_media_driver().map_err(Error::from),
-            threading_mode: ThreadingMode::Dedicated,
         }
     }
 
@@ -222,13 +238,15 @@ impl MediaDriverBuilder {
 
     /// Start the media driver. Fails with the first invalid setting, if any.
     ///
-    /// With [`ThreadingMode::Invoker`] it starts no threads: run it with
-    /// [`MediaDriver::do_work`].
+    /// With [`ThreadingMode::Invoker`] (set here or with `AERON_THREADING_MODE`)
+    /// it starts no threads: run it with [`MediaDriver::do_work`]. The
+    /// conductor's start-up (e.g. its CPU affinity) then runs on this thread.
     pub fn start(self) -> Result<MediaDriver> {
         let mut inner = self.inner?;
-        inner
-            .pin_mut()
-            .start(self.threading_mode == ThreadingMode::Invoker)?;
+        let invoker =
+            ThreadingMode::from_c(crate::driver_gen::ffi::driver_get_threading_mode(&inner))
+                == ThreadingMode::Invoker;
+        inner.pin_mut().start(invoker)?;
         Ok(MediaDriver {
             inner,
             duty_cycle: std::sync::Mutex::new(()),
@@ -238,11 +256,12 @@ impl MediaDriverBuilder {
     /// Decide whether a termination request (e.g. from
     /// [`Context::request_driver_termination`](crate::Context::request_driver_termination))
     /// is accepted: `validator` gets the request's token (C
-    /// `aeron_driver_context_set_driver_termination_validator`). The default
-    /// rejects every request.
+    /// `aeron_driver_context_set_driver_termination_validator`). Without one,
+    /// `AERON_DRIVER_TERMINATION_VALIDATOR` decides (rejecting by default).
     ///
-    /// It runs on the driver's conductor thread. A panic is caught and printed,
-    /// and rejects the request.
+    /// It runs on the driver's conductor thread (in invoker mode, the thread
+    /// calling [`MediaDriver::do_work`]). A panic is caught and printed, and
+    /// rejects the request.
     pub fn termination_validator<F>(self, validator: F) -> Self
     where
         F: Fn(&[u8]) -> bool + Send + Sync + 'static,
@@ -258,9 +277,12 @@ impl MediaDriverBuilder {
 
     /// Called when a termination request is accepted (C
     /// `aeron_driver_context_set_driver_termination_hook`), on the driver's
-    /// conductor thread: e.g. signal your program to drop the [`MediaDriver`]
-    /// (the driver keeps running until then). Dropping the driver from the
-    /// hook itself is not possible, as the hook runs inside it.
+    /// conductor thread (in invoker mode, the thread calling
+    /// [`MediaDriver::do_work`]): e.g. signal your program to drop the
+    /// [`MediaDriver`] (the driver keeps running until then). Dropping it from
+    /// the hook works too: the driver closes on another thread once the hook
+    /// returns. A hook owning an `Arc<MediaDriver>` would keep the driver alive
+    /// (a reference cycle): hold a `Weak` instead.
     pub fn termination_hook<F>(self, hook: F) -> Self
     where
         F: Fn() + Send + Sync + 'static,
@@ -278,8 +300,7 @@ impl MediaDriverBuilder {
     ///
     /// The other settings are generated from Aeron's `aeronmd.h`; see
     /// `scripts/gen_driver_context.py`.
-    pub fn threading_mode(mut self, mode: ThreadingMode) -> Self {
-        self.threading_mode = mode;
+    pub fn threading_mode(self, mode: ThreadingMode) -> Self {
         self.apply(|w| w.setThreadingMode(mode as i32))
     }
 }

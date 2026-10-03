@@ -121,15 +121,16 @@ pub fn aeron_version() -> String {
     ffi::aeronVersion()
 }
 
-/// Milliseconds since the epoch (C++ `aeron::currentTimeMillis`), the clock of
-/// Aeron's timestamps (e.g. the CnC heartbeat and error log).
-pub fn current_time_millis() -> i64 {
-    ffi::currentTimeMillis()
+/// Milliseconds since the epoch (C `aeron_epoch_clock`), the clock of Aeron's
+/// timestamps (e.g. the CnC heartbeat and the error log).
+pub fn epoch_clock() -> i64 {
+    ffi::epochClock()
 }
 
-/// A monotonic clock in nanoseconds (C++ `aeron::systemNanoClock`).
-pub fn system_nano_clock() -> i64 {
-    ffi::systemNanoClock()
+/// A monotonic clock in nanoseconds (C `aeron_nano_clock`), the one the client
+/// and driver use for timeouts.
+pub fn nano_clock() -> i64 {
+    ffi::nanoClock()
 }
 
 #[cxx::bridge(namespace = "aeron_rs")]
@@ -216,8 +217,8 @@ pub(crate) mod ffi {
         fn requestDriverTermination(directory: &str, token: &[u8]) -> Result<bool>;
         fn defaultAeronPath() -> Result<String>;
         fn aeronVersion() -> String;
-        fn currentTimeMillis() -> i64;
-        fn systemNanoClock() -> i64;
+        fn epochClock() -> i64;
+        fn nanoClock() -> i64;
         fn setAeronDir(self: Pin<&mut ContextWrapper>, dir: &str) -> Result<()>;
         fn setClientName(self: Pin<&mut ContextWrapper>, name: &str) -> Result<()>;
         fn setDriverTimeoutMs(self: Pin<&mut ContextWrapper>, value: i64) -> Result<()>;

@@ -32,7 +32,7 @@ pub(crate) fn ensure_not_in_conductor_callback(what: &str) -> crate::Result<()> 
     if in_conductor_callback() {
         return Err(crate::Error::new(
             crate::ErrorKind::Reentrant,
-            format!("{what} cannot be called from a client handler"),
+            format!("{what} cannot be called from an Aeron handler (client, archive or driver)"),
         ));
     }
     Ok(())

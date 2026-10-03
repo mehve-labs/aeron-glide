@@ -72,7 +72,12 @@ void MediaDriverWrapper::idle(int32_t work_count) const {
 namespace {
 bool terminationValidator(void *state, uint8_t *buffer, int32_t length) noexcept {
     auto *v = static_cast<MediaDriverWrapper::TerminationValidator *>(state);
-    return v->validator(v->owner.ctx(), rust::Slice<const uint8_t>(buffer, length < 0 ? 0 : length));
+    // The length comes from the request in shared memory: clients send at most
+    // AERON_MAX_PATH bytes, so reject anything else.
+    if (length < 0 || length > AERON_MAX_PATH) {
+        return false;
+    }
+    return v->validator(v->owner.ctx(), rust::Slice<const uint8_t>(buffer, static_cast<size_t>(length)));
 }
 void terminationHook(void *state) noexcept {
     auto *h = static_cast<MediaDriverWrapper::TerminationHook *>(state);

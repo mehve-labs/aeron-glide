@@ -26,8 +26,8 @@ fn invoker_driver_and_client_on_one_thread() {
         .threading_mode(ThreadingMode::Invoker)
         .start()
         .unwrap();
-    // Connecting waits for the driver, which only runs when invoked: run it on
-    // another thread until the client is up.
+    // Connecting needs the driver's heartbeat and synchronous requests need it
+    // to answer: run it on another thread until the client is up.
     let running = std::sync::atomic::AtomicBool::new(true);
     let client = std::thread::scope(|s| {
         let driver = &driver;
@@ -181,4 +181,50 @@ fn mediadriver_binary_runs_invoker_mode_and_terminates_on_request() {
     };
     assert!(status.success(), "{status}");
     let _ = std::fs::remove_file(&config);
+}
+
+#[test]
+fn invoker_mode_from_the_environment() {
+    // SAFETY: the variable is only read by this test's driver start below
+    // (other tests set the mode explicitly, which overrides it).
+    unsafe { std::env::set_var("AERON_THREADING_MODE", "INVOKER") };
+    let dir = temp_dir("env-invoker");
+    let driver = MediaDriver::builder()
+        .dir(&dir)
+        .dir_delete_on_start(true)
+        .dir_delete_on_shutdown(true)
+        .start();
+    unsafe { std::env::remove_var("AERON_THREADING_MODE") };
+    let driver = driver.unwrap();
+    assert_eq!(driver.threading_mode(), ThreadingMode::Invoker);
+    driver.do_work().unwrap();
+}
+
+#[test]
+fn termination_hook_may_drop_the_last_driver_handle() {
+    let slot: Arc<std::sync::Mutex<Option<Arc<MediaDriver>>>> =
+        Arc::new(std::sync::Mutex::new(None));
+    let dropped = Arc::new(AtomicUsize::new(0));
+    let (hook_slot, hook_dropped) = (slot.clone(), dropped.clone());
+    let dir = temp_dir("hook-drop");
+    let driver = MediaDriver::builder()
+        .dir(&dir)
+        .dir_delete_on_start(true)
+        .dir_delete_on_shutdown(true)
+        .threading_mode(ThreadingMode::Dedicated)
+        .termination_validator(|_| true)
+        .termination_hook(move || {
+            // Drops the last handle on the conductor thread.
+            drop(hook_slot.lock().unwrap().take());
+            hook_dropped.fetch_add(1, Ordering::SeqCst);
+        })
+        .start()
+        .unwrap();
+    *slot.lock().unwrap() = Some(Arc::new(driver));
+    assert!(Context::request_driver_termination(&dir, b"").unwrap());
+    common::wait_until("the hook", || dropped.load(Ordering::SeqCst) == 1);
+    // The driver closes (on another thread) and removes its directory.
+    common::wait_until("the driver to close", || {
+        !std::path::Path::new(&dir).exists()
+    });
 }

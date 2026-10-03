@@ -139,8 +139,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
     }
 
-    let invoker = matches!(config.threading_mode.as_deref(), Some("invoker"));
     let driver = builder.start()?;
+    let invoker = driver.threading_mode() == ThreadingMode::Invoker;
     println!("Media Driver started in {}", driver.dir());
     println!("Media Driver started successfully.");
     println!("Press Ctrl+C to shut down...");

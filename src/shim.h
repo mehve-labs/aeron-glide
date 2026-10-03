@@ -791,8 +791,10 @@ private:
 
 // Version and clocks (T3).
 inline rust::String aeronVersion() { return rust::String::lossy(aeron::Aeron::version()); }
-inline int64_t currentTimeMillis() { return aeron::currentTimeMillis(); }
-inline int64_t systemNanoClock() { return aeron::systemNanoClock(); }
+// Aeron's C clocks: the C++ systemNanoClock uses high_resolution_clock, which
+// is the (non-monotonic) system clock with libstdc++.
+inline int64_t epochClock() { return aeron_epoch_clock(); }
+inline int64_t nanoClock() { return aeron_nano_clock(); }
 
 // Static aeron::Context utilities (P13).
 inline bool requestDriverTermination(rust::Str directory, rust::Slice<const uint8_t> token) {

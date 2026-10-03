@@ -2,11 +2,12 @@
 //! dedicated thread ([`AgentRunner`]) or on your own ([`AgentInvoker`]), backing
 //! off with an [`IdleStrategy`] when there is no work.
 //!
-//! These are Rust ports of the header-only C++ templates. The client and the
-//! media driver in agent invoker mode are agents too:
+//! These are Rust ports of the header-only C++ templates. A client and a media
+//! driver in agent invoker mode can be run as agents ([`ClientAgent`],
+//! [`MediaDriverAgent`]):
 //!
 //! ```no_run
-//! use aeron_glide::concurrent::{AgentRunner, BackoffIdleStrategy};
+//! use aeron_glide::concurrent::{AgentRunner, BackoffIdleStrategy, ClientAgent};
 //! use aeron_glide::{AeronClient, Context};
 //! use std::sync::Arc;
 //!
@@ -14,7 +15,7 @@
 //! // Run the client's conductor on a thread of our own, backing off when idle.
 //! let runner = AgentRunner::start(
 //!     "client-conductor",
-//!     client.clone(),
+//!     ClientAgent::new(client.clone()),
 //!     BackoffIdleStrategy::default(),
 //!     |e| eprintln!("conductor: {e}"),
 //! )?;
@@ -90,7 +91,7 @@ impl SleepingIdleStrategy {
 
 impl IdleStrategy for SleepingIdleStrategy {
     fn idle(&mut self, work_count: i32) {
-        if work_count <= 0 {
+        if work_count == 0 {
             self.idle_now();
         }
     }
@@ -173,7 +174,7 @@ impl IdleStrategy for BackoffIdleStrategy {
             }
             BackoffState::Parking => {
                 std::thread::sleep(self.park);
-                self.park = (self.park * 2).min(self.max_park);
+                self.park = self.park.saturating_mul(2).min(self.max_park);
             }
         }
     }
@@ -234,20 +235,71 @@ impl<A: Agent + ?Sized> Agent for Box<A> {
     }
 }
 
-/// A client in agent invoker mode is an agent: its duty cycle is
-/// [`AeronClient::invoke`].
-impl Agent for Arc<AeronClient> {
-    fn do_work(&mut self) -> Result<i32> {
-        self.invoke()
+/// A client in agent invoker mode as an agent: its duty cycle is
+/// [`AeronClient::invoke`]. Starting it fails unless the client uses an agent
+/// invoker ([`Context::use_conductor_agent_invoker`](crate::Context::use_conductor_agent_invoker)).
+#[derive(Debug, Clone)]
+pub struct ClientAgent(pub Arc<AeronClient>);
+
+impl ClientAgent {
+    /// Run `client`'s conductor as an agent.
+    pub fn new(client: Arc<AeronClient>) -> Self {
+        Self(client)
     }
 }
 
-/// A media driver in invoker mode is an agent: its duty cycle is
-/// [`MediaDriver::do_work`](crate::MediaDriver::do_work).
-#[cfg(feature = "driver")]
-impl Agent for Arc<crate::MediaDriver> {
+impl Agent for ClientAgent {
+    fn on_start(&mut self) -> Result<()> {
+        if !self.0.uses_agent_invoker() {
+            return Err(Error::new(
+                ErrorKind::IllegalState,
+                "the client does not use an agent invoker",
+            ));
+        }
+        Ok(())
+    }
+
     fn do_work(&mut self) -> Result<i32> {
-        crate::MediaDriver::do_work(self)
+        self.0.invoke()
+    }
+}
+
+/// A media driver in invoker mode as an agent: its duty cycle is
+/// [`MediaDriver::do_work`](crate::MediaDriver::do_work). Starting it fails
+/// unless the driver runs in [`ThreadingMode::Invoker`](crate::ThreadingMode::Invoker).
+#[cfg(feature = "driver")]
+#[derive(Debug, Clone)]
+pub struct MediaDriverAgent(pub Arc<crate::MediaDriver>);
+
+#[cfg(feature = "driver")]
+impl MediaDriverAgent {
+    /// Run `driver`'s duty cycle as an agent.
+    pub fn new(driver: Arc<crate::MediaDriver>) -> Self {
+        Self(driver)
+    }
+}
+
+#[cfg(feature = "driver")]
+impl Agent for MediaDriverAgent {
+    fn on_start(&mut self) -> Result<()> {
+        if self.0.threading_mode() != crate::ThreadingMode::Invoker {
+            return Err(Error::new(
+                ErrorKind::IllegalState,
+                "the media driver does not run in ThreadingMode::Invoker",
+            ));
+        }
+        Ok(())
+    }
+
+    fn do_work(&mut self) -> Result<i32> {
+        self.0.do_work()
+    }
+}
+
+/// Report an error unless it is an agent asking to stop.
+fn report<H: FnMut(&Error)>(error: &Error, handler: &mut H) {
+    if error.kind() != ErrorKind::AgentTermination {
+        handler(error);
     }
 }
 
@@ -274,7 +326,8 @@ impl<A: Agent, H: FnMut(&Error)> AgentInvoker<A, H> {
     }
 
     /// Start the agent ([`Agent::on_start`]) if it is not started yet. If that
-    /// fails, the error is reported and the invoker closes.
+    /// fails, the error is reported (unless it is an
+    /// [`AgentTermination`](ErrorKind::AgentTermination)) and the invoker closes.
     pub fn start(&mut self) {
         if self.started {
             return;
@@ -283,7 +336,7 @@ impl<A: Agent, H: FnMut(&Error)> AgentInvoker<A, H> {
         match self.agent.on_start() {
             Ok(()) => self.running = true,
             Err(e) => {
-                (self.error_handler)(&e);
+                report(&e, &mut self.error_handler);
                 self.close();
             }
         }
@@ -291,7 +344,9 @@ impl<A: Agent, H: FnMut(&Error)> AgentInvoker<A, H> {
 
     /// Run one duty cycle if the agent is running; returns the work done (0
     /// otherwise). Errors are reported; an
-    /// [`AgentTermination`](ErrorKind::AgentTermination) error closes the invoker.
+    /// [`AgentTermination`](ErrorKind::AgentTermination) error closes the invoker
+    /// without being reported (C++ `AgentInvoker` has no termination: it reports
+    /// and keeps running).
     pub fn invoke(&mut self) -> i32 {
         if !self.running {
             return 0;
@@ -317,7 +372,7 @@ impl<A: Agent, H: FnMut(&Error)> AgentInvoker<A, H> {
         self.running = false;
         self.closed = true;
         if let Err(e) = self.agent.on_close() {
-            (self.error_handler)(&e);
+            report(&e, &mut self.error_handler);
         }
     }
 
@@ -363,7 +418,10 @@ impl<A: Agent + Send + 'static> AgentRunner<A> {
     /// Start `agent` on a new thread named `name`: [`Agent::on_start`], then
     /// duty cycles idling with `idle_strategy`, until closed (or the agent
     /// returns an [`AgentTermination`](ErrorKind::AgentTermination) error), then
-    /// [`Agent::on_close`]. Other errors go to `error_handler`.
+    /// [`Agent::on_close`]. Other errors go to `error_handler`, and the runner
+    /// then idles as if no work was done.
+    ///
+    /// Fails if `name` contains a NUL or the thread cannot be spawned.
     pub fn start<I, H>(
         name: &str,
         agent: A,
@@ -374,17 +432,18 @@ impl<A: Agent + Send + 'static> AgentRunner<A> {
         I: IdleStrategy + Send + 'static,
         H: FnMut(&Error) + Send + 'static,
     {
+        if name.contains('\0') {
+            return Err(Error::new(
+                ErrorKind::IllegalArgument,
+                "an agent runner's name cannot contain a NUL",
+            ));
+        }
         let running = Arc::new(AtomicBool::new(true));
         let flag = running.clone();
         let thread = std::thread::Builder::new()
             .name(name.to_string())
             .spawn(move || {
                 let mut agent = agent;
-                let report = |e: &Error, handler: &mut H| {
-                    if e.kind() != ErrorKind::AgentTermination {
-                        handler(e);
-                    }
-                };
                 if let Err(e) = agent.on_start() {
                     flag.store(false, Ordering::Release);
                     report(&e, &mut error_handler);
@@ -395,7 +454,10 @@ impl<A: Agent + Send + 'static> AgentRunner<A> {
                         Err(e) if e.kind() == ErrorKind::AgentTermination => {
                             flag.store(false, Ordering::Release);
                         }
-                        Err(e) => error_handler(&e),
+                        Err(e) => {
+                            error_handler(&e);
+                            idle_strategy.idle(0);
+                        }
                     }
                 }
                 if let Err(e) = agent.on_close() {
