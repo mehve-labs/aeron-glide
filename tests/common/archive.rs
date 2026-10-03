@@ -29,31 +29,31 @@ fn jar() -> Option<PathBuf> {
         return Some(PathBuf::from(jar));
     }
     let version = std::env::var("AERON_VERSION").unwrap_or_else(|_| "1.53.3".to_string());
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let pattern = format!(
-        "{}/target/*/build/aeron-glide-*/out/aeron-{version}/aeron-all/build/libs/aeron-all-{version}.jar",
-        root.display()
-    );
-    // A small glob: two wildcard directories.
-    let mut found = None;
-    for profile in std::fs::read_dir(root.join("target")).ok()?.flatten() {
-        let build = profile.path().join("build");
+    let file = format!("out/aeron-{version}/aeron-all/build/libs/aeron-all-{version}.jar");
+    // This test binary is <target>/<profile>/deps/<name>: look in the build
+    // directory of its own profile first (it may be outside the repository, e.g.
+    // CARGO_TARGET_DIR), then in the other profiles.
+    let exe = std::env::current_exe().ok()?;
+    let profile = exe.parent()?.parent()?;
+    let mut builds = vec![profile.join("build")];
+    if let Some(target) = profile.parent()
+        && let Ok(profiles) = std::fs::read_dir(target)
+    {
+        builds.extend(profiles.flatten().map(|p| p.path().join("build")));
+    }
+    for build in builds {
         let Ok(entries) = std::fs::read_dir(&build) else {
             continue;
         };
         for entry in entries.flatten() {
-            let jar = entry.path().join(format!(
-                "out/aeron-{version}/aeron-all/build/libs/aeron-all-{version}.jar"
-            ));
+            let jar = entry.path().join(&file);
             if jar.exists() {
-                found = Some(jar);
+                return Some(jar);
             }
         }
     }
-    if found.is_none() {
-        eprintln!("no jar matching {pattern}");
-    }
-    found
+    eprintln!("no {file} under {}", profile.display());
+    None
 }
 
 impl ArchiveDriver {
