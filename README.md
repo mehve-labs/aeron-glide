@@ -230,17 +230,16 @@ jar).
 
 ## Benchmarks
 
-See [BENCHMARKS.md](BENCHMARKS.md). Summary on Apple Silicon:
-
-| Test | Result |
-|------|--------|
-| IPC throughput (exclusive, 32 B) | ~67.5M msgs/sec |
-| UDP latency p50 (32 B, localhost) | ~17.5 µs |
-| UDP latency p99 (32 B, localhost) | ~28.2 µs |
+On an Apple M4 Pro with Aeron 1.53.3, a 32-byte UDP ping-pong over localhost
+has a median round trip of 20.8 µs (p99 30.9 µs), the same as 0.3.1. IPC
+throughput is 35M to 65M messages per second, depending mostly on how the
+publisher and subscriber threads share cache lines. See
+[BENCHMARKS.md](BENCHMARKS.md) for the method and why that number moves.
 
 ```bash
-cargo run --release --example throughput   # IPC throughput
+cargo run --release --example throughput   # IPC throughput (needs a driver)
 cargo run --release --example latency      # UDP ping-pong latency
+cargo run --release --example embedded_ping_pong
 ```
 
 ## Documentation
