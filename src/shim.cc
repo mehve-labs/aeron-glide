@@ -172,7 +172,7 @@ int64_t PublicationWrapper::offer(rust::Slice<const uint8_t> buffer) {
     return pub->offer(atomic_buffer);
 }
 
-int64_t PublicationWrapper::tryClaim(size_t length, size_t handler_id) {
+int64_t PublicationWrapper::tryClaim(size_t length, ClaimFn handler, size_t ctx) {
     aeron::concurrent::logbuffer::BufferClaim bufferClaim;
     int64_t position = pub->tryClaim(static_cast<aeron::util::index_t>(length), bufferClaim);
     if (position > 0) {
@@ -180,7 +180,7 @@ int64_t PublicationWrapper::tryClaim(size_t length, size_t handler_id) {
             bufferClaim.buffer().buffer() + bufferClaim.offset(),
             bufferClaim.length()
         );
-        bool commit = aeron_rs::handle_claim(handler_id, slice);
+        bool commit = handler(ctx, slice);
         if (commit) {
             bufferClaim.commit();
         } else {
@@ -207,7 +207,7 @@ int64_t ExclusivePublicationWrapper::offer(rust::Slice<const uint8_t> buffer) {
     return pub->offer(atomic_buffer);
 }
 
-int64_t ExclusivePublicationWrapper::tryClaim(size_t length, size_t handler_id) {
+int64_t ExclusivePublicationWrapper::tryClaim(size_t length, ClaimFn handler, size_t ctx) {
     aeron::concurrent::logbuffer::BufferClaim bufferClaim;
     int64_t position = pub->tryClaim(static_cast<aeron::util::index_t>(length), bufferClaim);
     if (position > 0) {
@@ -215,7 +215,7 @@ int64_t ExclusivePublicationWrapper::tryClaim(size_t length, size_t handler_id) 
             bufferClaim.buffer().buffer() + bufferClaim.offset(),
             bufferClaim.length()
         );
-        bool commit = aeron_rs::handle_claim(handler_id, slice);
+        bool commit = handler(ctx, slice);
         if (commit) {
             bufferClaim.commit();
         } else {
@@ -229,35 +229,49 @@ bool ExclusivePublicationWrapper::isConnected() const {
     return pub->isConnected();
 }
 
+namespace {
+
+// Points `slot` at the handler for the duration of a poll, and clears it on exit
+// (including by exception) so the assembler never sees a dangling handler.
+struct ScopedHandler {
+    ScopedHandler(const ControlledFragmentFn *&slot, size_t &ctx_slot, const ControlledFragmentFn &handler, size_t ctx)
+        : slot_(slot) {
+        slot = &handler;
+        ctx_slot = ctx;
+    }
+    ~ScopedHandler() { slot_ = nullptr; }
+    const ControlledFragmentFn *&slot_;
+};
+
+aeron::ControlledPollAction dispatchControlled(
+    const ControlledFragmentFn *handler, size_t ctx, aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length) {
+    if (handler == nullptr) {
+        return aeron::ControlledPollAction::ABORT;
+    }
+    rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
+    return static_cast<aeron::ControlledPollAction>((*handler)(ctx, slice));
+}
+
+} // namespace
+
 SubscriptionWrapper::SubscriptionWrapper(std::shared_ptr<aeron::Subscription> sub)
     : sub(sub),
-      assembler_([this](aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
-          rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
-          aeron_rs::handle_fragment(this->assembled_handler_id_, slice);
-      }),
-      controlled_assembler_([this](aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) -> aeron::ControlledPollAction {
-          rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
-          int32_t action = aeron_rs::handle_controlled_fragment(this->controlled_handler_id_, slice);
-          return static_cast<aeron::ControlledPollAction>(action);
+      controlled_assembler_([this](aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
+          return dispatchControlled(controlled_handler_, controlled_ctx_, buffer, offset, length);
       }) {}
 
 SubscriptionWrapper::~SubscriptionWrapper() {}
 
-int SubscriptionWrapper::poll(int fragment_limit, size_t handler_id) {
+int SubscriptionWrapper::poll(int fragment_limit, FragmentFn handler, size_t ctx) {
     auto fragment_handler = [&](const aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
         rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
-        aeron_rs::handle_fragment(handler_id, slice);
+        handler(ctx, slice);
     };
     return sub->poll(fragment_handler, fragment_limit);
 }
 
-int SubscriptionWrapper::pollAssembled(int fragment_limit, size_t handler_id) {
-    assembled_handler_id_ = handler_id;
-    return sub->poll(assembler_.handler(), fragment_limit);
-}
-
-int SubscriptionWrapper::controlledPollAssembled(int fragment_limit, size_t handler_id) {
-    controlled_handler_id_ = handler_id;
+int SubscriptionWrapper::controlledPollAssembled(int fragment_limit, ControlledFragmentFn handler, size_t ctx) {
+    ScopedHandler scope(controlled_handler_, controlled_ctx_, handler, ctx);
     return sub->controlledPoll(controlled_assembler_.handler(), fragment_limit);
 }
 
@@ -266,10 +280,7 @@ bool SubscriptionWrapper::isConnected() const {
 }
 
 bool SubscriptionWrapper::deleteSessionBuffer(int32_t session_id) {
-    // Both assemblers may hold a buffer for the session; free each one.
-    bool freed = assembler_.deleteSessionBuffer(session_id);
-    freed = controlled_assembler_.deleteSessionBuffer(session_id) || freed;
-    return freed;
+    return controlled_assembler_.deleteSessionBuffer(session_id);
 }
 
 int SubscriptionWrapper::imageCount() const {
@@ -300,10 +311,8 @@ std::unique_ptr<ImageWrapper> SubscriptionWrapper::imageBySessionId(int32_t sess
 
 ImageWrapper::ImageWrapper(std::shared_ptr<aeron::Image> image)
     : image_(image),
-      controlled_assembler_([this](aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) -> aeron::ControlledPollAction {
-          rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
-          int32_t action = aeron_rs::handle_controlled_fragment(this->controlled_handler_id_, slice);
-          return static_cast<aeron::ControlledPollAction>(action);
+      controlled_assembler_([this](aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
+          return dispatchControlled(controlled_handler_, controlled_ctx_, buffer, offset, length);
       }) {}
 
 ImageWrapper::~ImageWrapper() {}
@@ -340,16 +349,16 @@ int64_t ImageWrapper::endOfStreamPosition() const {
     return image_->endOfStreamPosition();
 }
 
-int ImageWrapper::poll(int fragment_limit, size_t handler_id) {
+int ImageWrapper::poll(int fragment_limit, FragmentFn handler, size_t ctx) {
     auto fragment_handler = [&](const aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
         rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
-        aeron_rs::handle_fragment(handler_id, slice);
+        handler(ctx, slice);
     };
     return image_->poll(fragment_handler, fragment_limit);
 }
 
-int ImageWrapper::controlledPollAssembled(int fragment_limit, size_t handler_id) {
-    controlled_handler_id_ = handler_id;
+int ImageWrapper::controlledPollAssembled(int fragment_limit, ControlledFragmentFn handler, size_t ctx) {
+    ScopedHandler scope(controlled_handler_, controlled_ctx_, handler, ctx);
     return image_->controlledPoll(controlled_assembler_.handler(), fragment_limit);
 }
 
@@ -377,10 +386,11 @@ rust::String CountersReaderWrapper::getCounterLabel(int32_t id) const {
     return rust::String::lossy(aeron->countersReader().getCounterLabel(id));
 }
 
-void CountersReaderWrapper::forEach(size_t handler_id) const {
+void CountersReaderWrapper::forEach(CounterFn handler, size_t ctx) const {
     aeron->countersReader().forEach([&](int32_t counter_id, int32_t type_id, const aeron::concurrent::AtomicBuffer& keyBuffer, const std::string& label) {
         rust::Slice<const uint8_t> key_slice(keyBuffer.buffer(), keyBuffer.capacity());
-        aeron_rs::handle_counters_metadata(handler_id, counter_id, type_id, key_slice, rust::String::lossy(label));
+        rust::Slice<const uint8_t> label_slice(reinterpret_cast<const uint8_t *>(label.data()), label.size());
+        handler(ctx, counter_id, type_id, key_slice, label_slice);
     });
 }
 
@@ -479,10 +489,14 @@ int64_t ArchiveWrapper::getMaxRecordedPosition(int64_t recording_id) {
     return archive_->getMaxRecordedPosition(recording_id);
 }
 
-int32_t ArchiveWrapper::listRecordings(int64_t from_recording_id, int32_t record_count, size_t handler_id) {
-    auto consumer = [handler_id](aeron::archive::client::RecordingDescriptor& rd) {
-        aeron_rs::handle_recording_descriptor(
-            handler_id,
+static rust::Slice<const uint8_t> asSlice(const std::string &s) {
+    return rust::Slice<const uint8_t>(reinterpret_cast<const uint8_t *>(s.data()), s.size());
+}
+
+int32_t ArchiveWrapper::listRecordings(int64_t from_recording_id, int32_t record_count, RecordingDescriptorFn handler, size_t ctx) {
+    auto consumer = [&](aeron::archive::client::RecordingDescriptor& rd) {
+        handler(
+            ctx,
             rd.m_controlSessionId,
             rd.m_correlationId,
             rd.m_recordingId,
@@ -496,16 +510,16 @@ int32_t ArchiveWrapper::listRecordings(int64_t from_recording_id, int32_t record
             rd.m_mtuLength,
             rd.m_sessionId,
             rd.m_streamId,
-            ::rust::String::lossy(rd.m_strippedChannel),
-            ::rust::String::lossy(rd.m_originalChannel));
+            asSlice(rd.m_strippedChannel),
+            asSlice(rd.m_originalChannel));
     };
     return archive_->listRecordings(from_recording_id, record_count, consumer);
 }
 
-int32_t ArchiveWrapper::listRecordingsForUri(int64_t from_recording_id, int32_t record_count, ::rust::Str channel_fragment, int32_t stream_id, size_t handler_id) {
-    auto consumer = [handler_id](aeron::archive::client::RecordingDescriptor& rd) {
-        aeron_rs::handle_recording_descriptor(
-            handler_id,
+int32_t ArchiveWrapper::listRecordingsForUri(int64_t from_recording_id, int32_t record_count, ::rust::Str channel_fragment, int32_t stream_id, RecordingDescriptorFn handler, size_t ctx) {
+    auto consumer = [&](aeron::archive::client::RecordingDescriptor& rd) {
+        handler(
+            ctx,
             rd.m_controlSessionId,
             rd.m_correlationId,
             rd.m_recordingId,
@@ -519,8 +533,8 @@ int32_t ArchiveWrapper::listRecordingsForUri(int64_t from_recording_id, int32_t 
             rd.m_mtuLength,
             rd.m_sessionId,
             rd.m_streamId,
-            ::rust::String::lossy(rd.m_strippedChannel),
-            ::rust::String::lossy(rd.m_originalChannel));
+            asSlice(rd.m_strippedChannel),
+            asSlice(rd.m_originalChannel));
     };
     return archive_->listRecordingsForUri(
         from_recording_id, record_count,
@@ -606,13 +620,13 @@ int ReplayMergeWrapper::doWork() {
     return merge_->doWork();
 }
 
-int ReplayMergeWrapper::poll(int fragment_limit, size_t handler_id) {
-    auto handler = [&](const aeron::AtomicBuffer& buffer, aeron::util::index_t offset,
-                       aeron::util::index_t length, aeron::Header& header) {
+int ReplayMergeWrapper::poll(int fragment_limit, FragmentFn handler, size_t ctx) {
+    auto fragment_handler = [&](const aeron::AtomicBuffer& buffer, aeron::util::index_t offset,
+                                aeron::util::index_t length, aeron::Header& header) {
         rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
-        aeron_rs::handle_fragment(handler_id, slice);
+        handler(ctx, slice);
     };
-    return merge_->poll(handler, fragment_limit);
+    return merge_->poll(fragment_handler, fragment_limit);
 }
 
 std::unique_ptr<ImageWrapper> ReplayMergeWrapper::image() {

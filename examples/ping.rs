@@ -128,11 +128,13 @@ fn main() {
     // Print Aeron counters after the benchmark
     let reader = client.counters_reader();
     println!("\n--- AERON COUNTERS ---");
-    reader.for_each(|id, _type_id, _key_buffer, label| {
-        let value = reader.get_counter_value(id).unwrap_or(0);
-        if value != 0 {
-            println!("  {:>3}: {} = {}", id, label, value);
-        }
-    });
+    reader
+        .for_each(|id, _type_id, _key_buffer, label| {
+            let value = reader.get_counter_value(id).unwrap_or(0);
+            if value != 0 {
+                println!("  {:>3}: {} = {}", id, label, value);
+            }
+        })
+        .expect("failed to read counters");
     println!("----------------------");
 }

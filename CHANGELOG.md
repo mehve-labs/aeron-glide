@@ -26,6 +26,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   out-of-range counter id).
 - Strings read from Aeron (counter labels, image source identities, recording
   channels) no longer abort on invalid UTF-8; invalid bytes become `U+FFFD`.
+- Closures are passed to C++ through monomorphised trampolines instead of
+  thread-local `HashMap` registries: no hashing per poll, no `transmute`, and
+  handlers may now poll other subscriptions, images or `ReplayMerge`s (this
+  used to abort the process with "already borrowed").
+- A panic in a fragment, claim, counter or recording handler now unwinds to the
+  caller of `poll` / `try_claim` / `for_each` / `list_recordings` once the C++
+  call has returned, instead of aborting the process. The fragment being
+  handled by a controlled poll is aborted (re-delivered on the next poll);
+  remaining fragments of a plain poll are consumed without delivery; a
+  panicking claim is aborted.
+- **Breaking:** `CountersReader::for_each` returns `Result<()>`.
 - **Breaking:** `Subscription::image_by_index`, `Subscription::image_by_session_id`
   and `ReplayMerge::image` return `Option<Image>` instead of an error when there
   is no such image.

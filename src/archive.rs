@@ -1,4 +1,4 @@
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 #[cxx::bridge(namespace = "aeron_rs")]
 pub mod ffi {
     unsafe extern "C++" {
@@ -44,7 +44,25 @@ pub mod ffi {
             self: Pin<&mut ArchiveWrapper>,
             from_recording_id: i64,
             record_count: i32,
-            handler_id: usize,
+            handler: fn(
+                usize,
+                i64,
+                i64,
+                i64,
+                i64,
+                i64,
+                i64,
+                i64,
+                i32,
+                i32,
+                i32,
+                i32,
+                i32,
+                i32,
+                &[u8],
+                &[u8],
+            ),
+            ctx: usize,
         ) -> Result<i32>;
         fn listRecordingsForUri(
             self: Pin<&mut ArchiveWrapper>,
@@ -52,7 +70,25 @@ pub mod ffi {
             record_count: i32,
             channel_fragment: &str,
             stream_id: i32,
-            handler_id: usize,
+            handler: fn(
+                usize,
+                i64,
+                i64,
+                i64,
+                i64,
+                i64,
+                i64,
+                i64,
+                i32,
+                i32,
+                i32,
+                i32,
+                i32,
+                i32,
+                &[u8],
+                &[u8],
+            ),
+            ctx: usize,
         ) -> Result<i32>;
         fn findLastMatchingRecording(
             self: Pin<&mut ArchiveWrapper>,
@@ -107,40 +143,18 @@ pub mod ffi {
         fn poll(
             self: Pin<&mut ReplayMergeWrapper>,
             fragment_limit: i32,
-            handler_id: usize,
+            handler: fn(usize, &[u8]),
+            ctx: usize,
         ) -> Result<i32>;
         fn image(self: Pin<&mut ReplayMergeWrapper>) -> UniquePtr<ImageWrapper>;
         fn isMerged(self: &ReplayMergeWrapper) -> bool;
         fn hasFailed(self: &ReplayMergeWrapper) -> bool;
         fn isLiveAdded(self: &ReplayMergeWrapper) -> bool;
     }
-
-    extern "Rust" {
-        #[allow(clippy::too_many_arguments)]
-        fn handle_recording_descriptor(
-            handler_id: usize,
-            control_session_id: i64,
-            correlation_id: i64,
-            recording_id: i64,
-            start_timestamp: i64,
-            stop_timestamp: i64,
-            start_position: i64,
-            stop_position: i64,
-            initial_term_id: i32,
-            segment_file_length: i32,
-            term_buffer_length: i32,
-            mtu_length: i32,
-            session_id: i32,
-            stream_id: i32,
-            stripped_channel: String,
-            original_channel: String,
-        );
-    }
 }
 
 use crate::Result;
-use std::cell::RefCell;
-use std::collections::HashMap;
+use crate::callback::{self, Callback};
 
 /// Source location for recording — whether the stream being recorded originates
 /// locally (via a spy subscription) or remotely (via network subscription).
@@ -171,15 +185,9 @@ pub struct RecordingDescriptor {
     pub original_channel: String,
 }
 
-type RecordingDescriptorHandlerMap = RefCell<HashMap<usize, *mut dyn FnMut(RecordingDescriptor)>>;
-
-thread_local! {
-    static RECORDING_DESCRIPTOR_HANDLERS: RecordingDescriptorHandlerMap = RefCell::new(HashMap::new());
-}
-
 #[allow(clippy::too_many_arguments)]
-fn handle_recording_descriptor(
-    handler_id: usize,
+fn recording_descriptor<F: FnMut(RecordingDescriptor)>(
+    ctx: usize,
     control_session_id: i64,
     correlation_id: i64,
     recording_id: i64,
@@ -193,33 +201,29 @@ fn handle_recording_descriptor(
     mtu_length: i32,
     session_id: i32,
     stream_id: i32,
-    stripped_channel: String,
-    original_channel: String,
+    stripped_channel: &[u8],
+    original_channel: &[u8],
 ) {
-    RECORDING_DESCRIPTOR_HANDLERS.with(|handlers| {
-        if let Some(handler_ptr) = handlers.borrow_mut().get_mut(&handler_id) {
-            let descriptor = RecordingDescriptor {
-                control_session_id,
-                correlation_id,
-                recording_id,
-                start_timestamp,
-                stop_timestamp,
-                start_position,
-                stop_position,
-                initial_term_id,
-                segment_file_length,
-                term_buffer_length,
-                mtu_length,
-                session_id,
-                stream_id,
-                stripped_channel,
-                original_channel,
-            };
-            unsafe {
-                let handler = &mut **handler_ptr;
-                handler(descriptor);
-            }
-        }
+    // SAFETY: C++ only calls this with the ctx passed alongside it, during the call.
+    let cb = unsafe { Callback::<F>::from_ctx(ctx) };
+    cb.call((), |f| {
+        f(RecordingDescriptor {
+            control_session_id,
+            correlation_id,
+            recording_id,
+            start_timestamp,
+            stop_timestamp,
+            start_position,
+            stop_position,
+            initial_term_id,
+            segment_file_length,
+            term_buffer_length,
+            mtu_length,
+            session_id,
+            stream_id,
+            stripped_channel: String::from_utf8_lossy(stripped_channel).into_owned(),
+            original_channel: String::from_utf8_lossy(original_channel).into_owned(),
+        })
     });
 }
 
@@ -307,33 +311,19 @@ impl AeronArchive {
         &mut self,
         from_recording_id: i64,
         record_count: i32,
-        mut handler: F,
+        handler: F,
     ) -> Result<i32>
     where
         F: FnMut(RecordingDescriptor),
     {
-        let handler_id = &handler as *const _ as usize;
-        let mut_ptr: *mut (dyn FnMut(RecordingDescriptor) + 'static) = unsafe {
-            std::mem::transmute::<
-                *mut dyn FnMut(RecordingDescriptor),
-                *mut (dyn FnMut(RecordingDescriptor) + 'static),
-            >(&mut handler as *mut dyn FnMut(RecordingDescriptor))
-        };
-
-        RECORDING_DESCRIPTOR_HANDLERS.with(|handlers| {
-            handlers.borrow_mut().insert(handler_id, mut_ptr);
-        });
-
-        let result =
-            self.inner
-                .pin_mut()
-                .listRecordings(from_recording_id, record_count, handler_id);
-
-        RECORDING_DESCRIPTOR_HANDLERS.with(|handlers| {
-            handlers.borrow_mut().remove(&handler_id);
-        });
-
-        Ok(result?)
+        let mut cb = Callback::new(handler);
+        let result = self.inner.pin_mut().listRecordings(
+            from_recording_id,
+            record_count,
+            recording_descriptor::<F>,
+            cb.ctx(),
+        );
+        Ok(cb.finish(result)?)
     }
 
     /// List recordings matching a channel fragment and stream ID.
@@ -343,36 +333,21 @@ impl AeronArchive {
         record_count: i32,
         channel_fragment: &str,
         stream_id: i32,
-        mut handler: F,
+        handler: F,
     ) -> Result<i32>
     where
         F: FnMut(RecordingDescriptor),
     {
-        let handler_id = &handler as *const _ as usize;
-        let mut_ptr: *mut (dyn FnMut(RecordingDescriptor) + 'static) = unsafe {
-            std::mem::transmute::<
-                *mut dyn FnMut(RecordingDescriptor),
-                *mut (dyn FnMut(RecordingDescriptor) + 'static),
-            >(&mut handler as *mut dyn FnMut(RecordingDescriptor))
-        };
-
-        RECORDING_DESCRIPTOR_HANDLERS.with(|handlers| {
-            handlers.borrow_mut().insert(handler_id, mut_ptr);
-        });
-
+        let mut cb = Callback::new(handler);
         let result = self.inner.pin_mut().listRecordingsForUri(
             from_recording_id,
             record_count,
             channel_fragment,
             stream_id,
-            handler_id,
+            recording_descriptor::<F>,
+            cb.ctx(),
         );
-
-        RECORDING_DESCRIPTOR_HANDLERS.with(|handlers| {
-            handlers.borrow_mut().remove(&handler_id);
-        });
-
-        Ok(result?)
+        Ok(cb.finish(result)?)
     }
 
     /// Find the last recording matching the given criteria. Returns the recording ID
@@ -515,28 +490,16 @@ impl ReplayMerge {
     }
 
     /// Poll for fragments from the replay/merged stream.
-    pub fn poll<F>(&mut self, fragment_limit: i32, mut handler: F) -> Result<i32>
+    pub fn poll<F>(&mut self, fragment_limit: i32, handler: F) -> Result<i32>
     where
         F: FnMut(&[u8]),
     {
-        let handler_id = &handler as *const _ as usize;
-        let mut_ptr: *mut (dyn FnMut(&[u8]) + 'static) = unsafe {
-            std::mem::transmute::<*mut dyn FnMut(&[u8]), *mut (dyn FnMut(&[u8]) + 'static)>(
-                &mut handler as *mut dyn FnMut(&[u8]),
-            )
-        };
-
-        crate::HANDLERS.with(|handlers| {
-            handlers.borrow_mut().insert(handler_id, mut_ptr);
-        });
-
-        let result = self.inner.pin_mut().poll(fragment_limit, handler_id);
-
-        crate::HANDLERS.with(|handlers| {
-            handlers.borrow_mut().remove(&handler_id);
-        });
-
-        Ok(result?)
+        let mut cb = Callback::new(handler);
+        let result = self
+            .inner
+            .pin_mut()
+            .poll(fragment_limit, callback::fragment::<F>, cb.ctx());
+        Ok(cb.finish(result)?)
     }
 
     /// Get the merged Image, or `None` if it is not available yet. Available after

@@ -16,10 +16,12 @@ fn main() {
     let max_id = reader.max_counter_id();
     println!("Max Counter ID capacity: {}", max_id);
 
-    reader.for_each(|id, type_id, _key_buffer, label| {
-        let value = reader.get_counter_value(id).unwrap_or(0);
-        println!("{:>3} [{:<4}] {}: {}", id, type_id, label, value);
-    });
+    reader
+        .for_each(|id, type_id, _key_buffer, label| {
+            let value = reader.get_counter_value(id).unwrap_or(0);
+            println!("{:>3} [{:<4}] {}: {}", id, type_id, label, value);
+        })
+        .expect("failed to read counters");
 
     println!("----------------------");
 }

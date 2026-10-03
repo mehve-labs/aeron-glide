@@ -3,7 +3,6 @@
 #include <memory>
 #include <string>
 #include <Aeron.h>
-#include <FragmentAssembler.h>
 #include <ControlledFragmentAssembler.h>
 #include <ImageControlledFragmentAssembler.h>
 #include "rust/cxx.h"
@@ -88,6 +87,12 @@ extern "C" {
 
 namespace aeron_rs {
 
+// Rust trampolines (see src/callback.rs). The size_t is the opaque closure context.
+using FragmentFn = rust::Fn<void(size_t, rust::Slice<const uint8_t>)>;
+using ControlledFragmentFn = rust::Fn<int32_t(size_t, rust::Slice<const uint8_t>)>;
+using ClaimFn = rust::Fn<bool(size_t, rust::Slice<uint8_t>)>;
+using CounterFn = rust::Fn<void(size_t, int32_t, int32_t, rust::Slice<const uint8_t>, rust::Slice<const uint8_t>)>;
+
 // We wrap the aeron::Context because it's required to initialize Aeron
 class ContextWrapper {
 public:
@@ -144,7 +149,7 @@ public:
     ~PublicationWrapper();
     
     int64_t offer(rust::Slice<const uint8_t> buffer);
-    int64_t tryClaim(size_t length, size_t handler_id);
+    int64_t tryClaim(size_t length, ClaimFn handler, size_t ctx);
     bool isConnected() const;
     int32_t sessionId() const;
 
@@ -158,7 +163,7 @@ public:
     ~ExclusivePublicationWrapper();
 
     int64_t offer(rust::Slice<const uint8_t> buffer);
-    int64_t tryClaim(size_t length, size_t handler_id);
+    int64_t tryClaim(size_t length, ClaimFn handler, size_t ctx);
     bool isConnected() const;
 
 private:
@@ -172,9 +177,8 @@ public:
     SubscriptionWrapper(std::shared_ptr<aeron::Subscription> sub);
     ~SubscriptionWrapper();
 
-    int poll(int fragment_limit, size_t handler_id);
-    int pollAssembled(int fragment_limit, size_t handler_id);
-    int controlledPollAssembled(int fragment_limit, size_t handler_id);
+    int poll(int fragment_limit, FragmentFn handler, size_t ctx);
+    int controlledPollAssembled(int fragment_limit, ControlledFragmentFn handler, size_t ctx);
     bool isConnected() const;
     bool deleteSessionBuffer(int32_t session_id);
 
@@ -188,9 +192,9 @@ public:
 
 private:
     std::shared_ptr<aeron::Subscription> sub;
-    size_t assembled_handler_id_ = 0;
-    size_t controlled_handler_id_ = 0;
-    aeron::FragmentAssembler assembler_;
+    // Handler of the controlledPollAssembled call in progress, used by the assembler.
+    const ControlledFragmentFn *controlled_handler_ = nullptr;
+    size_t controlled_ctx_ = 0;
     aeron::ControlledFragmentAssembler controlled_assembler_;
 };
 
@@ -214,12 +218,14 @@ public:
     int64_t endOfStreamPosition() const;
 
     // Polling
-    int poll(int fragment_limit, size_t handler_id);
-    int controlledPollAssembled(int fragment_limit, size_t handler_id);
+    int poll(int fragment_limit, FragmentFn handler, size_t ctx);
+    int controlledPollAssembled(int fragment_limit, ControlledFragmentFn handler, size_t ctx);
 
 private:
     std::shared_ptr<aeron::Image> image_;
-    size_t controlled_handler_id_ = 0;
+    // Handler of the controlledPollAssembled call in progress, used by the assembler.
+    const ControlledFragmentFn *controlled_handler_ = nullptr;
+    size_t controlled_ctx_ = 0;
     aeron::ImageControlledFragmentAssembler controlled_assembler_;
 };
 
@@ -233,7 +239,7 @@ public:
     int32_t getCounterState(int32_t id) const;
     int32_t getCounterTypeId(int32_t id) const;
     rust::String getCounterLabel(int32_t id) const;
-    void forEach(size_t handler_id) const;
+    void forEach(CounterFn handler, size_t ctx) const;
 
 private:
     std::shared_ptr<aeron::Aeron> aeron;
@@ -262,6 +268,14 @@ std::unique_ptr<AeronWrapper> create_aeron(std::unique_ptr<ContextWrapper> conte
 std::unique_ptr<MediaDriverWrapper> create_media_driver();
 
 #ifdef AERON_ARCHIVE
+// (ctx, control_session_id, correlation_id, recording_id, start_timestamp, stop_timestamp,
+//  start_position, stop_position, initial_term_id, segment_file_length, term_buffer_length,
+//  mtu_length, session_id, stream_id, stripped_channel, original_channel)
+using RecordingDescriptorFn = rust::Fn<void(
+    size_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
+    int32_t, int32_t, int32_t, int32_t, int32_t, int32_t,
+    rust::Slice<const uint8_t>, rust::Slice<const uint8_t>)>;
+
 class ArchiveWrapper {
 public:
     ArchiveWrapper(std::shared_ptr<aeron::archive::client::AeronArchive> archive);
@@ -279,8 +293,8 @@ public:
     int64_t getMaxRecordedPosition(int64_t recording_id);
 
     // Listing
-    int32_t listRecordings(int64_t from_recording_id, int32_t record_count, size_t handler_id);
-    int32_t listRecordingsForUri(int64_t from_recording_id, int32_t record_count, ::rust::Str channel_fragment, int32_t stream_id, size_t handler_id);
+    int32_t listRecordings(int64_t from_recording_id, int32_t record_count, RecordingDescriptorFn handler, size_t ctx);
+    int32_t listRecordingsForUri(int64_t from_recording_id, int32_t record_count, ::rust::Str channel_fragment, int32_t stream_id, RecordingDescriptorFn handler, size_t ctx);
     int64_t findLastMatchingRecording(int64_t min_recording_id, ::rust::Str channel_fragment, int32_t stream_id, int32_t session_id);
 
     // Replay
@@ -319,7 +333,7 @@ public:
     ~ReplayMergeWrapper();
 
     int doWork();
-    int poll(int fragment_limit, size_t handler_id);
+    int poll(int fragment_limit, FragmentFn handler, size_t ctx);
     std::unique_ptr<ImageWrapper> image();
     bool isMerged() const;
     bool hasFailed() const;

@@ -47,7 +47,9 @@
 #[cfg_attr(docsrs, doc(cfg(feature = "archive")))]
 pub mod archive;
 
+mod callback;
 mod error;
+use callback::Callback;
 pub use error::{Error, ErrorKind, OfferError, Result};
 
 #[cxx::bridge(namespace = "aeron_rs")]
@@ -110,7 +112,8 @@ pub mod ffi {
         fn tryClaim(
             self: Pin<&mut PublicationWrapper>,
             length: usize,
-            handler_id: usize,
+            handler: fn(usize, &mut [u8]) -> bool,
+            ctx: usize,
         ) -> Result<i64>;
         fn isConnected(self: &PublicationWrapper) -> bool;
         fn sessionId(self: &PublicationWrapper) -> i32;
@@ -119,24 +122,22 @@ pub mod ffi {
         fn tryClaim(
             self: Pin<&mut ExclusivePublicationWrapper>,
             length: usize,
-            handler_id: usize,
+            handler: fn(usize, &mut [u8]) -> bool,
+            ctx: usize,
         ) -> Result<i64>;
         fn isConnected(self: &ExclusivePublicationWrapper) -> bool;
 
         fn poll(
             self: Pin<&mut SubscriptionWrapper>,
             fragment_limit: i32,
-            handler_id: usize,
-        ) -> Result<i32>;
-        fn pollAssembled(
-            self: Pin<&mut SubscriptionWrapper>,
-            fragment_limit: i32,
-            handler_id: usize,
+            handler: fn(usize, &[u8]),
+            ctx: usize,
         ) -> Result<i32>;
         fn controlledPollAssembled(
             self: Pin<&mut SubscriptionWrapper>,
             fragment_limit: i32,
-            handler_id: usize,
+            handler: fn(usize, &[u8]) -> i32,
+            ctx: usize,
         ) -> Result<i32>;
         fn isConnected(self: &SubscriptionWrapper) -> bool;
         fn deleteSessionBuffer(self: Pin<&mut SubscriptionWrapper>, session_id: i32) -> bool;
@@ -162,12 +163,14 @@ pub mod ffi {
         fn poll(
             self: Pin<&mut ImageWrapper>,
             fragment_limit: i32,
-            handler_id: usize,
+            handler: fn(usize, &[u8]),
+            ctx: usize,
         ) -> Result<i32>;
         fn controlledPollAssembled(
             self: Pin<&mut ImageWrapper>,
             fragment_limit: i32,
-            handler_id: usize,
+            handler: fn(usize, &[u8]) -> i32,
+            ctx: usize,
         ) -> Result<i32>;
 
         fn maxCounterId(self: &CountersReaderWrapper) -> i32;
@@ -175,20 +178,11 @@ pub mod ffi {
         fn getCounterState(self: &CountersReaderWrapper, id: i32) -> Result<i32>;
         fn getCounterTypeId(self: &CountersReaderWrapper, id: i32) -> Result<i32>;
         fn getCounterLabel(self: &CountersReaderWrapper, id: i32) -> Result<String>;
-        fn forEach(self: &CountersReaderWrapper, handler_id: usize);
-    }
-
-    extern "Rust" {
-        fn handle_fragment(handler_id: usize, buffer: &[u8]);
-        fn handle_controlled_fragment(handler_id: usize, buffer: &[u8]) -> i32;
-        fn handle_claim(handler_id: usize, buffer: &mut [u8]) -> bool;
-        fn handle_counters_metadata(
-            handler_id: usize,
-            counter_id: i32,
-            type_id: i32,
-            key: &[u8],
-            label: String,
-        );
+        fn forEach(
+            self: &CountersReaderWrapper,
+            handler: fn(usize, i32, i32, &[u8], &[u8]),
+            ctx: usize,
+        ) -> Result<()>;
     }
 }
 
@@ -274,30 +268,17 @@ impl Publication {
     pub fn try_claim<F>(
         &mut self,
         length: usize,
-        mut handler: F,
+        handler: F,
     ) -> std::result::Result<i64, OfferError>
     where
         F: FnMut(&mut [u8]) -> bool,
     {
-        let handler_id = &handler as *const _ as usize;
-        let mut_ptr: *mut (dyn FnMut(&mut [u8]) -> bool + 'static) = unsafe {
-            std::mem::transmute::<
-                *mut dyn FnMut(&mut [u8]) -> bool,
-                *mut (dyn FnMut(&mut [u8]) -> bool + 'static),
-            >(&mut handler as *mut dyn FnMut(&mut [u8]) -> bool)
-        };
-
-        CLAIM_HANDLERS.with(|handlers| {
-            handlers.borrow_mut().insert(handler_id, mut_ptr);
-        });
-
-        let result = self.inner.pin_mut().tryClaim(length, handler_id);
-
-        CLAIM_HANDLERS.with(|handlers| {
-            handlers.borrow_mut().remove(&handler_id);
-        });
-
-        error::offer_result(result?)
+        let mut cb = Callback::new(handler);
+        let result = self
+            .inner
+            .pin_mut()
+            .tryClaim(length, callback::claim::<F>, cb.ctx());
+        error::offer_result(cb.finish(result)?)
     }
 
     /// Returns `true` if there is at least one subscriber connected to this publication.
@@ -331,30 +312,17 @@ impl ExclusivePublication {
     pub fn try_claim<F>(
         &mut self,
         length: usize,
-        mut handler: F,
+        handler: F,
     ) -> std::result::Result<i64, OfferError>
     where
         F: FnMut(&mut [u8]) -> bool,
     {
-        let handler_id = &handler as *const _ as usize;
-        let mut_ptr: *mut (dyn FnMut(&mut [u8]) -> bool + 'static) = unsafe {
-            std::mem::transmute::<
-                *mut dyn FnMut(&mut [u8]) -> bool,
-                *mut (dyn FnMut(&mut [u8]) -> bool + 'static),
-            >(&mut handler as *mut dyn FnMut(&mut [u8]) -> bool)
-        };
-
-        CLAIM_HANDLERS.with(|handlers| {
-            handlers.borrow_mut().insert(handler_id, mut_ptr);
-        });
-
-        let result = self.inner.pin_mut().tryClaim(length, handler_id);
-
-        CLAIM_HANDLERS.with(|handlers| {
-            handlers.borrow_mut().remove(&handler_id);
-        });
-
-        error::offer_result(result?)
+        let mut cb = Callback::new(handler);
+        let result = self
+            .inner
+            .pin_mut()
+            .tryClaim(length, callback::claim::<F>, cb.ctx());
+        error::offer_result(cb.finish(result)?)
     }
 
     /// Returns `true` if there is at least one subscriber connected to this publication.
@@ -362,9 +330,6 @@ impl ExclusivePublication {
         self.inner.isConnected()
     }
 }
-
-use std::cell::RefCell;
-use std::collections::HashMap;
 
 /// Flow-control actions for `poll_assembled` when the handler returns a `ControlledAction`.
 /// Matches Aeron's `ControlledPollAction` enum values.
@@ -401,55 +366,6 @@ impl PollAction for ControlledAction {
     }
 }
 
-type FragmentHandlerMap = RefCell<HashMap<usize, *mut dyn FnMut(&[u8])>>;
-type ClaimHandlerMap = RefCell<HashMap<usize, *mut dyn FnMut(&mut [u8]) -> bool>>;
-type ControlledHandlerMap = RefCell<HashMap<usize, *mut dyn FnMut(&[u8]) -> ControlledAction>>;
-
-// Thread-local registries for closures passed across the cxx boundary.
-// We use pointer-based handler IDs since cxx doesn't support passing trait objects directly.
-thread_local! {
-    pub(crate) static HANDLERS: FragmentHandlerMap = RefCell::new(HashMap::new());
-    static CLAIM_HANDLERS: ClaimHandlerMap = RefCell::new(HashMap::new());
-    static CONTROLLED_HANDLERS: ControlledHandlerMap = RefCell::new(HashMap::new());
-}
-
-fn handle_fragment(handler_id: usize, buffer: &[u8]) {
-    HANDLERS.with(|handlers| {
-        if let Some(handler_ptr) = handlers.borrow_mut().get_mut(&handler_id) {
-            unsafe {
-                let handler = &mut **handler_ptr;
-                handler(buffer);
-            }
-        }
-    });
-}
-
-fn handle_controlled_fragment(handler_id: usize, buffer: &[u8]) -> i32 {
-    CONTROLLED_HANDLERS.with(|handlers| {
-        if let Some(handler_ptr) = handlers.borrow_mut().get_mut(&handler_id) {
-            unsafe {
-                let handler = &mut **handler_ptr;
-                handler(buffer) as i32
-            }
-        } else {
-            ControlledAction::Abort as i32
-        }
-    })
-}
-
-fn handle_claim(handler_id: usize, buffer: &mut [u8]) -> bool {
-    CLAIM_HANDLERS.with(|handlers| {
-        if let Some(handler_ptr) = handlers.borrow_mut().get_mut(&handler_id) {
-            unsafe {
-                let handler = &mut **handler_ptr;
-                handler(buffer)
-            }
-        } else {
-            false // abort if handler not found
-        }
-    })
-}
-
 /// A subscription for receiving messages on a channel+stream.
 pub struct Subscription {
     inner: cxx::UniquePtr<ffi::SubscriptionWrapper>,
@@ -458,28 +374,16 @@ pub struct Subscription {
 impl Subscription {
     /// Poll for new messages, calling `handler` for each fragment received.
     /// Returns the number of fragments dispatched.
-    pub fn poll<F>(&mut self, limit: i32, mut handler: F) -> Result<i32>
+    pub fn poll<F>(&mut self, limit: i32, handler: F) -> Result<i32>
     where
         F: FnMut(&[u8]),
     {
-        let handler_id = &handler as *const _ as usize;
-        let mut_ptr: *mut (dyn FnMut(&[u8]) + 'static) = unsafe {
-            std::mem::transmute::<*mut dyn FnMut(&[u8]), *mut (dyn FnMut(&[u8]) + 'static)>(
-                &mut handler as *mut dyn FnMut(&[u8]),
-            )
-        };
-
-        HANDLERS.with(|handlers| {
-            handlers.borrow_mut().insert(handler_id, mut_ptr);
-        });
-
-        let result = self.inner.pin_mut().poll(limit, handler_id);
-
-        HANDLERS.with(|handlers| {
-            handlers.borrow_mut().remove(&handler_id);
-        });
-
-        Ok(result?)
+        let mut cb = Callback::new(handler);
+        let result = self
+            .inner
+            .pin_mut()
+            .poll(limit, callback::fragment::<F>, cb.ctx());
+        Ok(cb.finish(result)?)
     }
 
     /// Poll with automatic fragment reassembly. Messages that span multiple fragments
@@ -488,36 +392,18 @@ impl Subscription {
     ///
     /// The handler can return `()` (maps to Continue) or a `ControlledAction` for
     /// flow-control (Abort to retry, Break to stop, Commit to checkpoint, Continue to proceed).
-    pub fn poll_assembled<R, F>(&mut self, limit: i32, mut handler: F) -> Result<i32>
+    pub fn poll_assembled<R, F>(&mut self, limit: i32, handler: F) -> Result<i32>
     where
         R: PollAction,
         F: FnMut(&[u8]) -> R,
     {
-        // Wrap the user's handler to always produce a ControlledAction
-        let mut controlled = |data: &[u8]| -> ControlledAction { handler(data).into_action() };
-
-        let handler_id = &controlled as *const _ as usize;
-        let mut_ptr: *mut (dyn FnMut(&[u8]) -> ControlledAction + 'static) = unsafe {
-            std::mem::transmute::<
-                *mut dyn FnMut(&[u8]) -> ControlledAction,
-                *mut (dyn FnMut(&[u8]) -> ControlledAction + 'static),
-            >(&mut controlled as *mut dyn FnMut(&[u8]) -> ControlledAction)
-        };
-
-        CONTROLLED_HANDLERS.with(|handlers| {
-            handlers.borrow_mut().insert(handler_id, mut_ptr);
-        });
-
-        let result = self
-            .inner
-            .pin_mut()
-            .controlledPollAssembled(limit, handler_id);
-
-        CONTROLLED_HANDLERS.with(|handlers| {
-            handlers.borrow_mut().remove(&handler_id);
-        });
-
-        Ok(result?)
+        let mut cb = Callback::new(handler);
+        let result = self.inner.pin_mut().controlledPollAssembled(
+            limit,
+            callback::controlled_fragment::<F, R>,
+            cb.ctx(),
+        );
+        Ok(cb.finish(result)?)
     }
 
     /// Returns `true` if there is at least one publisher connected to this subscription.
@@ -616,59 +502,30 @@ impl Image {
     }
 
     /// Poll this specific image for fragments. Returns the number of fragments dispatched.
-    pub fn poll<F>(&mut self, limit: i32, mut handler: F) -> Result<i32>
+    pub fn poll<F>(&mut self, limit: i32, handler: F) -> Result<i32>
     where
         F: FnMut(&[u8]),
     {
-        let handler_id = &handler as *const _ as usize;
-        let mut_ptr: *mut (dyn FnMut(&[u8]) + 'static) = unsafe {
-            std::mem::transmute::<*mut dyn FnMut(&[u8]), *mut (dyn FnMut(&[u8]) + 'static)>(
-                &mut handler as *mut dyn FnMut(&[u8]),
-            )
-        };
-
-        HANDLERS.with(|handlers| {
-            handlers.borrow_mut().insert(handler_id, mut_ptr);
-        });
-
-        let result = self.inner.pin_mut().poll(limit, handler_id);
-
-        HANDLERS.with(|handlers| {
-            handlers.borrow_mut().remove(&handler_id);
-        });
-
-        Ok(result?)
+        let mut cb = Callback::new(handler);
+        let result = self
+            .inner
+            .pin_mut()
+            .poll(limit, callback::fragment::<F>, cb.ctx());
+        Ok(cb.finish(result)?)
     }
 
-    pub fn poll_assembled<R, F>(&mut self, limit: i32, mut handler: F) -> Result<i32>
+    pub fn poll_assembled<R, F>(&mut self, limit: i32, handler: F) -> Result<i32>
     where
         R: PollAction,
         F: FnMut(&[u8]) -> R,
     {
-        let mut controlled = |data: &[u8]| -> ControlledAction { handler(data).into_action() };
-
-        let handler_id = &controlled as *const _ as usize;
-        let mut_ptr: *mut (dyn FnMut(&[u8]) -> ControlledAction + 'static) = unsafe {
-            std::mem::transmute::<
-                *mut dyn FnMut(&[u8]) -> ControlledAction,
-                *mut (dyn FnMut(&[u8]) -> ControlledAction + 'static),
-            >(&mut controlled as *mut dyn FnMut(&[u8]) -> ControlledAction)
-        };
-
-        CONTROLLED_HANDLERS.with(|handlers| {
-            handlers.borrow_mut().insert(handler_id, mut_ptr);
-        });
-
-        let result = self
-            .inner
-            .pin_mut()
-            .controlledPollAssembled(limit, handler_id);
-
-        CONTROLLED_HANDLERS.with(|handlers| {
-            handlers.borrow_mut().remove(&handler_id);
-        });
-
-        Ok(result?)
+        let mut cb = Callback::new(handler);
+        let result = self.inner.pin_mut().controlledPollAssembled(
+            limit,
+            callback::controlled_fragment::<F, R>,
+            cb.ctx(),
+        );
+        Ok(cb.finish(result)?)
     }
 }
 
@@ -678,29 +535,6 @@ impl Image {
 /// errors, and heartbeats.
 pub struct CountersReader {
     inner: cxx::UniquePtr<ffi::CountersReaderWrapper>,
-}
-
-type MetadataHandlerMap = RefCell<HashMap<usize, *mut dyn FnMut(i32, i32, &[u8], &str)>>;
-
-thread_local! {
-    static METADATA_HANDLERS: MetadataHandlerMap = RefCell::new(HashMap::new());
-}
-
-fn handle_counters_metadata(
-    handler_id: usize,
-    counter_id: i32,
-    type_id: i32,
-    key: &[u8],
-    label: String,
-) {
-    METADATA_HANDLERS.with(|handlers| {
-        if let Some(handler_ptr) = handlers.borrow_mut().get_mut(&handler_id) {
-            unsafe {
-                let handler = &mut **handler_ptr;
-                handler(counter_id, type_id, key, &label);
-            }
-        }
-    });
 }
 
 impl CountersReader {
@@ -731,28 +565,13 @@ impl CountersReader {
     }
 
     /// Iterate over all counters, calling `handler(counter_id, type_id, key_bytes, label)` for each.
-    pub fn for_each<F>(&self, mut handler: F)
+    pub fn for_each<F>(&self, handler: F) -> Result<()>
     where
         F: FnMut(i32, i32, &[u8], &str),
     {
-        let handler_id = &handler as *const _ as usize;
-        #[allow(clippy::type_complexity)]
-        let mut_ptr: *mut (dyn FnMut(i32, i32, &[u8], &str) + 'static) = unsafe {
-            std::mem::transmute::<
-                *mut dyn FnMut(i32, i32, &[u8], &str),
-                *mut (dyn FnMut(i32, i32, &[u8], &str) + 'static),
-            >(&mut handler as *mut dyn FnMut(i32, i32, &[u8], &str))
-        };
-
-        METADATA_HANDLERS.with(|handlers| {
-            handlers.borrow_mut().insert(handler_id, mut_ptr);
-        });
-
-        self.inner.forEach(handler_id);
-
-        METADATA_HANDLERS.with(|handlers| {
-            handlers.borrow_mut().remove(&handler_id);
-        });
+        let mut cb = Callback::new(handler);
+        let result = self.inner.forEach(callback::counter::<F>, cb.ctx());
+        Ok(cb.finish(result)?)
     }
 }
 
@@ -1116,6 +935,56 @@ mod tests {
             assert!(counters.get_counter_type_id(bad).is_err());
             assert!(counters.get_counter_label(bad).is_err());
         }
+
+        // Handlers can poll other subscriptions (no shared handler registry).
+        let mut publ2 = client.add_publication("aeron:ipc", 11).unwrap();
+        let mut sub2 = client.add_subscription("aeron:ipc", 11).unwrap();
+        while !sub2.is_connected() {
+            std::thread::yield_now();
+        }
+        while publ.offer(b"outer").is_err() {}
+        while publ2.offer(b"inner").is_err() {}
+        let (mut outer, mut inner) = (0, 0);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while (outer == 0 || inner == 0) && std::time::Instant::now() < deadline {
+            sub.poll(10, |_| {
+                outer += 1;
+                sub2.poll(10, |_| inner += 1).unwrap();
+            })
+            .unwrap();
+        }
+        assert!(
+            outer > 0 && inner > 0,
+            "nested poll: outer={outer} inner={inner}"
+        );
+
+        // A panicking handler unwinds to the caller instead of aborting, and the
+        // subscription keeps working afterwards.
+        while publ.offer(b"boom").is_err() {}
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while std::time::Instant::now() < deadline {
+                sub.poll(10, |_| panic!("handler panic")).unwrap();
+            }
+        }));
+        let payload = panicked.expect_err("handler panic should propagate");
+        assert_eq!(payload.downcast_ref::<&str>(), Some(&"handler panic"));
+        let claim_panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = publ.try_claim(8, |_| panic!("claim panic"));
+        }));
+        assert!(claim_panicked.is_err());
+        while publ.offer(b"after").is_err() {}
+        let mut after = 0;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while after == 0 && std::time::Instant::now() < deadline {
+            sub.poll(10, |data| {
+                if data == b"after" {
+                    after += 1;
+                }
+            })
+            .unwrap();
+        }
+        assert_eq!(after, 1);
 
         // Oversized offers and claims are errors, not process aborts.
         let too_big = vec![0u8; 32 * 1024 * 1024];
