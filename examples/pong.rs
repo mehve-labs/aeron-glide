@@ -63,7 +63,7 @@ fn main() {
 
     // We run endlessly in this example, echoing anything we get
     loop {
-        sub.poll_assembled(1, |data| {
+        sub.poll_assembled(1, |data, _| {
             println!(
                 "Pong received ping: {:?}",
                 std::str::from_utf8(data).unwrap()

@@ -11,7 +11,7 @@
 //! invoking the closure, and [`Callback::finish`] resumes the panic once the
 //! bridged call has returned.
 
-use crate::{ControlledAction, PollAction};
+use crate::{ControlledAction, Header, PollAction, ffi};
 use std::any::Any;
 use std::cell::Cell;
 use std::panic::{self, AssertUnwindSafe};
@@ -104,23 +104,23 @@ impl<F> Callback<F> {
 
 /// Fragment handler. After a panic, the remaining fragments of the same poll are
 /// consumed without being delivered.
-pub(crate) fn fragment<F: FnMut(&[u8])>(ctx: usize, buffer: &[u8]) {
+pub(crate) fn fragment<F: FnMut(&[u8], &Header)>(ctx: usize, buffer: &[u8], header: &ffi::Header) {
     // SAFETY: C++ only calls this with the ctx passed alongside it, during the call.
     let cb = unsafe { Callback::<F>::from_ctx(ctx) };
-    cb.call((), |f| f(buffer));
+    cb.call((), |f| f(buffer, Header::from_ffi(header)));
 }
 
 /// Controlled fragment handler. A panic aborts the fragment, so it is delivered
 /// again by the next poll.
-pub(crate) fn controlled_fragment<F, R>(ctx: usize, buffer: &[u8]) -> i32
+pub(crate) fn controlled_fragment<F, R>(ctx: usize, buffer: &[u8], header: &ffi::Header) -> i32
 where
-    F: FnMut(&[u8]) -> R,
+    F: FnMut(&[u8], &Header) -> R,
     R: PollAction,
 {
     // SAFETY: as in `fragment`.
     let cb = unsafe { Callback::<F>::from_ctx(ctx) };
     cb.call(ControlledAction::Abort as i32, |f| {
-        f(buffer).into_action() as i32
+        f(buffer, Header::from_ffi(header)).into_action() as i32
     })
 }
 

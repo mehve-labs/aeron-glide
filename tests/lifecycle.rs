@@ -35,7 +35,7 @@ fn closed_image_reports_its_final_position() {
     let mut image = sub.image_by_index(0).expect("image");
     let mut read = 0;
     wait_until("the message", || {
-        read += image.poll(10, |_| {}).unwrap();
+        read += image.poll(10, |_, _| {}).unwrap();
         read == 1
     });
     drop(publication);

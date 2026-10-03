@@ -158,7 +158,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         merge.do_work()?;
 
         // Poll for fragments
-        let fragments = merge.poll(10, |data| {
+        let fragments = merge.poll(10, |data, _| {
             let msg = std::str::from_utf8(data).unwrap_or("<binary>");
             total_received += 1;
             println!("  [{}] {}", total_received, msg);
@@ -193,7 +193,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Once merged, drain remaining fragments then exit
         if merge.is_merged() && fragments == 0 {
             thread::sleep(Duration::from_millis(100));
-            merge.poll(100, |data| {
+            merge.poll(100, |data, _| {
                 let msg = std::str::from_utf8(data).unwrap_or("<binary>");
                 total_received += 1;
                 if total_received <= 5 || total_received % 10 == 0 {

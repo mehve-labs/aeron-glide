@@ -81,7 +81,7 @@ impl Image<'_> {
     /// the remaining fragments of this poll are consumed without being delivered.
     pub fn poll<F>(&mut self, limit: i32, handler: F) -> Result<i32>
     where
-        F: FnMut(&[u8]),
+        F: FnMut(&[u8], &Header),
     {
         let mut cb = Callback::new(handler);
         let result = self
@@ -106,7 +106,7 @@ impl Image<'_> {
     pub fn poll_assembled<R, F>(&mut self, limit: i32, handler: F) -> Result<i32>
     where
         R: PollAction,
-        F: FnMut(&[u8]) -> R,
+        F: FnMut(&[u8], &Header) -> R,
     {
         let mut cb = Callback::new(handler);
         let result = self.inner.pin_mut().controlledPollAssembled(

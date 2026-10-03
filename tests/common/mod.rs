@@ -104,7 +104,7 @@ pub fn offer(publication: &aeron_glide::Publication, message: &[u8]) -> i64 {
 pub fn poll_n(sub: &mut Subscription, count: usize, mut handler: impl FnMut(&[u8])) {
     let mut seen = 0;
     wait_until("fragments", || {
-        sub.poll(10, |data| {
+        sub.poll(10, |data, _| {
             seen += 1;
             handler(data);
         })

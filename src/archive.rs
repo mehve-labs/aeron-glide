@@ -7,6 +7,8 @@ pub mod ffi {
         // Cross-bridge type aliases (defined in lib.rs cxx bridge)
         type SubscriptionWrapper = crate::ffi::SubscriptionWrapper;
         type ImageWrapper = crate::ffi::ImageWrapper;
+        #[namespace = "aeron::concurrent::logbuffer"]
+        type Header = crate::ffi::Header;
 
         type ArchiveWrapper;
 
@@ -143,7 +145,7 @@ pub mod ffi {
         fn poll(
             self: Pin<&mut ReplayMergeWrapper>,
             fragment_limit: i32,
-            handler: fn(usize, &[u8]),
+            handler: fn(usize, &[u8], &Header),
             ctx: usize,
         ) -> Result<i32>;
         fn image(self: Pin<&mut ReplayMergeWrapper>) -> UniquePtr<ImageWrapper>;
@@ -516,7 +518,7 @@ impl<'a> ReplayMerge<'a> {
     /// the remaining fragments of this poll are consumed without being delivered.
     pub fn poll<F>(&mut self, fragment_limit: i32, handler: F) -> Result<i32>
     where
-        F: FnMut(&[u8]),
+        F: FnMut(&[u8], &crate::Header),
     {
         let mut cb = Callback::new(handler);
         let result = self

@@ -103,8 +103,8 @@ extern "C" {
 namespace aeron_rs {
 
 // Rust trampolines (see src/callback.rs). The size_t is the opaque closure context.
-using FragmentFn = rust::Fn<void(size_t, rust::Slice<const uint8_t>)>;
-using ControlledFragmentFn = rust::Fn<int32_t(size_t, rust::Slice<const uint8_t>)>;
+using FragmentFn = rust::Fn<void(size_t, rust::Slice<const uint8_t>, const aeron::concurrent::logbuffer::Header &)>;
+using ControlledFragmentFn = rust::Fn<int32_t(size_t, rust::Slice<const uint8_t>, const aeron::concurrent::logbuffer::Header &)>;
 using ClaimFn = rust::Fn<bool(size_t, rust::Slice<uint8_t>)>;
 // (ctx, frame) -> reserved value for the frame header.
 using ReservedValueFn = rust::Fn<int64_t(size_t, rust::Slice<const uint8_t>)>;

@@ -211,12 +211,13 @@ struct ScopedHandler {
 };
 
 aeron::ControlledPollAction dispatchControlled(
-    const ControlledFragmentFn *handler, size_t ctx, aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length) {
+    const ControlledFragmentFn *handler, size_t ctx, aeron::AtomicBuffer& buffer, aeron::util::index_t offset,
+    aeron::util::index_t length, aeron::Header& header) {
     if (handler == nullptr) {
         return aeron::ControlledPollAction::ABORT;
     }
     rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
-    return static_cast<aeron::ControlledPollAction>((*handler)(ctx, slice));
+    return static_cast<aeron::ControlledPollAction>((*handler)(ctx, slice, header));
 }
 
 } // namespace
@@ -224,7 +225,7 @@ aeron::ControlledPollAction dispatchControlled(
 SubscriptionWrapper::SubscriptionWrapper(std::shared_ptr<aeron::Subscription> sub)
     : sub(sub),
       controlled_assembler_([this](aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
-          return dispatchControlled(controlled_handler_, controlled_ctx_, buffer, offset, length);
+          return dispatchControlled(controlled_handler_, controlled_ctx_, buffer, offset, length, header);
       }) {}
 
 SubscriptionWrapper::~SubscriptionWrapper() {}
@@ -232,7 +233,7 @@ SubscriptionWrapper::~SubscriptionWrapper() {}
 int SubscriptionWrapper::poll(int fragment_limit, FragmentFn handler, size_t ctx) {
     auto fragment_handler = [&](const aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
         rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
-        handler(ctx, slice);
+        handler(ctx, slice, header);
     };
     return sub->poll(fragment_handler, fragment_limit);
 }
@@ -280,7 +281,7 @@ ImageWrapper::ImageWrapper(std::shared_ptr<aeron::Image> image, std::shared_ptr<
     : subscription_(std::move(subscription)),
       image_(std::move(image)),
       controlled_assembler_([this](aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
-          return dispatchControlled(controlled_handler_, controlled_ctx_, buffer, offset, length);
+          return dispatchControlled(controlled_handler_, controlled_ctx_, buffer, offset, length, header);
       }) {}
 
 ImageWrapper::~ImageWrapper() {}
@@ -320,7 +321,7 @@ int64_t ImageWrapper::endOfStreamPosition() const {
 int ImageWrapper::poll(int fragment_limit, FragmentFn handler, size_t ctx) {
     auto fragment_handler = [&](const aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
         rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
-        handler(ctx, slice);
+        handler(ctx, slice, header);
     };
     return image_->poll(fragment_handler, fragment_limit);
 }
@@ -603,7 +604,7 @@ int ReplayMergeWrapper::poll(int fragment_limit, FragmentFn handler, size_t ctx)
     auto fragment_handler = [&](const aeron::AtomicBuffer& buffer, aeron::util::index_t offset,
                                 aeron::util::index_t length, aeron::Header& header) {
         rust::Slice<const uint8_t> slice(buffer.buffer() + offset, length);
-        handler(ctx, slice);
+        handler(ctx, slice, header);
     };
     return merge_->poll(fragment_handler, fragment_limit);
 }

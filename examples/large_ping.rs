@@ -46,7 +46,7 @@ fn main() {
         // Wait for the assembled response
         let mut received = false;
         while !received {
-            sub.poll_assembled(10, |data| {
+            sub.poll_assembled(10, |data, _| {
                 let seq = u32::from_le_bytes(data[..4].try_into().unwrap());
                 println!(
                     "  Received assembled pong: seq={}, size={} bytes, intact={}",

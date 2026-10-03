@@ -24,7 +24,7 @@ fn shared_client_and_publication_across_threads() {
         .collect();
     let mut got = [0u32; 4];
     wait_until("400 messages", || {
-        sub.poll(100, |data| got[data[0] as usize] += 1).unwrap();
+        sub.poll(100, |data, _| got[data[0] as usize] += 1).unwrap();
         got.iter().sum::<u32>() == 400
     });
     workers.into_iter().for_each(|w| w.join().unwrap());

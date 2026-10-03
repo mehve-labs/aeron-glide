@@ -52,7 +52,7 @@ fn reassembly_and_session_buffers() {
     offer(&publication, &large);
     let mut received = 0;
     wait_until("reassembled message", || {
-        sub.poll_assembled(10, |data: &[u8]| {
+        sub.poll_assembled(10, |data: &[u8], _| {
             assert_eq!(data, &large[..]);
             received += 1;
         })

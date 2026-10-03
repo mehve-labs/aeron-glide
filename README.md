@@ -53,7 +53,7 @@ while let Err(e) = pub1.offer(b"hello aeron") {
 }
 
 // Subscribe
-sub1.poll(10, |data| {
+sub1.poll(10, |data, _| {
     println!("Received: {}", String::from_utf8_lossy(data));
 })?;
 ```

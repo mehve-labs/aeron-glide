@@ -94,7 +94,7 @@ fn run_pong(
     println!("Pong ready");
 
     while running.load(Ordering::Acquire) {
-        pong_sub.poll(FRAGMENT_COUNT_LIMIT, |data| {
+        pong_sub.poll(FRAGMENT_COUNT_LIMIT, |data, _| {
             // Echo back using try_claim for zero-copy
             let result = ping_pub.try_claim(data.len()).map(|mut claim| {
                 claim.buffer_mut().copy_from_slice(data);
@@ -186,7 +186,7 @@ fn record_rtt(
     let mut received = false;
     while !received {
         subscription
-            .poll(FRAGMENT_COUNT_LIMIT, |data| {
+            .poll(FRAGMENT_COUNT_LIMIT, |data, _| {
                 let sent_time = i64::from_le_bytes(data[..8].try_into().unwrap());
                 let rtt = nanos() - sent_time;
                 if rtt >= 0 {

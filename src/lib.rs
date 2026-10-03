@@ -22,7 +22,7 @@
 //! }
 //!
 //! // Subscribe
-//! sub1.poll(10, |data| {
+//! sub1.poll(10, |data, _| {
 //!     println!("Received: {}", String::from_utf8_lossy(data));
 //! })
 //! .unwrap();
@@ -85,6 +85,7 @@ mod counters;
 mod driver;
 mod driver_gen;
 mod error;
+mod header;
 mod image;
 mod publication;
 mod subscription;
@@ -96,6 +97,7 @@ pub use counters::CountersReader;
 pub use driver::{IdleStrategy, MediaDriver, MediaDriverBuilder, ThreadingMode};
 pub use driver_gen::{InferableBoolean, ThreadNaming};
 pub use error::{Error, ErrorKind, OfferError, Result};
+pub use header::Header;
 pub use image::Image;
 pub use publication::{BufferClaim, ChannelStatus, ExclusivePublication, Publication};
 use std::marker::PhantomData;
@@ -119,6 +121,22 @@ pub mod ffi {
 
     unsafe extern "C++" {
         include!("shim.h");
+
+        /// The C++ `aeron::concurrent::logbuffer::Header` of a fragment.
+        #[namespace = "aeron::concurrent::logbuffer"]
+        type Header;
+        fn initialTermId(self: &Header) -> i32;
+        fn frameLength(self: &Header) -> i32;
+        fn sessionId(self: &Header) -> i32;
+        fn streamId(self: &Header) -> i32;
+        fn termId(self: &Header) -> i32;
+        fn termOffset(self: &Header) -> i32;
+        #[cxx_name = "type"]
+        fn headerType(self: &Header) -> u16;
+        fn flags(self: &Header) -> u8;
+        fn position(self: &Header) -> i64;
+        fn positionBitsToShift(self: &Header) -> i32;
+        fn reservedValue(self: &Header) -> i64;
 
         fn claimCommit(frame: ClaimFrame);
         fn claimAbort(frame: ClaimFrame);
@@ -263,13 +281,13 @@ pub mod ffi {
         fn poll(
             self: Pin<&mut SubscriptionWrapper>,
             fragment_limit: i32,
-            handler: fn(usize, &[u8]),
+            handler: fn(usize, &[u8], &Header),
             ctx: usize,
         ) -> Result<i32>;
         fn controlledPollAssembled(
             self: Pin<&mut SubscriptionWrapper>,
             fragment_limit: i32,
-            handler: fn(usize, &[u8]) -> i32,
+            handler: fn(usize, &[u8], &Header) -> i32,
             ctx: usize,
         ) -> Result<i32>;
         fn isConnected(self: &SubscriptionWrapper) -> bool;
@@ -295,13 +313,13 @@ pub mod ffi {
         fn poll(
             self: Pin<&mut ImageWrapper>,
             fragment_limit: i32,
-            handler: fn(usize, &[u8]),
+            handler: fn(usize, &[u8], &Header),
             ctx: usize,
         ) -> Result<i32>;
         fn controlledPollAssembled(
             self: Pin<&mut ImageWrapper>,
             fragment_limit: i32,
-            handler: fn(usize, &[u8]) -> i32,
+            handler: fn(usize, &[u8], &Header) -> i32,
             ctx: usize,
         ) -> Result<i32>;
 

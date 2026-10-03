@@ -103,7 +103,7 @@ fn main() {
 
         let mut received = false;
         while !received {
-            sub.poll_assembled(1, |data| {
+            sub.poll_assembled(1, |data, _| {
                 println!(
                     "Ping received response: {:?}",
                     std::str::from_utf8(data).unwrap()

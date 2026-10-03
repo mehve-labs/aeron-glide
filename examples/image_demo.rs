@@ -72,7 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..count as usize {
         let mut image = sub.image_by_index(i).ok_or("no image")?;
         let sid = image.session_id();
-        let fragments = image.poll(10, |data| {
+        let fragments = image.poll(10, |data, _| {
             let msg = std::str::from_utf8(data).unwrap_or("<binary>");
             println!("  [session={}] {}", sid, msg);
         })?;
@@ -101,7 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..count as usize {
         let mut image = sub.image_by_index(i).ok_or("no image")?;
         let sid = image.session_id();
-        let fragments = image.poll_assembled(10, |data| {
+        let fragments = image.poll_assembled(10, |data, _| {
             let msg = std::str::from_utf8(data).unwrap_or("<binary>");
             println!("  [session={}] {}", sid, msg);
         })?;
@@ -128,7 +128,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let pos_before = image.position()?;
 
         let mut seen = 0;
-        let fragments = image.poll_assembled(10, |data| -> ControlledAction {
+        let fragments = image.poll_assembled(10, |data, _| -> ControlledAction {
             let msg = std::str::from_utf8(data).unwrap_or("<binary>");
             seen += 1;
             println!("  [session={}] {} (seen={})", sid, msg, seen);

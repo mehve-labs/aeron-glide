@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of `Box<dyn Error>`. `Error` is `Send + Sync + 'static`. Aeron C++ exceptions
   and media driver errors are mapped to an `ErrorKind` matching the Aeron
   exception class, with the Aeron error code preserved.
+- **Breaking:** fragment handlers receive the fragment `Header` as a second
+  argument (`|data, header|`, or `|data, _|` to ignore it), matching the C++
+  API: `Subscription::poll` / `poll_assembled`, `Image::poll` /
+  `poll_assembled` and `ReplayMerge::poll`. `Header` exposes `session_id`,
+  `stream_id`, `term_id`, `term_offset`, `initial_term_id`, `position`,
+  `position_bits_to_shift`, `frame_length`, `header_type`, `flags` and
+  `reserved_value`.
 - **Breaking:** `try_claim(length)` returns a `BufferClaim` guard instead of
   taking a closure: write into `buffer_mut()`, optionally set `flags`,
   `header_type` or `reserved_value`, then `commit()` (returns the position) or
