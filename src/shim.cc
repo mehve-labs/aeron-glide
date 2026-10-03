@@ -426,38 +426,31 @@ void CountersReaderWrapper::forEach(CounterFn handler, size_t ctx) const {
     });
 }
 
-std::unique_ptr<PublicationWrapper> AeronWrapper::addPublication(rust::Str channel, int32_t stream_id) const {
-    int64_t reg_id = aeron->addPublication(std::string(channel.data(), channel.size()), stream_id);
-    
-    // We must poll for the publication to be created
-    std::shared_ptr<aeron::Publication> pub;
-    while (!(pub = aeron->findPublication(reg_id))) {
-        std::this_thread::yield();
-    }
-    
-    return std::unique_ptr<PublicationWrapper>(new PublicationWrapper(pub));
+int64_t AeronWrapper::addPublication(rust::Str channel, int32_t stream_id) const {
+    return aeron->addPublication(std::string(channel.data(), channel.size()), stream_id);
 }
 
-std::unique_ptr<ExclusivePublicationWrapper> AeronWrapper::addExclusivePublication(rust::Str channel, int32_t stream_id) const {
-    int64_t reg_id = aeron->addExclusivePublication(std::string(channel.data(), channel.size()), stream_id);
-
-    std::shared_ptr<aeron::ExclusivePublication> pub;
-    while (!(pub = aeron->findExclusivePublication(reg_id))) {
-        std::this_thread::yield();
-    }
-
-    return std::unique_ptr<ExclusivePublicationWrapper>(new ExclusivePublicationWrapper(pub));
+int64_t AeronWrapper::addExclusivePublication(rust::Str channel, int32_t stream_id) const {
+    return aeron->addExclusivePublication(std::string(channel.data(), channel.size()), stream_id);
 }
 
-std::unique_ptr<SubscriptionWrapper> AeronWrapper::addSubscription(rust::Str channel, int32_t stream_id) const {
-    int64_t reg_id = aeron->addSubscription(std::string(channel.data(), channel.size()), stream_id);
-    
-    std::shared_ptr<aeron::Subscription> sub;
-    while (!(sub = aeron->findSubscription(reg_id))) {
-        std::this_thread::yield();
-    }
+int64_t AeronWrapper::addSubscription(rust::Str channel, int32_t stream_id) const {
+    return aeron->addSubscription(std::string(channel.data(), channel.size()), stream_id);
+}
 
-    return std::unique_ptr<SubscriptionWrapper>(new SubscriptionWrapper(sub));
+std::unique_ptr<PublicationWrapper> AeronWrapper::findPublication(int64_t registration_id) const {
+    auto pub = aeron->findPublication(registration_id);
+    return pub ? std::unique_ptr<PublicationWrapper>(new PublicationWrapper(pub)) : nullptr;
+}
+
+std::unique_ptr<ExclusivePublicationWrapper> AeronWrapper::findExclusivePublication(int64_t registration_id) const {
+    auto pub = aeron->findExclusivePublication(registration_id);
+    return pub ? std::unique_ptr<ExclusivePublicationWrapper>(new ExclusivePublicationWrapper(pub)) : nullptr;
+}
+
+std::unique_ptr<SubscriptionWrapper> AeronWrapper::findSubscription(int64_t registration_id) const {
+    auto sub = aeron->findSubscription(registration_id);
+    return sub ? std::unique_ptr<SubscriptionWrapper>(new SubscriptionWrapper(sub)) : nullptr;
 }
 
 std::unique_ptr<CountersReaderWrapper> AeronWrapper::countersReader() const {

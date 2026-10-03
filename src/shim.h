@@ -441,9 +441,20 @@ public:
     bool isClosed() const;
     
     // const: aeron::Aeron is thread-safe for adding resources.
-    std::unique_ptr<PublicationWrapper> addPublication(rust::Str channel, int32_t stream_id) const;
-    std::unique_ptr<ExclusivePublicationWrapper> addExclusivePublication(rust::Str channel, int32_t stream_id) const;
-    std::unique_ptr<SubscriptionWrapper> addSubscription(rust::Str channel, int32_t stream_id) const;
+    // Asynchronous adds (P10): start the registration and return its id; find*
+    // returns null while it is pending and throws if the driver rejected it.
+    int64_t addPublication(rust::Str channel, int32_t stream_id) const;
+    int64_t addExclusivePublication(rust::Str channel, int32_t stream_id) const;
+    int64_t addSubscription(rust::Str channel, int32_t stream_id) const;
+    std::unique_ptr<PublicationWrapper> findPublication(int64_t registration_id) const;
+    std::unique_ptr<ExclusivePublicationWrapper> findExclusivePublication(int64_t registration_id) const;
+    std::unique_ptr<SubscriptionWrapper> findSubscription(int64_t registration_id) const;
+
+    int64_t clientId() const { return aeron->clientId(); }
+    int64_t nextCorrelationId() const { return aeron->nextCorrelationId(); }
+    rust::String aeronDir() const { return rust::String::lossy(aeron->context().aeronDir()); }
+    rust::String cncFileName() const { return rust::String::lossy(aeron->context().cncFileName()); }
+    int64_t driverTimeoutMs() const { return aeron->context().mediaDriverTimeout(); }
     std::unique_ptr<CountersReaderWrapper> countersReader() const;
     
 private:

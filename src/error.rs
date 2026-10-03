@@ -20,9 +20,11 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 /// With Aeron 1.53 the C++ wrapper maps C client errors only to
 /// [`IllegalArgument`](Self::IllegalArgument), [`IllegalState`](Self::IllegalState),
 /// [`Io`](Self::Io), the three fatal timeouts, [`Archive`](Self::Archive) and
-/// [`Aeron`](Self::Aeron) (the default). The remaining kinds exist in the
-/// hierarchy but are not currently produced by the APIs this crate wraps; match
-/// on [`Error::code`] for finer detail.
+/// [`Aeron`](Self::Aeron) (the default); aeron-glide itself reports
+/// [`Timeout`](Self::Timeout), [`Reentrant`](Self::Reentrant) and
+/// [`UnsupportedOperation`](Self::UnsupportedOperation). The remaining kinds
+/// exist in the hierarchy but are not currently produced; match on
+/// [`Error::code`] for finer detail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ErrorKind {
@@ -47,8 +49,8 @@ pub enum ErrorKind {
     ConductorServiceTimeout,
     /// The media driver timed this client out. Fatal for the client.
     ClientTimeout,
-    /// A generic timeout. Not currently produced: archive timeouts are reported
-    /// as [`Archive`](Self::Archive).
+    /// A generic timeout, e.g. the media driver not responding to a synchronous
+    /// add. Archive timeouts are reported as [`Archive`](Self::Archive).
     Timeout,
     /// A channel endpoint failed. Not currently produced.
     ChannelEndpoint,
@@ -58,9 +60,11 @@ pub enum ErrorKind {
     Registration,
     /// A subscription is unknown to the media driver. Not currently produced.
     UnknownSubscription,
-    /// A callback re-entered the client in an unsupported way. Not currently produced.
+    /// A callback re-entered the client in an unsupported way, e.g. a nested
+    /// assembled poll on the same subscription.
     Reentrant,
-    /// The operation is not supported. Not currently produced.
+    /// The operation is not supported, e.g. `ThreadingMode::Invoker` for the
+    /// embedded media driver.
     UnsupportedOperation,
     /// An Archive error, including archive connect and request timeouts.
     Archive,

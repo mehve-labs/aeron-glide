@@ -73,6 +73,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Synchronous `add_publication` / `add_exclusive_publication` /
+  `add_subscription` spun forever if the media driver never answered; they now
+  fail with `ErrorKind::Timeout` after the client's driver timeout.
 - Reassembly state is shared by a subscription and all of its `Image` handles
   (one C++ `ControlledFragmentAssembler` per subscription), so a message whose
   fragments are polled through different handles is no longer lost. A nested
@@ -129,6 +132,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `subscription_registration_id`, `is_publication_revoked`,
   `active_transport_count`, `reject`, `controlled_poll` (without reassembly),
   `bounded_poll`, `bounded_controlled_poll` and `block_poll`.
+- Asynchronous adds: `AeronClient::add_publication_async`,
+  `add_exclusive_publication_async` and `add_subscription_async` return a
+  `PendingAdd` to `poll()` (or `wait()`) for the resource. Also
+  `AeronClient::client_id`, `next_correlation_id`, `aeron_dir`,
+  `cnc_file_name` and `driver_timeout`.
 - Multi-destination support: `add_destination`, `remove_destination` and
   `find_destination_response` on `Publication`, `ExclusivePublication` and
   `Subscription`, plus `remove_destination_by_id` on publications.

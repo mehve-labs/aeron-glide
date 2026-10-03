@@ -91,7 +91,7 @@ mod publication;
 mod subscription;
 use callback::Callback;
 pub use channel::ChannelBuilder;
-pub use client::AeronClient;
+pub use client::{AeronClient, PendingAdd};
 pub use context::Context;
 pub use counters::CountersReader;
 pub use driver::{IdleStrategy, MediaDriver, MediaDriverBuilder, ThreadingMode};
@@ -173,21 +173,30 @@ pub(crate) mod ffi {
 
         fn start(self: &AeronWrapper);
         fn isClosed(self: &AeronWrapper) -> bool;
-        fn addPublication(
-            self: &AeronWrapper,
-            channel: &str,
-            stream_id: i32,
-        ) -> Result<UniquePtr<PublicationWrapper>>;
+        fn addPublication(self: &AeronWrapper, channel: &str, stream_id: i32) -> Result<i64>;
         fn addExclusivePublication(
             self: &AeronWrapper,
             channel: &str,
             stream_id: i32,
-        ) -> Result<UniquePtr<ExclusivePublicationWrapper>>;
-        fn addSubscription(
+        ) -> Result<i64>;
+        fn addSubscription(self: &AeronWrapper, channel: &str, stream_id: i32) -> Result<i64>;
+        fn findPublication(
             self: &AeronWrapper,
-            channel: &str,
-            stream_id: i32,
+            registration_id: i64,
+        ) -> Result<UniquePtr<PublicationWrapper>>;
+        fn findExclusivePublication(
+            self: &AeronWrapper,
+            registration_id: i64,
+        ) -> Result<UniquePtr<ExclusivePublicationWrapper>>;
+        fn findSubscription(
+            self: &AeronWrapper,
+            registration_id: i64,
         ) -> Result<UniquePtr<SubscriptionWrapper>>;
+        fn clientId(self: &AeronWrapper) -> i64;
+        fn nextCorrelationId(self: &AeronWrapper) -> i64;
+        fn aeronDir(self: &AeronWrapper) -> String;
+        fn cncFileName(self: &AeronWrapper) -> Result<String>;
+        fn driverTimeoutMs(self: &AeronWrapper) -> i64;
         fn countersReader(self: &AeronWrapper) -> UniquePtr<CountersReaderWrapper>;
 
         fn start(self: Pin<&mut MediaDriverWrapper>) -> Result<()>;
