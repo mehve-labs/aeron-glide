@@ -1,6 +1,6 @@
 use cmake::Config;
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     println!("cargo:rerun-if-changed=src/lib.rs");
@@ -24,16 +24,7 @@ fn main() {
     let aeron_version = env::var("AERON_VERSION").unwrap_or_else(|_| "1.53.3".to_string());
     println!("cargo:rerun-if-env-changed=AERON_VERSION");
 
-    let aeron_dir = out_dir.join(format!("aeron-{}", aeron_version));
-
-    // Download and extract Aeron if it doesn't exist
-    if !aeron_dir.exists() {
-        let url = format!(
-            "https://github.com/real-logic/aeron/archive/refs/tags/{}.tar.gz",
-            aeron_version
-        );
-        download_and_extract(&url, &out_dir);
-    }
+    let aeron_dir = aeron_source(&aeron_version, &out_dir);
 
     let archive_enabled = env::var("CARGO_FEATURE_ARCHIVE").is_ok();
 
@@ -142,15 +133,89 @@ fn main() {
     }
 }
 
-fn download_and_extract(url: &str, dest_dir: &PathBuf) {
-    println!("cargo:warning=Downloading Aeron source from {}", url);
-    let response = reqwest::blocking::get(url).expect("Failed to download Aeron");
-    let bytes = response.bytes().expect("Failed to read response bytes");
-    let cursor = std::io::Cursor::new(bytes);
+/// SHA-256 of the GitHub source tarball of each supported Aeron version.
+const AERON_SHA256: &[(&str, &str)] = &[(
+    "1.53.3",
+    "b7861c4aa9bd4918c0c3cb3b83b4a631cf48c1403e496008ccbcb950a121f125",
+)];
 
-    let decoder = flate2::read::GzDecoder::new(cursor);
-    let mut archive = tar::Archive::new(decoder);
-    archive
-        .unpack(dest_dir)
-        .expect("Failed to unpack Aeron archive");
+/// The Aeron source tree: `AERON_SOURCE_DIR` if set (offline builds), otherwise
+/// the release tarball, downloaded once into `OUT_DIR` and checked against its
+/// SHA-256 (`AERON_SHA256` overrides the expected hash, e.g. for another
+/// `AERON_VERSION`).
+fn aeron_source(version: &str, out_dir: &Path) -> PathBuf {
+    println!("cargo:rerun-if-env-changed=AERON_SOURCE_DIR");
+    println!("cargo:rerun-if-env-changed=AERON_SHA256");
+    if let Some(dir) = env::var_os("AERON_SOURCE_DIR") {
+        let dir = PathBuf::from(dir);
+        assert!(
+            dir.join("CMakeLists.txt").exists(),
+            "AERON_SOURCE_DIR={} is not an Aeron source tree (no CMakeLists.txt)",
+            dir.display()
+        );
+        return dir;
+    }
+    let aeron_dir = out_dir.join(format!("aeron-{version}"));
+    // Written last: a tree without it is a partial extract, e.g. of an
+    // interrupted build.
+    let complete = out_dir.join(format!("aeron-{version}.complete"));
+    if aeron_dir.exists() && complete.exists() {
+        return aeron_dir;
+    }
+
+    let url = format!("https://github.com/real-logic/aeron/archive/refs/tags/{version}.tar.gz");
+    println!("cargo:warning=Downloading Aeron source from {url}");
+    let tarball = download(&url);
+
+    let expected = env::var("AERON_SHA256").ok().or_else(|| {
+        AERON_SHA256
+            .iter()
+            .find(|(v, _)| *v == version)
+            .map(|(_, sha)| sha.to_string())
+    });
+    let actual = sha256_hex(&tarball);
+    match expected {
+        Some(expected) => assert!(
+            actual.eq_ignore_ascii_case(expected.trim()),
+            "the Aeron {version} tarball from {url} has SHA-256 {actual}, expected {expected}; \
+             set AERON_SHA256 to accept it, or AERON_SOURCE_DIR to build from a local source tree"
+        ),
+        None => println!(
+            "cargo:warning=No known SHA-256 for Aeron {version} (downloaded {actual}); set AERON_SHA256 to verify it"
+        ),
+    }
+
+    // Extract next to the final directory, then move it into place.
+    let staging = out_dir.join(format!("aeron-{version}.extracting"));
+    let _ = std::fs::remove_dir_all(&staging);
+    let _ = std::fs::remove_dir_all(&aeron_dir);
+    let _ = std::fs::remove_file(&complete);
+    tar::Archive::new(flate2::read::GzDecoder::new(tarball.as_slice()))
+        .unpack(&staging)
+        .expect("Failed to unpack the Aeron tarball");
+    std::fs::rename(staging.join(format!("aeron-{version}")), &aeron_dir)
+        .expect("Unexpected layout of the Aeron tarball");
+    let _ = std::fs::remove_dir_all(&staging);
+    std::fs::write(&complete, &actual).expect("Failed to mark the Aeron source as complete");
+    aeron_dir
+}
+
+fn download(url: &str) -> Vec<u8> {
+    let mut response = ureq::get(url)
+        .call()
+        .unwrap_or_else(|e| panic!("Failed to download {url}: {e}"));
+    response
+        .body_mut()
+        .with_config()
+        .limit(256 * 1024 * 1024)
+        .read_to_vec()
+        .unwrap_or_else(|e| panic!("Failed to download {url}: {e}"))
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::Digest;
+    sha2::Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }

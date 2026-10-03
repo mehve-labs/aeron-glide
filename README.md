@@ -29,10 +29,18 @@ aeron-glide = "0.3"
 
 - **CMake 3.30+** (Aeron 1.53 requires it; older distributions such as Debian 12 ship 3.25 — install a newer one from cmake.org or pip)
 - **Rust 1.97+** (Cargo)
-- **C++14+ compiler**
+- **C++17 compiler** (GCC 7+, Clang 5+, MSVC 2017+)
 - **Java JDK 17+** (only required when building with `--features archive`)
+- On Linux: `libbsd` and `libuuid` development packages (`libbsd-dev uuid-dev` on Debian/Ubuntu)
 
-*(Note: The `build.rs` script will automatically fetch and compile Aeron `v1.53.3` for you during the initial `cargo build`.)*
+The build script downloads Aeron `1.53.3` from GitHub (checking its SHA-256) and
+compiles it on the first `cargo build`. Environment variables:
+
+| Variable | Effect |
+|---|---|
+| `AERON_SOURCE_DIR` | Build from this Aeron source tree instead of downloading (offline builds) |
+| `AERON_VERSION` | Another Aeron release (the generated bindings target 1.53.3) |
+| `AERON_SHA256` | The expected SHA-256 of the downloaded tarball (overrides the built-in one) |
 
 ## Quick Start
 

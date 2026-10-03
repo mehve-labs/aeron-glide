@@ -34,7 +34,8 @@ once_cell = "1.19"
 [build-dependencies]
 cxx-build = "1.0"
 cmake = "0.1"
-reqwest = { version = "0.12", features = ["blocking", "default-tls"] }
+ureq = "3"
+sha2 = "0.11"
 tar = "0.4"
 flate2 = "1.0"
 
