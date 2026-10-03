@@ -234,6 +234,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `channel_send_timestamp_offset`, `response_correlation_id`, `nak_delay`,
   `untethered_window_limit_timeout`, `untethered_resting_timeout`,
   `max_resend`, plus `remove` and `clear`.
+- `ChannelBuilder::build` also rejects empty values (a trailing one such as
+  `tags=` crashes the media driver's URI parser) and URIs longer than
+  `channel::MAX_URI_LENGTH`. Channel errors carry `EINVAL` as their code.
 - `ChannelUri` (C++ `ChannelUri`): `parse` / `FromStr`, `prefix`, `media`,
   `scheme`, `get`, `put`, `remove`, `contains_key`, `params`,
   `has_control_mode_response`, `Display`, and `add_session_id` /
@@ -244,7 +247,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`ENDPOINT_PARAM_NAME`, ...).
 - `Debug` for every public type (clients, publications, subscriptions, images,
   counters, contexts, the media driver and archive types); `ChannelBuilder`
-  is also `Clone`, `PartialEq` and `Eq`.
+  is also `Clone`.
 - `counter_types`: the counter type IDs of the media driver, archive and
   cluster (C++ `AeronCounters`), generated from the Aeron headers.
 - `CncFile`: map a driver's CnC file without a client

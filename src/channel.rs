@@ -69,6 +69,9 @@ pub const UDP_MEDIA: &str = "udp";
 pub const IPC_CHANNEL: &str = "aeron:ipc";
 /// `"aeron-spy:"`.
 pub const SPY_PREFIX: &str = "aeron-spy:";
+/// The maximum length of a channel URI (Java `ChannelUri.MAX_URI_LENGTH`; the
+/// media driver rejects longer ones).
+pub const MAX_URI_LENGTH: usize = 4095;
 /// Prefix of a tag reference in a value (e.g. `session-id=tag:5`).
 pub const TAG_PREFIX: &str = "tag:";
 
@@ -218,6 +221,22 @@ impl ControlMode {
     }
 }
 
+impl FromStr for ControlMode {
+    type Err = Error;
+
+    fn from_str(mode: &str) -> Result<Self> {
+        match mode {
+            MDC_CONTROL_MODE_MANUAL => Ok(Self::Manual),
+            MDC_CONTROL_MODE_DYNAMIC => Ok(Self::Dynamic),
+            CONTROL_MODE_RESPONSE => Ok(Self::Response),
+            _ => Err(einval(
+                ErrorKind::IllegalArgument,
+                format!("invalid control mode: {mode}"),
+            )),
+        }
+    }
+}
+
 impl fmt::Display for ControlMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
@@ -254,7 +273,7 @@ impl fmt::Display for ControlMode {
 /// assert!(ChannelBuilder::udp().mtu(1000).build().is_err());
 /// # Ok::<(), aeron_glide::Error>(())
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct ChannelBuilder {
     prefix: Option<String>,
     media: String,
@@ -286,10 +305,15 @@ impl ChannelBuilder {
         }
     }
 
-    /// Remove every parameter and the prefix (C++ `clear`). The media is kept.
+    /// Remove every parameter and the prefix (C++ `clear`). The media is kept,
+    /// and so is an invalid setting made before (C++ would have thrown it).
     pub fn clear(mut self) -> Self {
         let media = std::mem::take(&mut self.media);
-        Self::with_media(&media)
+        let error = self.error.take();
+        Self {
+            error,
+            ..Self::with_media(&media)
+        }
     }
 
     /// Set the prefix: [`SPY_QUALIFIER`] (`"aeron-spy"`) for a spy subscription,
@@ -432,7 +456,9 @@ impl ChannelBuilder {
 
     /// Set `init-term-id`, `term-id`, `term-offset` and `term-length` so a
     /// publication starts at `position` (C++ `initialPosition`), e.g. to resume a
-    /// stream. `position` must be non-negative and a multiple of 32.
+    /// stream. `position` must be non-negative and a multiple of 32. The term ID
+    /// wraps around like other term IDs (as in Java; C++ writes a value out of
+    /// the `i32` range the driver rejects).
     pub fn initial_position(self, position: i64, initial_term_id: i32, term_length: u32) -> Self {
         if position < 0 || position % i64::from(FRAME_ALIGNMENT) != 0 {
             return self.fail(
@@ -444,7 +470,8 @@ impl ChannelBuilder {
             return self.fail_with(e);
         }
         let bits_to_shift = term_length.trailing_zeros();
-        // Wraps like the C++ (term IDs are compared with wrapping arithmetic).
+        // Wraps like Java's computeTermIdFromPosition. C++ writes the 64-bit sum,
+        // which the driver rejects as out of range when it overflows an i32.
         let term_id = ((position >> bits_to_shift) as i32).wrapping_add(initial_term_id);
         let term_offset = position & (i64::from(term_length) - 1);
         self.param(TERM_LENGTH_PARAM_NAME, &term_length.to_string())
@@ -576,7 +603,8 @@ impl ChannelBuilder {
     }
 
     /// Set any parameter by name, e.g. one this builder has no setter for.
-    /// Replaces a value set by a typed setter.
+    /// Replaces a value set by a typed setter. A `session-id` set here is written
+    /// as given, ignoring [`session_id_tagged`](Self::session_id_tagged).
     pub fn param(mut self, key: &str, value: &str) -> Self {
         if key == SESSION_ID_PARAM_NAME {
             self.session_id = None;
@@ -599,8 +627,10 @@ impl ChannelBuilder {
 
     /// Build the channel URI, or fail with the first invalid setting.
     ///
-    /// Also fails if a parameter name is empty or contains `|`, `=` or `?`, or a
-    /// value contains `|`: the URI could not be parsed back.
+    /// Also fails, unlike C++, if a parameter name is empty or contains `|`, `=`
+    /// or `?`, a value is empty or contains `|`, or the URI is longer than
+    /// [`MAX_URI_LENGTH`] (as Java): the media driver would reject the URI (or,
+    /// for a trailing empty value such as `tags=`, crash).
     pub fn build(&self) -> Result<String> {
         if let Some(e) = &self.error {
             return Err(e.clone());
@@ -635,13 +665,13 @@ impl ChannelBuilder {
             .map(|(k, v)| (k.as_str(), v.as_str()));
         for (i, (key, value)) in known.chain(custom).enumerate() {
             if key.is_empty() || key.contains(['|', '=', '?']) {
-                return Err(Error::new(
+                return Err(einval(
                     ErrorKind::IllegalArgument,
                     format!("invalid channel parameter name: {key:?}"),
                 ));
             }
-            if value.contains('|') {
-                return Err(Error::new(
+            if value.is_empty() || value.contains('|') {
+                return Err(einval(
                     ErrorKind::IllegalArgument,
                     format!("invalid value for channel parameter {key}: {value:?}"),
                 ));
@@ -650,6 +680,15 @@ impl ChannelBuilder {
             uri.push_str(key);
             uri.push('=');
             uri.push_str(value);
+        }
+        if uri.len() > MAX_URI_LENGTH {
+            return Err(einval(
+                ErrorKind::IllegalArgument,
+                format!(
+                    "URI length ({}) exceeds max supported length ({MAX_URI_LENGTH})",
+                    uri.len()
+                ),
+            ));
         }
         Ok(uri)
     }
@@ -680,7 +719,7 @@ impl ChannelBuilder {
     }
 
     fn fail(self, kind: ErrorKind, message: String) -> Self {
-        self.fail_with(Error::new(kind, message))
+        self.fail_with(einval(kind, message))
     }
 
     fn fail_with(mut self, error: Error) -> Self {
@@ -699,7 +738,7 @@ fn check_term_length(term_length: u32) -> Result<()> {
     } else {
         return Ok(());
     };
-    Err(Error::new(ErrorKind::IllegalState, message))
+    Err(einval(ErrorKind::IllegalState, message))
 }
 
 /// A parsed channel URI (C++ `aeron::ChannelUri`): prefix, media and
@@ -730,7 +769,9 @@ pub struct ChannelUri {
 impl ChannelUri {
     /// Parse a channel URI, e.g. `aeron:udp?endpoint=localhost:20121` or
     /// `aeron-spy:aeron:ipc`. A repeated parameter keeps its first value, as in
-    /// C++.
+    /// C++ (Java and, for some parameters such as `endpoint`, the media driver
+    /// keep the last one). Empty values are accepted, as in C++, although the
+    /// driver rejects them.
     pub fn parse(uri: &str) -> Result<Self> {
         enum State {
             Media,
@@ -742,7 +783,7 @@ impl ChannelUri {
             None => ("", uri),
         };
         let Some(rest) = rest.strip_prefix(AERON_PREFIX) else {
-            return Err(Error::new(
+            return Err(einval(
                 ErrorKind::IllegalArgument,
                 format!("Aeron URIs must start with 'aeron:', found: {uri}"),
             ));
@@ -767,7 +808,7 @@ impl ChannelUri {
                         state = State::Key;
                     }
                     ':' | '|' | '=' => {
-                        return Err(Error::new(
+                        return Err(einval(
                             ErrorKind::IllegalState,
                             format!(
                                 "encountered '{c}' within media definition at index {index} in {uri}"
@@ -778,7 +819,7 @@ impl ChannelUri {
                 },
                 State::Key => match c {
                     '=' if builder.is_empty() => {
-                        return Err(Error::new(
+                        return Err(einval(
                             ErrorKind::IllegalState,
                             format!("empty key not allowed at index {index} in {uri}"),
                         ));
@@ -788,7 +829,7 @@ impl ChannelUri {
                         state = State::Value;
                     }
                     '|' => {
-                        return Err(Error::new(
+                        return Err(einval(
                             ErrorKind::IllegalState,
                             format!("invalid end of key at index {index} in {uri}"),
                         ));
@@ -811,7 +852,7 @@ impl ChannelUri {
             }
             State::Value => add(&mut params, &key, builder),
             State::Key => {
-                return Err(Error::new(
+                return Err(einval(
                     ErrorKind::IllegalArgument,
                     format!("no more input found, state=PARAMS_KEY in {uri}"),
                 ));
@@ -860,7 +901,10 @@ impl ChannelUri {
             .map(|(_, v)| v.as_str())
     }
 
-    /// Set a parameter, replacing its value if it is already set.
+    /// Set a parameter, replacing its value if it is already set. Not validated,
+    /// as in C++: a name or value containing `|`, or an empty value, gives a URI
+    /// the media driver rejects (or, for a trailing empty value such as `tags=`,
+    /// crashes on).
     pub fn put(&mut self, key: &str, value: &str) {
         match self.params.iter_mut().find(|(k, _)| k == key) {
             Some((_, v)) => *v = value.to_string(),
@@ -911,11 +955,17 @@ impl ChannelUri {
     }
 }
 
+/// A channel URI error, with `EINVAL` as its code like the C++ exceptions.
+fn einval(kind: ErrorKind, message: impl Into<String>) -> Error {
+    const EINVAL: i32 = 22;
+    Error::new(kind, message).with_code(EINVAL)
+}
+
 fn validate_media(media: &str) -> Result<()> {
     if media == IPC_MEDIA || media == UDP_MEDIA {
         Ok(())
     } else {
-        Err(Error::new(
+        Err(einval(
             ErrorKind::IllegalArgument,
             format!("unknown media: {media}"),
         ))

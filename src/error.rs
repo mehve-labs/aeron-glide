@@ -122,6 +122,12 @@ impl Error {
         }
     }
 
+    /// The same error with an Aeron error code.
+    pub(crate) fn with_code(mut self, code: i32) -> Self {
+        self.code = code;
+        self
+    }
+
     /// The category of this error.
     pub fn kind(&self) -> ErrorKind {
         self.kind

@@ -230,6 +230,9 @@ fn invalid_values_fail_at_build_with_the_first_error() {
         udp().param("", "x"),
         udp().param("key", "bad|value"),
         udp().alias("a|b"),
+        udp().tags(""),
+        udp().param("x", ""),
+        udp().endpoint(&"x".repeat(channel::MAX_URI_LENGTH)),
     ];
     for builder in invalid {
         let err = builder.build().expect_err(&format!("{builder:?}"));
@@ -243,6 +246,10 @@ fn invalid_values_fail_at_build_with_the_first_error() {
     }
     let err = udp().mtu(16).term_length(1000).build().unwrap_err();
     assert!(err.message().contains("MTU"), "{err}");
+    assert_eq!(err.code(), 22, "EINVAL, as in C++");
+    // clear() keeps an earlier invalid setting.
+    assert!(udp().mtu(1000).clear().build().is_err());
+    assert!(ChannelBuilder::ipc().prefix("x").clear().build().is_err());
     // Valid boundaries.
     assert!(udp().mtu(32).mtu(65504).build().is_ok());
     assert!(
@@ -335,7 +342,8 @@ fn parse_edge_cases() {
     let uri = ChannelUri::parse("aeron:udp?fc=tagged,g:1/2|endpoint=a:1|x=a=b?c").unwrap();
     assert_eq!(uri.get("fc"), Some("tagged,g:1/2"));
     assert_eq!(uri.get("x"), Some("a=b?c"));
-    // An empty value is allowed.
+    // An empty value parses, as in C++ (the media driver rejects it, or crashes
+    // on a trailing `tags=`, so the builder refuses to write one).
     assert_eq!(
         ChannelUri::parse("aeron:udp?alias=").unwrap().get("alias"),
         Some("")
@@ -417,6 +425,14 @@ fn response_control_mode() {
             .has_control_mode_response()
     );
     assert_eq!(ControlMode::Response.to_string(), "response");
+    for mode in [
+        ControlMode::Manual,
+        ControlMode::Dynamic,
+        ControlMode::Response,
+    ] {
+        assert_eq!(mode.to_string().parse::<ControlMode>().unwrap(), mode);
+    }
+    assert!("Manual".parse::<ControlMode>().is_err());
 }
 
 #[test]
