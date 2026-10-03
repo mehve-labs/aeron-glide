@@ -55,7 +55,7 @@ subscription.poll(10, |data, _header| {
 
 [rusteron](https://github.com/gsrxyz/rusteron) is the other complete Aeron
 binding for Rust. It is generated from Aeron's C API, exposes nearly every C
-function with little abstraction, and is used in production at GSR. Its README
+function with little abstraction, and is used in production. Its README
 is upfront that the API "operates in an `unsafe` context": misuse, such as
 using a publication after its client is closed, is undefined behaviour.
 
