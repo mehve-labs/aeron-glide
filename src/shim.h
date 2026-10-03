@@ -2,6 +2,7 @@
 #include <cstring>
 #include <deque>
 #include <exception>
+#include <mutex>
 #include <memory>
 #include <string>
 #include <Aeron.h>
@@ -138,6 +139,36 @@ using CloseClientFn = rust::Fn<void(size_t)>;
 // (ctx, registration id, session id, stream id, group tag, source port, address type, address bytes)
 using ErrorFrameFn = rust::Fn<void(size_t, int64_t, int32_t, int32_t, int64_t, uint16_t, int16_t, rust::Slice<const uint8_t>)>;
 
+// Serialises the client conductor in agent invoker mode. There the C client runs
+// conductor work inline on whichever thread adds, closes or changes a resource,
+// so those calls, and invoke(), must not run concurrently. Disabled (no locking)
+// in the default threaded mode, where the conductor has its own thread.
+class ConductorLock {
+public:
+    explicit ConductorLock(bool enabled) : enabled_(enabled) {}
+    ConductorLock(const ConductorLock &) = delete;
+    ConductorLock &operator=(const ConductorLock &) = delete;
+
+    // Holds the lock for one operation. If this thread already holds it (a handler
+    // running inside invoke()), operations throw ReentrantException; destructors
+    // (`nested_ok`) proceed, since the lock is already held.
+    class Guard {
+    public:
+        explicit Guard(const std::shared_ptr<ConductorLock> &lock, bool nested_ok = false);
+        ~Guard();
+        Guard(const Guard &) = delete;
+        Guard &operator=(const Guard &) = delete;
+
+    private:
+        ConductorLock *lock_ = nullptr;
+        const ConductorLock *previous_ = nullptr;
+    };
+
+private:
+    std::mutex mutex_;
+    const bool enabled_;
+};
+
 // Owns a Rust handler context: releases it when the last std::function copy
 // holding this object is destroyed (e.g. when the C++ client is destroyed).
 class RustOwned {
@@ -235,7 +266,13 @@ inline int64_t channelStatus(aeron::ExclusivePublication &p) {
 template <typename P>
 class PublicationWrapperT {
 public:
-    explicit PublicationWrapperT(std::shared_ptr<P> pub) : pub(std::move(pub)) {}
+    PublicationWrapperT(std::shared_ptr<P> pub, std::shared_ptr<ConductorLock> lock)
+        : pub(std::move(pub)), lock_(std::move(lock)) {}
+    // Releasing the last reference closes the publication (conductor work).
+    ~PublicationWrapperT() {
+        ConductorLock::Guard guard(lock_, true);
+        pub.reset();
+    }
 
     int64_t offer(rust::Slice<const uint8_t> buffer) const {
         aeron::AtomicBuffer atomic_buffer(const_cast<uint8_t *>(buffer.data()), buffer.size());
@@ -272,14 +309,29 @@ public:
     int64_t channelStatus() const { return detail::channelStatus(*pub); }
     // Multi-destination-cast (P5). Each returns a correlation id; poll
     // findDestinationResponse until the driver has applied the change.
-    int64_t addDestination(rust::Str endpoint) const { return pub->addDestination(std::string(endpoint)); }
-    int64_t removeDestination(rust::Str endpoint) const { return pub->removeDestination(std::string(endpoint)); }
-    int64_t removeDestinationById(int64_t registrationId) const { return pub->removeDestination(registrationId); }
-    bool findDestinationResponse(int64_t correlationId) const { return pub->findDestinationResponse(correlationId); }
+    int64_t addDestination(rust::Str endpoint) const {
+        ConductorLock::Guard guard(lock_);
+        return pub->addDestination(std::string(endpoint));
+    }
+    int64_t removeDestination(rust::Str endpoint) const {
+        ConductorLock::Guard guard(lock_);
+        return pub->removeDestination(std::string(endpoint));
+    }
+    int64_t removeDestinationById(int64_t registrationId) const {
+        ConductorLock::Guard guard(lock_);
+        return pub->removeDestination(registrationId);
+    }
+    bool findDestinationResponse(int64_t correlationId) const {
+        ConductorLock::Guard guard(lock_);
+        return pub->findDestinationResponse(correlationId);
+    }
 
     // Exclusive publications only. revoke() frees the C publication; the Rust side
     // consumes the publication so nothing can be called on it afterwards.
-    void revoke() const { pub->revoke(); }
+    void revoke() const {
+        ConductorLock::Guard guard(lock_);
+        pub->revoke();
+    }
     void revokeOnClose() const { pub->revokeOnClose(); }
 
     // Publications have at most one local address.
@@ -302,6 +354,7 @@ public:
 
 private:
     std::shared_ptr<P> pub;
+    std::shared_ptr<ConductorLock> lock_;
 };
 
 using PublicationWrapper = PublicationWrapperT<aeron::Publication>;
@@ -316,7 +369,10 @@ class ImageWrapper; // forward declaration
 // again through another handle.
 class AssemblerState {
 public:
-    AssemblerState();
+    explicit AssemblerState(std::shared_ptr<ConductorLock> lock);
+
+    // The client's conductor lock, shared with every image of the subscription.
+    const std::shared_ptr<ConductorLock> conductorLock;
     AssemblerState(const AssemblerState &) = delete;
     AssemblerState &operator=(const AssemblerState &) = delete;
 
@@ -373,7 +429,7 @@ private:
 
 class SubscriptionWrapper {
 public:
-    SubscriptionWrapper(std::shared_ptr<aeron::Subscription> sub);
+    SubscriptionWrapper(std::shared_ptr<aeron::Subscription> sub, std::shared_ptr<ConductorLock> lock);
     ~SubscriptionWrapper();
 
     int poll(int fragment_limit, FragmentFn handler, size_t ctx);
@@ -402,9 +458,18 @@ public:
     std::unique_ptr<ImageListWrapper> copyOfImageList() const;
 
     // Multi-destination subscriptions (P5).
-    int64_t addDestination(rust::Str endpoint) const { return sub->addDestination(std::string(endpoint)); }
-    int64_t removeDestination(rust::Str endpoint) const { return sub->removeDestination(std::string(endpoint)); }
-    bool findDestinationResponse(int64_t correlationId) const { return sub->findDestinationResponse(correlationId); }
+    int64_t addDestination(rust::Str endpoint) const {
+        ConductorLock::Guard guard(assembly_->conductorLock);
+        return sub->addDestination(std::string(endpoint));
+    }
+    int64_t removeDestination(rust::Str endpoint) const {
+        ConductorLock::Guard guard(assembly_->conductorLock);
+        return sub->removeDestination(std::string(endpoint));
+    }
+    bool findDestinationResponse(int64_t correlationId) const {
+        ConductorLock::Guard guard(assembly_->conductorLock);
+        return sub->findDestinationResponse(correlationId);
+    }
 
     // Image accessors
     int imageCount() const;
@@ -472,7 +537,7 @@ private:
 
 class CountersReaderWrapper {
 public:
-    CountersReaderWrapper(std::shared_ptr<aeron::Aeron> aeron);
+    CountersReaderWrapper(std::shared_ptr<aeron::Aeron> aeron, std::shared_ptr<ConductorLock> lock);
     ~CountersReaderWrapper();
 
     int32_t maxCounterId() const;
@@ -484,6 +549,7 @@ public:
 
 private:
     std::shared_ptr<aeron::Aeron> aeron;
+    std::shared_ptr<ConductorLock> lock_;
 };
 
 class AeronWrapper {
@@ -508,11 +574,13 @@ public:
     rust::String aeronDir() const { return rust::String::lossy(aeron->context().aeronDir()); }
     rust::String cncFileName() const { return rust::String::lossy(aeron->context().cncFileName()); }
     int64_t driverTimeoutMs() const { return aeron->context().mediaDriverTimeout(); }
+    rust::String clientName() const { return rust::String::lossy(aeron->context().clientName()); }
+    int64_t idleSleepDurationMs() const { return aeron->context().idleSleepDuration(); }
 
     // Agent invoker mode (P12): run the client conductor's duty cycle on the
     // calling thread. Throws IllegalStateException unless the context enabled it.
     bool usesAgentInvoker() const { return aeron->usesAgentInvoker(); }
-    int32_t invokeConductor() const { return aeron->conductorAgentInvoker().invoke(); }
+    int32_t invokeConductor() const;
 
     // Lifecycle handlers added at runtime (P11); each takes ownership of its ctx.
     int64_t addSubscriptionWithImageHandlers(
@@ -529,6 +597,7 @@ public:
     
 private:
     std::shared_ptr<aeron::Aeron> aeron;
+    std::shared_ptr<ConductorLock> lock_;
 };
 
 // Static aeron::Context utilities (P13).

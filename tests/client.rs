@@ -53,7 +53,8 @@ fn rejected_async_add_is_an_error() {
         !matches!(result, Ok(None))
     });
     let err = result.err().expect("the driver rejects the channel");
-    assert_ne!(err.code(), 0, "{err}");
+    assert_eq!(err.kind(), ErrorKind::Aeron, "{err}");
+    assert!(err.code() < 0, "{err}");
     // The synchronous form reports the same error.
     assert!(
         client
@@ -91,4 +92,44 @@ fn context_utilities() {
     // No driver (no CnC file) in this directory.
     let missing = std::env::temp_dir().join("aeron-glide-no-driver-here");
     assert!(Context::request_driver_termination(missing.to_str().unwrap(), b"").is_err());
+}
+
+#[test]
+fn abandoned_pending_adds_are_closed() {
+    let driver = TestDriver::start();
+    let client = driver.client();
+    let publication = client.add_publication("aeron:ipc", 7).unwrap();
+    // A subscription whose pending add is dropped still gets created...
+    drop(client.add_subscription_async("aeron:ipc", 7).unwrap());
+    wait_until("the abandoned subscription to connect", || {
+        publication.is_connected()
+    });
+    // ...and is closed by a later client call.
+    wait_until("the abandoned subscription to close", || {
+        drop(client.add_publication_async("aeron:ipc", 8).unwrap().wait());
+        !publication.is_connected()
+    });
+}
+
+#[test]
+fn polling_after_a_failure_reports_done() {
+    let driver = TestDriver::start();
+    let client = driver.client();
+    let mut pending = client
+        .add_publication_async("aeron:udp?endpoint=not-a-host-name.invalid:1", 1)
+        .unwrap();
+    let mut result = Ok(None);
+    wait_until("the driver to answer", || {
+        result = pending.poll();
+        !matches!(result, Ok(None))
+    });
+    let err = result.err().unwrap();
+    assert_eq!(err.kind(), ErrorKind::Aeron, "{err}");
+    assert!(err.code() < 0, "{err}");
+    assert_eq!(
+        pending.poll().err().unwrap().kind(),
+        ErrorKind::IllegalState
+    );
+    assert!(client.client_name().is_empty());
+    assert_eq!(client.idle_sleep_duration(), Duration::from_millis(16));
 }

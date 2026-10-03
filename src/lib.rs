@@ -269,6 +269,8 @@ pub(crate) mod ffi {
         fn aeronDir(self: &AeronWrapper) -> String;
         fn cncFileName(self: &AeronWrapper) -> Result<String>;
         fn driverTimeoutMs(self: &AeronWrapper) -> i64;
+        fn clientName(self: &AeronWrapper) -> String;
+        fn idleSleepDurationMs(self: &AeronWrapper) -> i64;
         fn usesAgentInvoker(self: &AeronWrapper) -> bool;
         fn invokeConductor(self: &AeronWrapper) -> Result<i32>;
         #[allow(clippy::too_many_arguments)]

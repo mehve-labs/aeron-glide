@@ -75,6 +75,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Agent invoker mode was not thread-safe: the C client runs conductor work inline
+  on whichever thread adds or closes a resource, which raced with `invoke()`
+  (crashes). A per-client conductor lock now serialises all of it in invoker
+  mode (no cost in threaded mode).
+- Handlers could crash or hang the client: adding or removing a handler, or a
+  synchronous add, from inside a handler now fails with `ErrorKind::Reentrant`
+  (as does a nested `invoke()`), and a handler released on the conductor thread
+  (e.g. a subscription's image handler) may own the last client.
+- A dropped or timed-out `PendingAdd` left its resource alive until the client
+  closed; the client now closes it once the driver has created it. Polling a
+  pending add again after it failed reports `IllegalState`.
 - Polling an image from inside a handler that is already polling the same
   image through another handle now fails with `ErrorKind::Reentrant`; it used
   to re-deliver fragments and could release the term the outer handler was
@@ -158,7 +169,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `add_exclusive_publication_async` and `add_subscription_async` return a
   `PendingAdd` to `poll()` (or `wait()`) for the resource. Also
   `AeronClient::client_id`, `next_correlation_id`, `aeron_dir`,
-  `cnc_file_name` and `driver_timeout`.
+  `cnc_file_name`, `driver_timeout`, `client_name` and
+  `idle_sleep_duration`.
 - Multi-destination support: `add_destination`, `remove_destination` and
   `find_destination_response` on `Publication`, `ExclusivePublication` and
   `Subscription`, plus `remove_destination_by_id` on publications.

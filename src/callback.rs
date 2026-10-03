@@ -20,6 +20,24 @@ thread_local! {
     static IN_CONDUCTOR_CALLBACK: Cell<bool> = const { Cell::new(false) };
 }
 
+/// Returns `true` while this thread runs a callback invoked by an Aeron client
+/// conductor (a handler, or a handler's release).
+pub(crate) fn in_conductor_callback() -> bool {
+    IN_CONDUCTOR_CALLBACK.get()
+}
+
+/// Fails with [`ErrorKind::Reentrant`](crate::ErrorKind::Reentrant) inside a
+/// conductor callback, for calls that would wait on the conductor.
+pub(crate) fn ensure_not_in_conductor_callback(what: &str) -> crate::Result<()> {
+    if in_conductor_callback() {
+        return Err(crate::Error::new(
+            crate::ErrorKind::Reentrant,
+            format!("{what} cannot be called from a client handler"),
+        ));
+    }
+    Ok(())
+}
+
 /// Marks the current thread as running a callback invoked by an Aeron client
 /// conductor (e.g. the error handler) until dropped.
 pub(crate) struct ConductorCallbackScope(bool);

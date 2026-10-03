@@ -197,3 +197,126 @@ fn counter_handlers_and_panicking_handlers() {
     // the handlers are registered and removed while the driver allocates counters.
     drop(counters);
 }
+
+struct DropFlag(Arc<std::sync::atomic::AtomicBool>);
+
+impl Drop for DropFlag {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+fn drop_flag() -> (DropFlag, Arc<std::sync::atomic::AtomicBool>) {
+    let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    (DropFlag(flag.clone()), flag)
+}
+
+#[test]
+fn handlers_are_released() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let driver = TestDriver::start();
+    let (context_flag, context_released) = drop_flag();
+    let client = driver.connect(Context::new().on_close_client(move || {
+        let _ = &context_flag;
+    }));
+
+    let (removed_flag, removed_released) = drop_flag();
+    let id = client
+        .add_close_client_handler(move || {
+            let _ = &removed_flag;
+        })
+        .unwrap();
+    client.remove_close_client_handler(id).unwrap();
+    assert!(removed_released.load(SeqCst), "removed handler is released");
+
+    let (image_flag, image_released) = drop_flag();
+    let sub = client
+        .add_subscription_with_image_handlers(
+            "aeron:ipc",
+            8,
+            move |_| {
+                let _ = &image_flag;
+            },
+            |_| {},
+        )
+        .unwrap();
+    drop(sub);
+    wait_until("the subscription's handlers to be released", || {
+        image_released.load(SeqCst)
+    });
+
+    assert!(!context_released.load(SeqCst));
+    drop(client);
+    assert!(
+        context_released.load(SeqCst),
+        "context handler released with the client"
+    );
+}
+
+#[test]
+fn handler_owning_the_last_client_is_released_safely() {
+    // The per-subscription handlers are released on the conductor thread when the
+    // subscription closes; if they own the last client, its drop must not run there.
+    let driver = TestDriver::start();
+    let client = Arc::new(driver.client());
+    let owner = client.clone();
+    let sub = client
+        .add_subscription_with_image_handlers(
+            "aeron:ipc",
+            9,
+            move |_| {
+                let _ = &owner;
+            },
+            |_| {},
+        )
+        .unwrap();
+    drop(client);
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        drop(sub);
+        done_tx.send(()).unwrap();
+    });
+    done_rx
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("the subscription and client close without hanging");
+}
+
+#[test]
+fn reentrant_calls_from_handlers_are_rejected() {
+    use aeron_glide::{AeronClient, ErrorKind};
+    use std::sync::{OnceLock, Weak};
+    let driver = TestDriver::start();
+    let slot: Arc<OnceLock<Weak<AeronClient>>> = Arc::new(OnceLock::new());
+    let (results, results_sink) = sink::<Result<(), ErrorKind>>();
+    let handler_slot = slot.clone();
+    let client = Arc::new(driver.connect(Context::new().on_new_publication(move |_| {
+        let Some(client) = handler_slot.get().and_then(Weak::upgrade) else {
+            return;
+        };
+        let mut r = results_sink.lock().unwrap();
+        r.push(
+            client
+                .add_close_client_handler(|| {})
+                .map(|_| ())
+                .map_err(|e| e.kind()),
+        );
+        r.push(client.remove_close_client_handler(1).map_err(|e| e.kind()));
+        r.push(
+            client
+                .add_subscription("aeron:ipc", 2)
+                .map(|_| ())
+                .map_err(|e| e.kind()),
+        );
+    })));
+    slot.set(Arc::downgrade(&client)).unwrap();
+    client.add_publication("aeron:ipc", 1).unwrap();
+    wait_until("the handler", || results.lock().unwrap().len() == 3);
+    assert_eq!(
+        *results.lock().unwrap(),
+        [
+            Err(ErrorKind::Reentrant),
+            Err(ErrorKind::Reentrant),
+            Err(ErrorKind::Reentrant)
+        ]
+    );
+}

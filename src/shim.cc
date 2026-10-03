@@ -288,37 +288,56 @@ int64_t AeronWrapper::addSubscriptionWithImageHandlers(
     ImageEventFn on_unavailable, ReleaseFn release_unavailable, size_t unavailable_ctx) const {
     auto available = imageHandler("available image", on_available, release_available, available_ctx);
     auto unavailable = imageHandler("unavailable image", on_unavailable, release_unavailable, unavailable_ctx);
+    ConductorLock::Guard guard(lock_);
     return aeron->addSubscription(std::string(channel.data(), channel.size()), stream_id, available, unavailable);
 }
 
 int64_t AeronWrapper::addAvailableCounterHandler(CounterEventFn handler, ReleaseFn release, size_t context) const {
-    return aeron->addAvailableCounterHandler(counterHandler("available counter", handler, release, context));
+    auto wrapped = counterHandler("available counter", handler, release, context); // owns the Rust context first
+    ConductorLock::Guard guard(lock_);
+    return aeron->addAvailableCounterHandler(wrapped);
 }
 
 void AeronWrapper::removeAvailableCounterHandler(int64_t registration_id) const {
+    ConductorLock::Guard guard(lock_);
     aeron->removeAvailableCounterHandler(registration_id);
 }
 
 int64_t AeronWrapper::addUnavailableCounterHandler(CounterEventFn handler, ReleaseFn release, size_t context) const {
-    return aeron->addUnavailableCounterHandler(counterHandler("unavailable counter", handler, release, context));
+    auto wrapped = counterHandler("unavailable counter", handler, release, context); // owns the Rust context first
+    ConductorLock::Guard guard(lock_);
+    return aeron->addUnavailableCounterHandler(wrapped);
 }
 
 void AeronWrapper::removeUnavailableCounterHandler(int64_t registration_id) const {
+    ConductorLock::Guard guard(lock_);
     aeron->removeUnavailableCounterHandler(registration_id);
 }
 
 int64_t AeronWrapper::addCloseClientHandler(CloseClientFn handler, ReleaseFn release, size_t context) const {
-    return aeron->addCloseClientHandler(closeClientHandler(handler, release, context));
+    auto wrapped = closeClientHandler(handler, release, context); // owns the Rust context first
+    ConductorLock::Guard guard(lock_);
+    return aeron->addCloseClientHandler(wrapped);
 }
 
 void AeronWrapper::removeCloseClientHandler(int64_t registration_id) const {
+    ConductorLock::Guard guard(lock_);
     aeron->removeCloseClientHandler(registration_id);
 }
 
-AeronWrapper::AeronWrapper(std::shared_ptr<ContextWrapper> context) 
-    : aeron(aeron::Aeron::connect(*context->ctx)) {}
+AeronWrapper::AeronWrapper(std::shared_ptr<ContextWrapper> context)
+    : aeron(aeron::Aeron::connect(*context->ctx)),
+      lock_(std::make_shared<ConductorLock>(aeron->usesAgentInvoker())) {}
 
-AeronWrapper::~AeronWrapper() {}
+AeronWrapper::~AeronWrapper() {
+    ConductorLock::Guard guard(lock_, true);
+    aeron.reset();
+}
+
+int32_t AeronWrapper::invokeConductor() const {
+    ConductorLock::Guard guard(lock_);
+    return aeron->conductorAgentInvoker().invoke();
+}
 
 bool AeronWrapper::isClosed() const {
     if (aeron) {
@@ -341,8 +360,35 @@ aeron::ControlledPollAction dispatchControlled(
 
 } // namespace
 
-AssemblerState::AssemblerState()
-    : assembler_([this](aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
+thread_local const ConductorLock *t_held_conductor_lock = nullptr;
+
+ConductorLock::Guard::Guard(const std::shared_ptr<ConductorLock> &lock, bool nested_ok) {
+    if (!lock || !lock->enabled_) {
+        return;
+    }
+    if (t_held_conductor_lock == lock.get()) {
+        if (nested_ok) {
+            return;
+        }
+        throw aeron::util::ReentrantException(
+            "the client conductor is running on this thread (inside invoke)", SOURCEINFO, EPERM);
+    }
+    lock->mutex_.lock();
+    lock_ = lock.get();
+    previous_ = t_held_conductor_lock;
+    t_held_conductor_lock = lock_;
+}
+
+ConductorLock::Guard::~Guard() {
+    if (lock_ != nullptr) {
+        t_held_conductor_lock = previous_;
+        lock_->mutex_.unlock();
+    }
+}
+
+AssemblerState::AssemblerState(std::shared_ptr<ConductorLock> lock)
+    : conductorLock(std::move(lock)),
+      assembler_([this](aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
           return dispatchControlled(handler_, ctx_, buffer, offset, length, header);
       }) {}
 
@@ -375,10 +421,14 @@ AssemblerState::ImagePoll::~ImagePoll() {
     state_.polling_sessions_.pop_back();
 }
 
-SubscriptionWrapper::SubscriptionWrapper(std::shared_ptr<aeron::Subscription> sub)
-    : sub(sub), assembly_(std::make_shared<AssemblerState>()) {}
+SubscriptionWrapper::SubscriptionWrapper(std::shared_ptr<aeron::Subscription> sub, std::shared_ptr<ConductorLock> lock)
+    : sub(sub), assembly_(std::make_shared<AssemblerState>(std::move(lock))) {}
 
-SubscriptionWrapper::~SubscriptionWrapper() {}
+// Releasing the last reference closes the subscription (conductor work).
+SubscriptionWrapper::~SubscriptionWrapper() {
+    ConductorLock::Guard guard(assembly_->conductorLock, true);
+    sub.reset();
+}
 
 int SubscriptionWrapper::poll(int fragment_limit, FragmentFn handler, size_t ctx) {
     auto fragment_handler = [&](const aeron::AtomicBuffer& buffer, aeron::util::index_t offset, aeron::util::index_t length, aeron::Header& header) {
@@ -459,7 +509,12 @@ ImageWrapper::ImageWrapper(std::shared_ptr<aeron::Image> image, std::shared_ptr<
                            std::shared_ptr<AssemblerState> assembly)
     : subscription_(std::move(subscription)), image_(std::move(image)), assembly_(std::move(assembly)) {}
 
-ImageWrapper::~ImageWrapper() {}
+// The image may hold the last reference to its subscription.
+ImageWrapper::~ImageWrapper() {
+    ConductorLock::Guard guard(assembly_->conductorLock, true);
+    image_.reset();
+    subscription_.reset();
+}
 
 int32_t ImageWrapper::sessionId() const {
     return image_->sessionId();
@@ -552,9 +607,14 @@ int ImageWrapper::blockPoll(int block_length_limit, BlockFn handler, size_t ctx)
     return image_->blockPoll(block_handler, block_length_limit);
 }
 
-CountersReaderWrapper::CountersReaderWrapper(std::shared_ptr<aeron::Aeron> aeron) : aeron(aeron) {}
+CountersReaderWrapper::CountersReaderWrapper(std::shared_ptr<aeron::Aeron> aeron, std::shared_ptr<ConductorLock> lock)
+    : aeron(std::move(aeron)), lock_(std::move(lock)) {}
 
-CountersReaderWrapper::~CountersReaderWrapper() {}
+// The reader may hold the last reference to the client.
+CountersReaderWrapper::~CountersReaderWrapper() {
+    ConductorLock::Guard guard(lock_, true);
+    aeron.reset();
+}
 
 int32_t CountersReaderWrapper::maxCounterId() const {
     return aeron->countersReader().maxCounterId();
@@ -585,34 +645,40 @@ void CountersReaderWrapper::forEach(CounterFn handler, size_t ctx) const {
 }
 
 int64_t AeronWrapper::addPublication(rust::Str channel, int32_t stream_id) const {
+    ConductorLock::Guard guard(lock_);
     return aeron->addPublication(std::string(channel.data(), channel.size()), stream_id);
 }
 
 int64_t AeronWrapper::addExclusivePublication(rust::Str channel, int32_t stream_id) const {
+    ConductorLock::Guard guard(lock_);
     return aeron->addExclusivePublication(std::string(channel.data(), channel.size()), stream_id);
 }
 
 int64_t AeronWrapper::addSubscription(rust::Str channel, int32_t stream_id) const {
+    ConductorLock::Guard guard(lock_);
     return aeron->addSubscription(std::string(channel.data(), channel.size()), stream_id);
 }
 
 std::unique_ptr<PublicationWrapper> AeronWrapper::findPublication(int64_t registration_id) const {
+    ConductorLock::Guard guard(lock_);
     auto pub = aeron->findPublication(registration_id);
-    return pub ? std::unique_ptr<PublicationWrapper>(new PublicationWrapper(pub)) : nullptr;
+    return pub ? std::unique_ptr<PublicationWrapper>(new PublicationWrapper(pub, lock_)) : nullptr;
 }
 
 std::unique_ptr<ExclusivePublicationWrapper> AeronWrapper::findExclusivePublication(int64_t registration_id) const {
+    ConductorLock::Guard guard(lock_);
     auto pub = aeron->findExclusivePublication(registration_id);
-    return pub ? std::unique_ptr<ExclusivePublicationWrapper>(new ExclusivePublicationWrapper(pub)) : nullptr;
+    return pub ? std::unique_ptr<ExclusivePublicationWrapper>(new ExclusivePublicationWrapper(pub, lock_)) : nullptr;
 }
 
 std::unique_ptr<SubscriptionWrapper> AeronWrapper::findSubscription(int64_t registration_id) const {
+    ConductorLock::Guard guard(lock_);
     auto sub = aeron->findSubscription(registration_id);
-    return sub ? std::unique_ptr<SubscriptionWrapper>(new SubscriptionWrapper(sub)) : nullptr;
+    return sub ? std::unique_ptr<SubscriptionWrapper>(new SubscriptionWrapper(sub, lock_)) : nullptr;
 }
 
 std::unique_ptr<CountersReaderWrapper> AeronWrapper::countersReader() const {
-    return std::unique_ptr<CountersReaderWrapper>(new CountersReaderWrapper(aeron));
+    return std::unique_ptr<CountersReaderWrapper>(new CountersReaderWrapper(aeron, lock_));
 }
 
 std::unique_ptr<ContextWrapper> create_context() {
@@ -810,7 +876,12 @@ ReplayMergeWrapper::ReplayMergeWrapper(
           liveDestination, recordingId, startPosition,
           aeron::currentTimeMillis, mergeProgressTimeoutMs)) {}
 
-ReplayMergeWrapper::~ReplayMergeWrapper() {}
+// The merge may hold the last reference to its subscription.
+ReplayMergeWrapper::~ReplayMergeWrapper() {
+    ConductorLock::Guard guard(assembly_->conductorLock, true);
+    merge_.reset();
+    subscription_.reset();
+}
 
 int ReplayMergeWrapper::doWork() {
     return merge_->doWork();

@@ -119,8 +119,8 @@ fn nested_poll_of_the_same_image_is_rejected() {
     wait_until("both connected", || {
         first.is_connected() && second.is_connected()
     });
-    while first.offer(b"a").is_err() {}
-    while second.offer(b"b").is_err() {}
+    wait_until("the first offer", || first.offer(b"a").is_ok());
+    wait_until("the second offer", || second.offer(b"b").is_ok());
 
     let mut outer = sub.image_by_session_id(first.session_id()).unwrap();
     let mut same = sub.image_by_session_id(first.session_id()).unwrap();

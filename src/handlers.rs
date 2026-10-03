@@ -98,10 +98,17 @@ pub(crate) fn into_ctx<H: Send + Sync + 'static>(handler: H) -> usize {
     Arc::into_raw(Arc::new(handler)).expose_provenance()
 }
 
-/// Free a handler handed to C++ with [`into_ctx`]. Called once, by C++.
+/// Free a handler handed to C++ with [`into_ctx`]. Called once, by C++, possibly
+/// on the conductor thread (e.g. when a subscription with its own image handlers
+/// closes), so drops of clients or resources the handler owns are moved off it,
+/// and a panicking `Drop` is contained.
 pub(crate) fn release<H>(ctx: usize) {
     // SAFETY: `ctx` comes from `into_ctx::<H>` and C++ releases it exactly once.
-    drop(unsafe { Arc::from_raw(std::ptr::with_exposed_provenance::<H>(ctx)) });
+    let handler = unsafe { Arc::from_raw(std::ptr::with_exposed_provenance::<H>(ctx)) };
+    let _scope = ConductorCallbackScope::enter();
+    if panic::catch_unwind(AssertUnwindSafe(move || drop(handler))).is_err() {
+        eprintln!("aeron-glide: dropping a client handler panicked");
+    }
 }
 
 /// Call the handler behind `ctx`, catching panics.

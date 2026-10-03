@@ -10,8 +10,9 @@ use std::marker::PhantomData;
 /// publications and subscriptions from any thread.
 pub struct AeronClient {
     pub(crate) inner: cxx::UniquePtr<ffi::AeronWrapper>,
-    /// Serialises `invoke`: the conductor's duty cycle must not run concurrently.
-    pub(crate) invoker: std::sync::Mutex<()>,
+    /// Pending adds dropped before completion; their resources are closed by
+    /// [`AeronClient::reap`] once the driver has created them.
+    pub(crate) abandoned: std::sync::Mutex<Vec<(AddKind, i64)>>,
 }
 
 impl Drop for AeronClient {
@@ -21,9 +22,11 @@ impl Drop for AeronClient {
 }
 
 // SAFETY: aeron::Aeron is thread-safe: resource registration goes through the C
-// client's command queue and the C++ wrapper's `m_adminLock`. The wrapper only
-// holds a `shared_ptr<aeron::Aeron>` (atomic reference count), and every method
-// bridged as `&self` is a const C++ method.
+// client's command queue and the C++ wrapper's `m_adminLock`. In agent invoker
+// mode, where the C client runs that work inline on the calling thread, the shim's
+// ConductorLock serialises every conductor-touching call, `invoke` and every
+// resource close. The wrapper only holds `shared_ptr`s (atomic reference counts),
+// and every method bridged as `&self` is a const C++ method.
 unsafe impl Send for AeronClient {}
 unsafe impl Sync for AeronClient {}
 
@@ -126,15 +129,21 @@ impl AeronClient {
             handlers::release::<U>,
             handlers::into_ctx(on_unavailable_image),
         )?;
-        Ok(PendingAdd::new(self, id))
+        Ok(PendingAdd::new(self, id, AddKind::Subscription))
     }
 
     /// Add a handler called when a counter becomes available. Returns its
     /// registration ID for [`remove_available_counter_handler`](Self::remove_available_counter_handler).
+    ///
+    /// Handlers cannot be added or removed from inside a handler
+    /// ([`ErrorKind::Reentrant`]): the conductor running the handler would have to
+    /// process the change itself. A handler that owns an `Arc<AeronClient>` keeps
+    /// the client alive (a reference cycle) until it is removed.
     pub fn add_available_counter_handler<F>(&self, handler: F) -> Result<i64>
     where
         F: Fn(CounterEvent) + Send + Sync + 'static,
     {
+        callback::ensure_not_in_conductor_callback("adding a handler")?;
         Ok(self.inner.addAvailableCounterHandler(
             handlers::counter_event::<F>,
             handlers::release::<F>,
@@ -144,7 +153,9 @@ impl AeronClient {
 
     /// Remove a handler added with
     /// [`add_available_counter_handler`](Self::add_available_counter_handler).
+    /// Removing an unknown ID does nothing.
     pub fn remove_available_counter_handler(&self, registration_id: i64) -> Result<()> {
+        callback::ensure_not_in_conductor_callback("removing a handler")?;
         Ok(self.inner.removeAvailableCounterHandler(registration_id)?)
     }
 
@@ -155,6 +166,7 @@ impl AeronClient {
     where
         F: Fn(CounterEvent) + Send + Sync + 'static,
     {
+        callback::ensure_not_in_conductor_callback("adding a handler")?;
         Ok(self.inner.addUnavailableCounterHandler(
             handlers::counter_event::<F>,
             handlers::release::<F>,
@@ -165,6 +177,7 @@ impl AeronClient {
     /// Remove a handler added with
     /// [`add_unavailable_counter_handler`](Self::add_unavailable_counter_handler).
     pub fn remove_unavailable_counter_handler(&self, registration_id: i64) -> Result<()> {
+        callback::ensure_not_in_conductor_callback("removing a handler")?;
         Ok(self
             .inner
             .removeUnavailableCounterHandler(registration_id)?)
@@ -176,6 +189,7 @@ impl AeronClient {
     where
         F: Fn() + Send + Sync + 'static,
     {
+        callback::ensure_not_in_conductor_callback("adding a handler")?;
         Ok(self.inner.addCloseClientHandler(
             handlers::close_client::<F>,
             handlers::release::<F>,
@@ -186,6 +200,7 @@ impl AeronClient {
     /// Remove a handler added with
     /// [`add_close_client_handler`](Self::add_close_client_handler).
     pub fn remove_close_client_handler(&self, registration_id: i64) -> Result<()> {
+        callback::ensure_not_in_conductor_callback("removing a handler")?;
         Ok(self.inner.removeCloseClientHandler(registration_id)?)
     }
 
@@ -196,10 +211,9 @@ impl AeronClient {
         channel: &str,
         stream_id: i32,
     ) -> Result<PendingAdd<'_, Publication>> {
-        Ok(PendingAdd::new(
-            self,
-            self.inner.addPublication(channel, stream_id)?,
-        ))
+        self.reap();
+        let id = self.inner.addPublication(channel, stream_id)?;
+        Ok(PendingAdd::new(self, id, AddKind::Publication))
     }
 
     /// Start adding an exclusive publication without waiting: poll the returned
@@ -209,10 +223,9 @@ impl AeronClient {
         channel: &str,
         stream_id: i32,
     ) -> Result<PendingAdd<'_, ExclusivePublication>> {
-        Ok(PendingAdd::new(
-            self,
-            self.inner.addExclusivePublication(channel, stream_id)?,
-        ))
+        self.reap();
+        let id = self.inner.addExclusivePublication(channel, stream_id)?;
+        Ok(PendingAdd::new(self, id, AddKind::ExclusivePublication))
     }
 
     /// Start adding a subscription without waiting: poll the returned
@@ -222,10 +235,9 @@ impl AeronClient {
         channel: &str,
         stream_id: i32,
     ) -> Result<PendingAdd<'_, Subscription>> {
-        Ok(PendingAdd::new(
-            self,
-            self.inner.addSubscription(channel, stream_id)?,
-        ))
+        self.reap();
+        let id = self.inner.addSubscription(channel, stream_id)?;
+        Ok(PendingAdd::new(self, id, AddKind::Subscription))
     }
 
     /// Returns `true` if the client runs its conductor through [`invoke`](Self::invoke)
@@ -236,18 +248,53 @@ impl AeronClient {
 
     /// In agent invoker mode, run one duty cycle of the client conductor on this
     /// thread: process driver responses, run handlers, send keepalives. Returns
-    /// the amount of work done (0 when idle). Call it regularly; concurrent calls
-    /// are serialised.
+    /// the amount of work done (0 when idle). Call it regularly. Concurrent calls,
+    /// and calls on other threads that add or close resources, are serialised.
     ///
     /// Fails with [`ErrorKind::IllegalState`] unless the client was created with
     /// [`Context::use_conductor_agent_invoker`]. Errors raised by the conductor go
     /// to the client's error handler, as in threaded mode.
+    ///
+    /// Calling it from a handler (i.e. inside `invoke`) fails with
+    /// [`ErrorKind::Reentrant`].
     pub fn invoke(&self) -> Result<i32> {
-        let _guard = self
-            .invoker
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        Ok(self.inner.invokeConductor()?)
+        let work = self.inner.invokeConductor()?;
+        self.reap();
+        Ok(work)
+    }
+
+    /// The client name set with [`Context::client_name`] (empty by default).
+    pub fn client_name(&self) -> String {
+        self.inner.clientName()
+    }
+
+    /// How long the client conductor sleeps when idle (see
+    /// [`Context::idle_sleep_duration`]).
+    pub fn idle_sleep_duration(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.inner.idleSleepDurationMs().max(0) as u64)
+    }
+
+    /// Close the resources of pending adds that were dropped before completing,
+    /// once the driver has created them.
+    fn reap(&self) {
+        if callback::in_conductor_callback() {
+            return;
+        }
+        let Ok(mut abandoned) = self.abandoned.try_lock() else {
+            return;
+        };
+        abandoned.retain(|&(kind, id)| {
+            // A found resource is closed when its wrapper is dropped here; a failed
+            // add is gone. Keep only the ones still pending.
+            let pending = match kind {
+                AddKind::Publication => self.inner.findPublication(id).map(|p| p.is_null()),
+                AddKind::ExclusivePublication => {
+                    self.inner.findExclusivePublication(id).map(|p| p.is_null())
+                }
+                AddKind::Subscription => self.inner.findSubscription(id).map(|s| s.is_null()),
+            };
+            matches!(pending, Ok(true))
+        });
     }
 
     /// The ID the media driver assigned to this client.
@@ -294,21 +341,45 @@ impl Default for AeronClient {
 /// A publication or subscription being added by the media driver, returned by
 /// `AeronClient::add_*_async` (C++ `addPublication` / `findPublication`, ...).
 ///
-/// [`poll`](Self::poll) until it returns the resource. If dropped before then, the
-/// resource is still created by the driver and released when the client closes.
+/// [`poll`](Self::poll) until it returns the resource. If dropped before then (or
+/// if [`wait`](Self::wait) times out), the driver still creates the resource; the
+/// client closes it on a later add, poll or `invoke`.
+///
+/// A rejected add (e.g. an invalid channel) fails with the driver's error,
+/// [`ErrorKind::Aeron`] with a negative [`Error::code`].
 #[must_use = "poll the pending add to get the resource"]
 pub struct PendingAdd<'a, T> {
     client: &'a AeronClient,
     registration_id: i64,
+    kind: AddKind,
     done: bool,
     _resource: PhantomData<fn() -> T>,
 }
 
+/// What a [`PendingAdd`] adds, to close it if the pending add is abandoned.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum AddKind {
+    Publication,
+    ExclusivePublication,
+    Subscription,
+}
+
+impl<T> Drop for PendingAdd<'_, T> {
+    fn drop(&mut self) {
+        if !self.done
+            && let Ok(mut abandoned) = self.client.abandoned.lock()
+        {
+            abandoned.push((self.kind, self.registration_id));
+        }
+    }
+}
+
 impl<'a, T> PendingAdd<'a, T> {
-    fn new(client: &'a AeronClient, registration_id: i64) -> Self {
+    fn new(client: &'a AeronClient, registration_id: i64, kind: AddKind) -> Self {
         Self {
             client,
             registration_id,
+            kind,
             done: false,
             _resource: PhantomData,
         }
@@ -338,7 +409,16 @@ macro_rules! pending_add {
             /// already completed.
             pub fn poll(&mut self) -> Result<Option<$resource>> {
                 self.check_not_done()?;
-                let inner = self.client.inner.$find(self.registration_id)?;
+                let found = self.client.inner.$find(self.registration_id);
+                self.client.reap();
+                let inner = match found {
+                    Ok(inner) => inner,
+                    Err(e) => {
+                        // C++ forgets a failed registration; polling again is an error.
+                        self.done = true;
+                        return Err(e.into());
+                    }
+                };
                 if inner.is_null() {
                     return Ok(None);
                 }
@@ -348,7 +428,11 @@ macro_rules! pending_add {
 
             /// Poll until the resource is ready, up to the client's driver timeout. In
             /// agent invoker mode this also runs the conductor while waiting.
+            ///
+            /// Fails with [`ErrorKind::Reentrant`] from inside a client handler, where
+            /// waiting would stall the conductor that has to answer.
             pub fn wait(mut self) -> Result<$resource> {
+                callback::ensure_not_in_conductor_callback("waiting for an add")?;
                 let deadline = std::time::Instant::now() + self.client.driver_timeout();
                 let invoke = self.client.uses_agent_invoker();
                 loop {

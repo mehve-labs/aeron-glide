@@ -305,7 +305,7 @@ impl Context {
         }
         Ok(AeronClient {
             inner: ffi::create_aeron(ctx)?,
-            invoker: std::sync::Mutex::new(()),
+            abandoned: std::sync::Mutex::new(Vec::new()),
         })
     }
 }
