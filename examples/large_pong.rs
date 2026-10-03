@@ -1,4 +1,4 @@
-use aeron_glide::{AeronClient, ControlledAction};
+use aeron_glide::{AeronClient, ControlledAction, OfferError};
 use std::thread;
 use std::time::Duration;
 
@@ -22,7 +22,7 @@ fn main() {
         sub.poll_assembled(10, |data, _| -> ControlledAction {
             let seq = u32::from_le_bytes(data[..4].try_into().unwrap());
 
-            if publ.offer(data).is_err() {
+            if !sent(publ.offer(data)) {
                 // Back-pressure: can't send right now, tell Aeron to retry
                 println!("  seq={}: back-pressure, aborting", seq);
                 return ControlledAction::Abort;
@@ -34,5 +34,15 @@ fn main() {
         .expect("poll failed");
 
         thread::sleep(Duration::from_millis(1));
+    }
+}
+
+/// `true` once offered, `false` to retry (back pressure, not connected yet, ...).
+/// Errors that retrying cannot fix (e.g. a message too long) end the example.
+fn sent(result: Result<i64, OfferError>) -> bool {
+    match result {
+        Ok(_) => true,
+        Err(e) if e.is_retryable() => false,
+        Err(e) => panic!("offer failed: {e}"),
     }
 }

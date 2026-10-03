@@ -12,7 +12,7 @@ documentation = "https://docs.rs/aeron-glide"
 readme = "README.md"
 keywords = ["aeron", "messaging", "ipc", "low-latency", "pub-sub"]
 categories = ["network-programming", "concurrency"]
-exclude = ["scripts/", "aeron-archive/", ".claude/", ".github/", "TODO.md"]
+exclude = ["scripts/", "aeron-archive/", ".claude/", ".github/"]
 
 [package.metadata.docs.rs]
 features = ["archive"]

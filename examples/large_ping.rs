@@ -1,4 +1,4 @@
-use aeron_glide::AeronClient;
+use aeron_glide::{AeronClient, OfferError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -37,7 +37,7 @@ fn main() {
             *byte = ((j + 4) % 256) as u8;
         }
 
-        while publ.offer(&msg).is_err() {
+        while !sent(publ.offer(&msg)) {
             thread::yield_now();
         }
         println!("Sent ping {} ({} bytes)", i, MESSAGE_SIZE);
@@ -61,4 +61,14 @@ fn main() {
     }
 
     println!("5 large ping-pongs completed in {:?}", start.elapsed());
+}
+
+/// `true` once offered, `false` to retry (back pressure, not connected yet, ...).
+/// Errors that retrying cannot fix (e.g. a message too long) end the example.
+fn sent(result: Result<i64, OfferError>) -> bool {
+    match result {
+        Ok(_) => true,
+        Err(e) if e.is_retryable() => false,
+        Err(e) => panic!("offer failed: {e}"),
+    }
 }

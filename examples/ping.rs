@@ -90,12 +90,12 @@ fn main() {
 
     for i in 0..10u32 {
         if args.zero_copy {
-            while publ.send_claimed(b"ping!").is_err() {
+            while !sent(publ.send_claimed(b"ping!")) {
                 thread::yield_now();
             }
         } else {
             let msg = b"ping!";
-            while publ.offer(msg).is_err() {
+            while !sent(publ.offer(msg)) {
                 thread::yield_now();
             }
         }
@@ -130,4 +130,14 @@ fn main() {
         })
         .expect("failed to read counters");
     println!("----------------------");
+}
+
+/// `true` once offered, `false` to retry (back pressure, not connected yet, ...).
+/// Errors that retrying cannot fix (e.g. a message too long) end the example.
+fn sent(result: Result<i64, OfferError>) -> bool {
+    match result {
+        Ok(_) => true,
+        Err(e) if e.is_retryable() => false,
+        Err(e) => panic!("offer failed: {e}"),
+    }
 }

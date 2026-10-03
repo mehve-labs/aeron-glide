@@ -1,4 +1,4 @@
-use aeron_glide::{AeronClient, ControlledAction};
+use aeron_glide::{AeronClient, ControlledAction, OfferError};
 use std::thread;
 use std::time::Duration;
 
@@ -31,12 +31,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Publish some messages from each publisher
     for i in 0..5 {
         let msg1 = format!("pub1: message #{}", i);
-        while pub1.offer(msg1.as_bytes()).is_err() {
+        while !sent(pub1.offer(msg1.as_bytes())) {
             thread::yield_now();
         }
 
         let msg2 = format!("pub2: message #{}", i);
-        while pub2.offer(msg2.as_bytes()).is_err() {
+        while !sent(pub2.offer(msg2.as_bytes())) {
             thread::yield_now();
         }
     }
@@ -85,11 +85,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Publish more messages for assembled poll demo
     for i in 5..10 {
         let msg1 = format!("pub1: message #{}", i);
-        while pub1.offer(msg1.as_bytes()).is_err() {
+        while !sent(pub1.offer(msg1.as_bytes())) {
             thread::yield_now();
         }
         let msg2 = format!("pub2: message #{}", i);
-        while pub2.offer(msg2.as_bytes()).is_err() {
+        while !sent(pub2.offer(msg2.as_bytes())) {
             thread::yield_now();
         }
     }
@@ -111,11 +111,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Flow Control: Break after 2 messages ===\n");
     for j in 10..15 {
         let msg1 = format!("pub1: extra #{}", j);
-        while pub1.offer(msg1.as_bytes()).is_err() {
+        while !sent(pub1.offer(msg1.as_bytes())) {
             thread::yield_now();
         }
         let msg2 = format!("pub2: extra #{}", j);
-        while pub2.offer(msg2.as_bytes()).is_err() {
+        while !sent(pub2.offer(msg2.as_bytes())) {
             thread::yield_now();
         }
     }
@@ -170,4 +170,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\nDone!");
     Ok(())
+}
+
+/// `true` once offered, `false` to retry (back pressure, not connected yet, ...).
+/// Errors that retrying cannot fix (e.g. a message too long) end the example.
+fn sent(result: Result<i64, OfferError>) -> bool {
+    match result {
+        Ok(_) => true,
+        Err(e) if e.is_retryable() => false,
+        Err(e) => panic!("offer failed: {e}"),
+    }
 }

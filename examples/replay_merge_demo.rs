@@ -1,5 +1,5 @@
-use aeron_glide::AeronClient;
 use aeron_glide::archive::{self, ReplayMerge, SourceLocation};
+use aeron_glide::{AeronClient, OfferError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -72,7 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let initial_count = 20;
     for i in 0..initial_count {
         let msg = format!("recorded-msg-{}", i);
-        while pub1.offer(msg.as_bytes()).is_err() {
+        while !sent(pub1.offer(msg.as_bytes())) {
             thread::yield_now();
         }
     }
@@ -184,7 +184,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // for the ATTEMPT_LIVE_JOIN -> MERGED transition.
         if !merge.is_merged() && merge.is_live_added() {
             let msg = format!("live-msg-{}", live_published);
-            if pub1.offer(msg.as_bytes()).is_ok() {
+            if sent(pub1.offer(msg.as_bytes())) {
                 live_published += 1;
             }
         }
@@ -234,4 +234,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nRecording stopped. Done!");
 
     Ok(())
+}
+
+/// `true` once offered, `false` to retry (back pressure, not connected yet, ...).
+/// Errors that retrying cannot fix (e.g. a message too long) end the example.
+fn sent(result: Result<i64, OfferError>) -> bool {
+    match result {
+        Ok(_) => true,
+        Err(e) if e.is_retryable() => false,
+        Err(e) => panic!("offer failed: {e}"),
+    }
 }

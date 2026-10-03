@@ -30,29 +30,35 @@ fn jar() -> Option<PathBuf> {
     }
     let version = std::env::var("AERON_VERSION").unwrap_or_else(|_| "1.53.3".to_string());
     let file = format!("out/aeron-{version}/aeron-all/build/libs/aeron-all-{version}.jar");
-    // This test binary is <target>/<profile>/deps/<name>: look in the build
-    // directory of its own profile first (it may be outside the repository, e.g.
-    // CARGO_TARGET_DIR), then in the other profiles.
+    // The jar is in the build script's output directory of the profile this
+    // test binary was built with (which may be outside the repository, e.g.
+    // CARGO_TARGET_DIR): build/<pkg>-<hash>/out, or build/<pkg>/<hash>/out in
+    // newer Cargo layouts, which also put test binaries under build/. Look in
+    // the build directories next to the binary's ancestors, nearest first (its
+    // own profile, then the other profiles).
     let exe = std::env::current_exe().ok()?;
-    let profile = exe.parent()?.parent()?;
-    let mut builds = vec![profile.join("build")];
-    if let Some(target) = profile.parent()
-        && let Ok(profiles) = std::fs::read_dir(target)
-    {
-        builds.extend(profiles.flatten().map(|p| p.path().join("build")));
+    let mut builds = Vec::new();
+    for dir in exe.ancestors().skip(1).take(5) {
+        builds.push(dir.join("build"));
+        if let Ok(profiles) = std::fs::read_dir(dir) {
+            builds.extend(profiles.flatten().map(|p| p.path().join("build")));
+        }
     }
     for build in builds {
         let Ok(entries) = std::fs::read_dir(&build) else {
             continue;
         };
         for entry in entries.flatten() {
-            let jar = entry.path().join(&file);
-            if jar.exists() {
+            let mut dirs = vec![entry.path()];
+            if let Ok(nested) = std::fs::read_dir(entry.path()) {
+                dirs.extend(nested.flatten().map(|n| n.path()));
+            }
+            if let Some(jar) = dirs.iter().map(|d| d.join(&file)).find(|j| j.exists()) {
                 return Some(jar);
             }
         }
     }
-    eprintln!("no {file} under {}", profile.display());
+    eprintln!("no {file} near {}", exe.display());
     None
 }
 

@@ -110,6 +110,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Examples no longer spin forever on offer errors that retrying cannot fix
+  (e.g. a message too long): they retry back pressure only.
 - Linux builds failed to link (static libraries were passed to the linker
   before the shim that uses them) and, on ARM, to compile (a C11 atomics header
   included from C++). `build.rs` now uses the target's OS, not the host's, for
@@ -363,6 +365,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CountersReader` constants: `RECORD_UNUSED`, `RECORD_ALLOCATED`,
   `RECORD_RECLAIMED`, `DEFAULT_REGISTRATION_ID`, `NOT_FREE_TO_REUSE`,
   `MAX_LABEL_LENGTH`, `MAX_KEY_LENGTH`.
+- `AERON_GLIDE_SANITIZER` (e.g. `address`) builds Aeron and the shims with
+  `-fsanitize`. CI runs the tests under AddressSanitizer, on Linux x86_64 and
+  arm64, macOS, the MSRV and (experimentally) Windows.
 
 ## [0.3.1] - 2026-10-03
 

@@ -1,4 +1,4 @@
-use aeron_glide::AeronClient;
+use aeron_glide::{AeronClient, OfferError};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -49,7 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut total_messages: u64 = 0;
 
         while running_pub.load(Ordering::Acquire) {
-            while publication.offer(&buffer).is_err() {
+            while !sent(publication.offer(&buffer)) {
                 back_pressure_count += 1;
                 if !running_pub.load(Ordering::Acquire) {
                     break;
@@ -93,4 +93,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     pub_thread.join().expect("Publisher thread panicked");
     Ok(())
+}
+
+/// `true` once offered, `false` to retry (back pressure, not connected yet, ...).
+/// Errors that retrying cannot fix (e.g. a message too long) end the example.
+fn sent(result: Result<i64, OfferError>) -> bool {
+    match result {
+        Ok(_) => true,
+        Err(e) if e.is_retryable() => false,
+        Err(e) => panic!("offer failed: {e}"),
+    }
 }

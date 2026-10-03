@@ -10,8 +10,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
-    name: Check & Lint
+  lint:
+    name: Lint & docs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,22 +22,60 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      - name: Install Dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake uuid-dev libbsd-dev
-      - name: Format check
+      - uses: lukka/get-cmake@latest # Aeron needs CMake 3.30+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y uuid-dev libbsd-dev
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
         run: cargo fmt --check
-      - name: Clippy
+      - name: Clippy (all features)
         run: cargo clippy --all-targets --all-features -- -D warnings
-      - name: Build
-        run: cargo build --all-features
-      - name: Test
-        run: cargo test --all-features
-      - name: Doc
+      - name: Clippy (client only)
+        run: cargo clippy --lib --no-default-features -- -D warnings
+      - name: Docs
         run: cargo doc --all-features --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - name: Docs as on docs.rs (no Aeron build)
+        run: cargo doc --all-features --no-deps
+        env:
+          DOCS_RS: 1
+          RUSTDOCFLAGS: -D warnings
+
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      # The archive tests run a Java ArchivingMediaDriver; never skip them in CI.
+      AERON_GLIDE_REQUIRE_ARCHIVE: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: lukka/get-cmake@latest
+      - name: Install dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y uuid-dev libbsd-dev
+      - uses: Swatinem/rust-cache@v2
+      - name: Test (all features)
+        run: cargo test --all-features
+      - name: Build (client only)
+        run: cargo build --no-default-features
+      - name: Build the mediadriver binary
+        run: cargo build --features bin --bin mediadriver
 
   msrv:
     name: MSRV (1.97)
     runs-on: ubuntu-latest
+    env:
+      AERON_GLIDE_REQUIRE_ARCHIVE: 1
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.97
@@ -45,10 +83,47 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      - name: Install Dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake uuid-dev libbsd-dev
-      - name: Build
-        run: cargo build --all-features
+      - uses: lukka/get-cmake@latest
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y uuid-dev libbsd-dev
+      - uses: Swatinem/rust-cache@v2
       - name: Test
         run: cargo test --all-features
 
+  asan:
+    name: AddressSanitizer
+    runs-on: ubuntu-latest
+    env:
+      AERON_GLIDE_REQUIRE_ARCHIVE: 1
+      RUSTFLAGS: -Zsanitizer=address
+      RUSTDOCFLAGS: -Zsanitizer=address
+      # Instruments Aeron and the shims only: CFLAGS would also reach build
+      # dependencies' C code (e.g. ring), whose build scripts aren't instrumented.
+      AERON_GLIDE_SANITIZER: address
+      # Aeron keeps some allocations (e.g. static counters) until exit.
+      ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: lukka/get-cmake@latest
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y uuid-dev libbsd-dev
+      - name: Test
+        run: cargo test --all-features --target x86_64-unknown-linux-gnu --tests
+
+  windows:
+    name: Windows (experimental)
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build (client and driver)
+        run: cargo build
+      - name: Test
+        run: cargo test

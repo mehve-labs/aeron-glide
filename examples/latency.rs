@@ -1,4 +1,4 @@
-use aeron_glide::AeronClient;
+use aeron_glide::{AeronClient, OfferError};
 use hdrhistogram::Histogram;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -99,9 +99,9 @@ fn run_pong(
                 claim.buffer_mut().copy_from_slice(data);
                 claim.commit()
             });
-            if result.is_err() {
+            if !sent(result) {
                 // Fallback to offer if claim fails
-                while ping_pub.offer(data).is_err() {}
+                while !sent(ping_pub.offer(data)) {}
             }
         })?;
     }
@@ -178,7 +178,7 @@ fn record_rtt(
     buffer[..8].copy_from_slice(&now.to_le_bytes());
 
     // Send
-    while publication.offer(buffer).is_err() {}
+    while !sent(publication.offer(buffer)) {}
 
     // Receive
     let mut received = false;
@@ -202,4 +202,14 @@ fn nanos() -> i64 {
     static EPOCH: OnceLock<Instant> = OnceLock::new();
     let epoch = EPOCH.get_or_init(Instant::now);
     epoch.elapsed().as_nanos() as i64
+}
+
+/// `true` once offered, `false` to retry (back pressure, not connected yet, ...).
+/// Errors that retrying cannot fix (e.g. a message too long) end the example.
+fn sent(result: Result<i64, OfferError>) -> bool {
+    match result {
+        Ok(_) => true,
+        Err(e) if e.is_retryable() => false,
+        Err(e) => panic!("offer failed: {e}"),
+    }
 }

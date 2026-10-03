@@ -69,7 +69,7 @@ fn main() {
             );
 
             // Re-offer the exact same message bytes back to the other stream
-            while publ.offer(data).is_err() {
+            while !sent(publ.offer(data)) {
                 // back pressure or unconnected
                 thread::yield_now();
             }
@@ -77,5 +77,15 @@ fn main() {
         .expect("poll failed");
 
         thread::sleep(Duration::from_millis(1));
+    }
+}
+
+/// `true` once offered, `false` to retry (back pressure, not connected yet, ...).
+/// Errors that retrying cannot fix (e.g. a message too long) end the example.
+fn sent(result: Result<i64, OfferError>) -> bool {
+    match result {
+        Ok(_) => true,
+        Err(e) if e.is_retryable() => false,
+        Err(e) => panic!("offer failed: {e}"),
     }
 }

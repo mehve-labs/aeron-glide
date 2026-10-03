@@ -1,5 +1,5 @@
-use aeron_glide::AeronClient;
 use aeron_glide::archive::{self, SourceLocation};
+use aeron_glide::{AeronClient, OfferError};
 use std::thread;
 use std::time::Duration;
 
@@ -47,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Publishing {} messages...", MESSAGE_COUNT);
     for i in 0..MESSAGE_COUNT {
         let msg = format!("Hello Archive! Message #{}", i);
-        while publ.offer(msg.as_bytes()).is_err() {
+        while !sent(publ.offer(msg.as_bytes())) {
             thread::yield_now();
         }
         println!("  Sent: {}", msg);
@@ -77,4 +77,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\nDone. Run the replay binary to replay these messages.");
     Ok(())
+}
+
+/// `true` once offered, `false` to retry (back pressure, not connected yet, ...).
+/// Errors that retrying cannot fix (e.g. a message too long) end the example.
+fn sent(result: Result<i64, OfferError>) -> bool {
+    match result {
+        Ok(_) => true,
+        Err(e) if e.is_retryable() => false,
+        Err(e) => panic!("offer failed: {e}"),
+    }
 }
