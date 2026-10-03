@@ -86,6 +86,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `is_closed`, `max_possible_position`, `position`, `publication_limit`,
   `publication_limit_id`, `available_window`, `channel_status` (new
   `ChannelStatus` enum), `channel_status_id`, `local_socket_addresses`.
+- `ExclusivePublication::revoke` (consumes the publication) and
+  `revoke_on_close`: end the stream for subscribers without lingering.
 - Every scalar media driver setting is available on `MediaDriverBuilder`
   (96 setters, e.g. `publication_linger_timeout_ns`, `sender_wildcard_port_range`,
   `receiver_group_tag`) with the matching getters on a started `MediaDriver`

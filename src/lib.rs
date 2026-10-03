@@ -208,6 +208,8 @@ pub mod ffi {
         fn channelStatusId(self: &ExclusivePublicationWrapper) -> i32;
         fn channelStatus(self: &ExclusivePublicationWrapper) -> Result<i64>;
         fn localSocketAddresses(self: &ExclusivePublicationWrapper) -> Result<Vec<String>>;
+        fn revoke(self: &ExclusivePublicationWrapper) -> Result<()>;
+        fn revokeOnClose(self: &ExclusivePublicationWrapper);
 
         fn poll(
             self: Pin<&mut SubscriptionWrapper>,

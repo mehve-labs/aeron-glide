@@ -237,6 +237,19 @@ impl ExclusivePublication {
         error::offer_result(cb.finish(result)?)
     }
 
+    /// Revoke and close the publication now: subscribers see the stream end
+    /// immediately, without the usual linger, and their images report
+    /// `is_publication_revoked`.
+    pub fn revoke(self) -> Result<()> {
+        Ok(self.inner.revoke()?)
+    }
+
+    /// Revoke the publication when it is closed (dropped) instead of letting it
+    /// linger, as [`revoke`](Self::revoke) does immediately.
+    pub fn revoke_on_close(&mut self) {
+        self.inner.revokeOnClose();
+    }
+
     publication_accessors!();
 }
 

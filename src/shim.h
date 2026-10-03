@@ -207,6 +207,11 @@ public:
     int64_t availableWindow() const { return pub->availableWindow(); }
     int32_t channelStatusId() const { return pub->channelStatusId(); }
     int64_t channelStatus() const { return pub->channelStatus(); }
+    // Exclusive publications only. revoke() frees the C publication; the Rust side
+    // consumes the publication so nothing can be called on it afterwards.
+    void revoke() const { pub->revoke(); }
+    void revokeOnClose() const { pub->revokeOnClose(); }
+
     rust::Vec<rust::String> localSocketAddresses() const {
         rust::Vec<rust::String> addresses;
         for (const auto &address : pub->localSocketAddresses()) {

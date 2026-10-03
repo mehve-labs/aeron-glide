@@ -81,3 +81,36 @@ fn udp_channel_status_and_local_address() {
     assert_eq!(addresses.len(), 1, "{addresses:?}");
     assert!(addresses[0].contains(':'), "{addresses:?}");
 }
+
+#[test]
+fn revoke_ends_the_stream_for_subscribers() {
+    let driver = TestDriver::start();
+    let client = driver.client();
+    let mut publication = client.add_exclusive_publication("aeron:ipc", 10).unwrap();
+    let sub = client.add_subscription("aeron:ipc", 10).unwrap();
+    wait_connected(&sub);
+    while let Err(e) = publication.offer(b"before") {
+        assert!(e.is_retryable(), "{e}");
+    }
+
+    // A normal close would wait for the subscriber to drain the unread message.
+    publication.revoke().unwrap();
+    wait_until("the image to go away", || sub.image_count() == 0);
+}
+
+#[test]
+fn revoke_on_close_ends_the_stream_when_dropped() {
+    let driver = TestDriver::start();
+    let client = driver.client();
+    let mut publication = client.add_exclusive_publication("aeron:ipc", 11).unwrap();
+    let sub = client.add_subscription("aeron:ipc", 11).unwrap();
+    wait_connected(&sub);
+
+    while let Err(e) = publication.offer(b"unread") {
+        assert!(e.is_retryable(), "{e}");
+    }
+    // A normal close would wait for the subscriber to drain the unread message.
+    publication.revoke_on_close();
+    drop(publication);
+    wait_until("the image to go away", || sub.image_count() == 0);
+}
