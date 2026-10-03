@@ -1,5 +1,6 @@
 mod common;
 
+use aeron_glide::ControlledAction;
 use common::{TestDriver, offer, poll_n, wait_connected, wait_until};
 
 #[test]
@@ -78,4 +79,51 @@ fn counters_reject_out_of_range_ids() {
         assert!(counters.get_counter_type_id(bad).is_err());
         assert!(counters.get_counter_label(bad).is_err());
     }
+}
+
+#[test]
+fn controlled_actions_break_and_abort() {
+    let driver = TestDriver::start();
+    let client = driver.client();
+    let publication = client.add_publication("aeron:ipc", 1).unwrap();
+    let mut sub = client.add_subscription("aeron:ipc", 1).unwrap();
+    wait_connected(&sub);
+    for message in [b"one", b"two", b"six"] {
+        offer(&publication, message);
+    }
+    let published = publication.position().unwrap();
+    wait_until("all three to be readable", || {
+        sub.image_by_index(0)
+            .is_some_and(|image| image.position().unwrap() == 0)
+            && publication.position().unwrap() == published
+    });
+
+    // Break: deliver one fragment, consume it, stop.
+    let mut seen = Vec::new();
+    wait_until("the first fragment", || {
+        sub.poll_assembled(10, |data: &[u8], _: &aeron_glide::Header| {
+            seen.push(data.to_vec());
+            ControlledAction::Break
+        })
+        .unwrap();
+        !seen.is_empty()
+    });
+    assert_eq!(seen, [b"one".to_vec()]);
+
+    // Abort: the fragment is not consumed and is delivered again.
+    let mut aborted = Vec::new();
+    sub.poll_assembled(10, |data: &[u8], _: &aeron_glide::Header| {
+        aborted.push(data.to_vec());
+        ControlledAction::Abort
+    })
+    .unwrap();
+    assert_eq!(aborted, [b"two".to_vec()]);
+    wait_until("the remaining two", || {
+        sub.poll_assembled(10, |data: &[u8], _: &aeron_glide::Header| {
+            seen.push(data.to_vec())
+        })
+        .unwrap();
+        seen.len() == 3
+    });
+    assert_eq!(seen, [b"one".to_vec(), b"two".to_vec(), b"six".to_vec()]);
 }

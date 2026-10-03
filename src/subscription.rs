@@ -3,18 +3,18 @@
 use super::*;
 
 /// Flow-control actions for `poll_assembled` when the handler returns a `ControlledAction`.
-/// Matches Aeron's `ControlledPollAction` enum values.
+/// The values are Aeron's `ControlledPollAction` (`AERON_ACTION_*`, 1 to 4).
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlledAction {
     /// Abort polling — rewind position, re-deliver this fragment next poll.
-    Abort = 0,
+    Abort = 1,
     /// Stop polling this image, commit position up to this fragment.
-    Break = 1,
+    Break = 2,
     /// Checkpoint position for flow control, continue polling.
-    Commit = 2,
+    Commit = 3,
     /// Continue processing (default behavior).
-    Continue = 3,
+    Continue = 4,
 }
 
 /// Trait that allows `poll_assembled` to accept handlers returning either `()` or `ControlledAction`.

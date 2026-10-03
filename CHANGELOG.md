@@ -71,6 +71,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `ControlledAction` used the wrong values (0–3 instead of Aeron's 1–4), so
+  every action returned from a `poll_assembled` handler did the next one's job:
+  `Abort` continued, `Break` aborted, `Commit` broke off and `Continue`
+  committed. A panicking assembled handler therefore did not abort its fragment
+  either.
 - Neither the client nor the archive client calls `exit()` on asynchronous
   errors such as a media driver timeout or shutdown any more (the default Aeron
   error handlers did). Errors go to `Context::error_handler`, or are printed to
