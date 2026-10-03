@@ -75,6 +75,10 @@ name = "latency"
 path = "examples/latency.rs"
 
 [[example]]
+name = "response_channel"
+path = "examples/response_channel.rs"
+
+[[example]]
 name = "record"
 path = "examples/record.rs"
 required-features = ["archive"]

@@ -235,6 +235,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `scheme`, `get`, `put`, `remove`, `contains_key`, `params`,
   `has_control_mode_response`, `Display`, and `add_session_id` /
   `add_alias_if_absent`. Parameters keep their order.
+- Response channels (`control-mode=response`) are documented in the `channel`
+  module, with the `response_channel` example and an end-to-end test.
 - The `channel` module with the C++ URI parameter name constants
   (`ENDPOINT_PARAM_NAME`, ...).
 - `Debug` for every public type (clients, publications, subscriptions, images,
