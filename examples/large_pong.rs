@@ -1,3 +1,17 @@
+//! The pong side of `large_ping`: reassembles each fragmented ping on
+//! `aeron:ipc` (stream 20) with `poll_assembled` and echoes it on stream 21.
+//! The handler returns a `ControlledAction` (Aeron's controlled poll): when
+//! the echo is back-pressured it returns `Abort`, so the same message is
+//! delivered again on the next poll. Runs until Ctrl-C.
+//!
+//! Needs a running media driver; start this before `large_ping`:
+//!
+//! ```text
+//! cargo run --features bin --bin mediadriver
+//! cargo run --example large_pong
+//! cargo run --example large_ping
+//! ```
+
 use aeron_glide::{AeronClient, ControlledAction, OfferError};
 use std::thread;
 use std::time::Duration;

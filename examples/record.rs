@@ -1,3 +1,17 @@
+//! Record a stream with Aeron Archive, in the spirit of Aeron's
+//! `RecordedBasicPublisher.java`: starts a local recording of `aeron:ipc`
+//! stream 1001, publishes ten messages on it, stops the recording and lists
+//! the archive's recordings. `replay` then plays the last one back.
+//!
+//! Needs the archive server (an `ArchivingMediaDriver` on the default Aeron
+//! directory, control channel `localhost:8010`):
+//!
+//! ```text
+//! ./scripts/start-archive.sh
+//! cargo run --features archive --example record
+//! cargo run --features archive --example replay
+//! ```
+
 use aeron_glide::archive::{self, SourceLocation};
 use aeron_glide::{AeronClient, OfferError};
 use std::thread;
@@ -75,7 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     })?;
 
-    println!("\nDone. Run the replay binary to replay these messages.");
+    println!("\nDone. Replay them with: cargo run --features archive --example replay");
     Ok(())
 }
 

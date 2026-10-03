@@ -64,7 +64,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let messages = AtomicU64::new(0);
     thread::scope(|scope| {
         // Subscriber: count every message.
+        // Each thread clears `running` when it ends, even by panicking, to stop the others.
         scope.spawn(|| {
+            let _stop = StopOnDrop(&running);
             let mut idle = BusySpinIdleStrategy;
             while running.load(Ordering::Acquire) {
                 let fragments = subscription
@@ -78,6 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Publisher: send flat out, counting the offers that had to be retried.
         scope.spawn(|| {
+            let _stop = StopOnDrop(&running);
             let message = vec![0u8; args.length];
             let (mut sent_count, mut back_pressure) = (0u64, 0u64);
             'publish: while running.load(Ordering::Acquire) {
@@ -107,6 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
         // Rate reporter.
+        let _stop = StopOnDrop(&running);
         let deadline = Instant::now() + Duration::from_secs(args.seconds);
         let (mut last, mut last_time) = (0, Instant::now());
         while running.load(Ordering::Acquire) && Instant::now() < deadline {
@@ -122,9 +126,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             (last, last_time) = (total, now);
         }
-        running.store(false, Ordering::Release);
     });
     Ok(())
+}
+
+/// Clears the shared `running` flag when dropped, so a thread that ends or
+/// panics stops the others instead of leaving them spinning (and
+/// `thread::scope` waiting for them forever).
+struct StopOnDrop<'a>(&'a AtomicBool);
+
+impl Drop for StopOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 /// `true` once offered, `false` to retry (back pressure, not connected yet, ...).

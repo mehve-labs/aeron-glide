@@ -1,3 +1,17 @@
+//! IPC throughput of an exclusive publication against a separate media driver
+//! (the counterpart of rusteron's `embedded_exclusive_ipc_throughput`; see
+//! `embedded_exclusive_ipc_throughput` for the version with an embedded
+//! driver, after Aeron's `EmbeddedExclusiveIpcThroughput.java`). A publisher
+//! thread sends 32-byte messages flat out on `aeron:ipc`, the main thread
+//! counts them and prints the rate about once a second, until Ctrl-C.
+//!
+//! Needs a running media driver:
+//!
+//! ```text
+//! cargo run --features bin --bin mediadriver
+//! cargo run --release --example throughput
+//! ```
+
 use aeron_glide::{AeronClient, OfferError};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -8,10 +22,6 @@ const STREAM_ID: i32 = 1001;
 const MESSAGE_LENGTH: usize = 32;
 const BURST_LENGTH: u64 = 1_000_000;
 
-/// IPC exclusive-publication throughput test.
-/// Equivalent to rusteron's embedded_exclusive_ipc_throughput example.
-///
-/// Requires a running media driver: cargo run --bin mediadriver
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let channel = "aeron:ipc";
 
@@ -29,6 +39,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let running_pub = Arc::clone(&running);
     let pub_channel = channel.to_string();
     let pub_thread = thread::spawn(move || {
+        // Stops the subscriber loop if the publisher ends early or panics.
+        let _stop = StopOnDrop(&running_pub);
         let client = AeronClient::new().expect("Failed to create publisher client");
         let mut publication = client
             .add_exclusive_publication(&pub_channel, STREAM_ID)
@@ -93,6 +105,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     pub_thread.join().expect("Publisher thread panicked");
     Ok(())
+}
+
+/// Clears the shared `running` flag when dropped, so the publisher thread
+/// ending (by an error or a panic) stops the subscriber loop.
+struct StopOnDrop<'a>(&'a AtomicBool);
+
+impl Drop for StopOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 /// `true` once offered, `false` to retry (back pressure, not connected yet, ...).

@@ -1,3 +1,16 @@
+//! The ping side of a ping-pong with messages larger than the MTU: sends five
+//! 8 KiB messages on `aeron:ipc` (stream 20), which Aeron fragments, and
+//! checks that each echo from `large_pong` (stream 21) comes back whole,
+//! reassembled by `poll_assembled` (Aeron's `FragmentAssembler`).
+//!
+//! Needs a running media driver and `large_pong`, started first:
+//!
+//! ```text
+//! cargo run --features bin --bin mediadriver
+//! cargo run --example large_pong
+//! cargo run --example large_ping
+//! ```
+
 use aeron_glide::{AeronClient, OfferError};
 use std::thread;
 use std::time::{Duration, Instant};

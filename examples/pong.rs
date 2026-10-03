@@ -1,3 +1,18 @@
+//! The pong side of a two-process ping-pong, in the spirit of Aeron's
+//! `Pong.java`: echoes every message received on stream 10 back on stream 11,
+//! until Ctrl-C. The channel defaults to `aeron:ipc`.
+//!
+//! Needs a running media driver (neither `ping` nor `pong` embeds one):
+//!
+//! ```text
+//! cargo run --features bin --bin mediadriver
+//! cargo run --example pong
+//! cargo run --example ping
+//! ```
+//!
+//! Options: `--channel` (must match `ping`'s) and `--exclusive` (an exclusive
+//! publication).
+
 use aeron_glide::{AeronClient, ExclusivePublication, OfferError, Publication};
 use clap::Parser;
 use std::thread;
@@ -37,7 +52,7 @@ fn main() {
     let args = Args::parse();
 
     println!("Starting Aeron Client (channel: {})...", args.channel);
-    // The Media Driver should already be running from the ping process
+    // Needs a media driver running separately (e.g. the `mediadriver` binary).
     let client = AeronClient::new().expect("Failed to start Aeron");
 
     let mut sub = client

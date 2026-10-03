@@ -1,3 +1,18 @@
+//! UDP ping-pong round-trip latency with an HDR histogram, against a separate
+//! media driver (the counterpart of rusteron's `embedded_ping_pong`; see
+//! `embedded_ping_pong` for the version with an embedded driver, after Aeron's
+//! `EmbeddedPingPong.java`). A pong thread echoes each 32-byte ping back on its
+//! own client; the main thread sends 100,000 warm-up pings, then measures
+//! 1,000,000 round trips and prints the percentiles.
+//!
+//! Uses UDP ports 20123 and 20124 (`embedded_ping_pong` uses 20125/20126, so
+//! both can run at the same time). Needs a running media driver:
+//!
+//! ```text
+//! cargo run --features bin --bin mediadriver
+//! cargo run --release --example latency
+//! ```
+
 use aeron_glide::{AeronClient, OfferError};
 use hdrhistogram::Histogram;
 use std::sync::Arc;
@@ -12,10 +27,6 @@ const NUMBER_OF_MESSAGES: usize = 1_000_000;
 const MESSAGE_LENGTH: usize = 32;
 const FRAGMENT_COUNT_LIMIT: i32 = 10;
 
-/// UDP ping-pong latency test with HDR histogram.
-/// Equivalent to rusteron's embedded_ping_pong example.
-///
-/// Requires a running media driver: cargo run --bin mediadriver
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let channel = "aeron:udp?endpoint=localhost:20123";
     let pong_channel = "aeron:udp?endpoint=localhost:20124";
@@ -35,6 +46,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pong_ch = pong_channel.to_string();
     let ping_ch = channel.to_string();
     let pong_thread = thread::spawn(move || {
+        // Stops the ping side if pong fails or panics, instead of leaving it
+        // waiting for an echo forever.
+        let _stop = StopOnDrop(&running_pong);
         run_pong(&running_pong, &ping_ch, &pong_ch).expect("Pong failed");
     });
 
@@ -42,10 +56,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     thread::sleep(Duration::from_millis(500));
 
     // --- Ping (main thread) ---
-    let hist = run_ping(&running, channel, pong_channel)?;
-
+    let hist = run_ping(&running, channel, pong_channel);
     running.store(false, Ordering::SeqCst);
     pong_thread.join().expect("Pong thread panicked");
+    let hist = hist?;
 
     // --- Results ---
     println!("\nmessage length {} bytes\n", MESSAGE_LENGTH);
@@ -101,7 +115,7 @@ fn run_pong(
             });
             if !sent(result) {
                 // Fallback to offer if claim fails
-                while !sent(ping_pub.offer(data)) {}
+                while !sent(ping_pub.offer(data)) && running.load(Ordering::Acquire) {}
             }
         })?;
     }
@@ -136,9 +150,14 @@ fn run_ping(
     // Warmup
     print!("Warming up ({} messages)... ", WARMUP_MESSAGES);
     for _ in 0..WARMUP_MESSAGES {
-        record_rtt(&mut pong_pub, &mut ping_sub, &mut buffer, &mut histogram);
-        if !running.load(Ordering::Acquire) {
-            return Ok(histogram);
+        if !record_rtt(
+            running,
+            &mut pong_pub,
+            &mut ping_sub,
+            &mut buffer,
+            &mut histogram,
+        ) {
+            return Err("pong stopped".into());
         }
     }
     println!("done");
@@ -148,9 +167,14 @@ fn run_ping(
     print!("Measuring ({} messages)... ", NUMBER_OF_MESSAGES);
     let start = Instant::now();
     for i in 0..NUMBER_OF_MESSAGES {
-        record_rtt(&mut pong_pub, &mut ping_sub, &mut buffer, &mut histogram);
-        if !running.load(Ordering::Acquire) {
-            break;
+        if !record_rtt(
+            running,
+            &mut pong_pub,
+            &mut ping_sub,
+            &mut buffer,
+            &mut histogram,
+        ) {
+            return Err("pong stopped".into());
         }
         if i > 0 && i % 1_000_000 == 0 {
             print!("{}M ", i / 1_000_000);
@@ -166,23 +190,32 @@ fn run_ping(
     Ok(histogram)
 }
 
+/// One round trip; `false` if pong stopped before echoing it.
 #[inline]
 fn record_rtt(
+    running: &AtomicBool,
     publication: &mut aeron_glide::Publication,
     subscription: &mut aeron_glide::Subscription,
     buffer: &mut [u8],
     histogram: &mut Histogram<u64>,
-) {
+) -> bool {
     // Write current timestamp (nanos) into the first 8 bytes
     let now = nanos();
     buffer[..8].copy_from_slice(&now.to_le_bytes());
 
     // Send
-    while !sent(publication.offer(buffer)) {}
+    while !sent(publication.offer(buffer)) {
+        if !running.load(Ordering::Acquire) {
+            return false;
+        }
+    }
 
     // Receive
     let mut received = false;
     while !received {
+        if !running.load(Ordering::Acquire) {
+            return false;
+        }
         subscription
             .poll(FRAGMENT_COUNT_LIMIT, |data, _| {
                 let sent_time = i64::from_le_bytes(data[..8].try_into().unwrap());
@@ -194,6 +227,7 @@ fn record_rtt(
             })
             .expect("poll failed");
     }
+    true
 }
 
 // Epoch anchored at process start — gives stable nanosecond timestamps for RTT.
@@ -202,6 +236,16 @@ fn nanos() -> i64 {
     static EPOCH: OnceLock<Instant> = OnceLock::new();
     let epoch = EPOCH.get_or_init(Instant::now);
     epoch.elapsed().as_nanos() as i64
+}
+
+/// Clears the shared `running` flag when dropped, so the pong thread ending
+/// (by an error or a panic) stops the ping side.
+struct StopOnDrop<'a>(&'a AtomicBool);
+
+impl Drop for StopOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 /// `true` once offered, `false` to retry (back pressure, not connected yet, ...).

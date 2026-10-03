@@ -9,9 +9,9 @@
 //!    handler, or are polled with `poll_for_error_response`;
 //! 4. once the Aeron client is closed (here: a client in agent invoker mode
 //!    whose conductor was not run within the driver's client liveness timeout,
-//!    10 s by default), archive requests fail at once instead of hanging:
-//!    adding resources or connecting with `IllegalState`, control requests
-//!    with the archive's failure to send them.
+//!    10 s by default), every archive request on it (control requests, adding
+//!    resources, connecting) fails at once instead of hanging, with
+//!    `ErrorKind::IllegalState` ("the Aeron client is closed").
 //!
 //! Needs the archive server (an `ArchivingMediaDriver` on the default Aeron
 //! directory, control channel `localhost:8010`; set `AERON_DIR` and

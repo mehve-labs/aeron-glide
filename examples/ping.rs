@@ -1,3 +1,20 @@
+//! The ping side of a two-process ping-pong, in the spirit of Aeron's
+//! `Ping.java`: sends ten "ping!" messages on stream 10 and waits for each
+//! echo from `pong` on stream 11, then prints the client's non-zero counters.
+//! The channel defaults to `aeron:ipc`.
+//!
+//! Needs a running media driver and `pong`:
+//!
+//! ```text
+//! cargo run --features bin --bin mediadriver
+//! cargo run --example pong
+//! cargo run --example ping
+//! ```
+//!
+//! Options: `--channel` (e.g. `aeron:udp?endpoint=localhost:20121`, the same
+//! for both sides), `--exclusive` (an exclusive publication) and `--zero-copy`
+//! (publish with `try_claim`).
+
 use aeron_glide::{AeronClient, ExclusivePublication, OfferError, Publication};
 use clap::Parser;
 use std::thread;

@@ -1,3 +1,18 @@
+//! Replay a recording with Aeron Archive, in the spirit of Aeron's
+//! `ReplayedBasicSubscriber.java`: lists the archive's recordings, replays
+//! the last one onto `aeron:ipc` stream 1002 and prints the replayed
+//! messages (reassembled), stopping once the replay has gone quiet for a
+//! second. Run `record` first to have something to replay.
+//!
+//! Needs the archive server (an `ArchivingMediaDriver` on the default Aeron
+//! directory, control channel `localhost:8010`):
+//!
+//! ```text
+//! ./scripts/start-archive.sh
+//! cargo run --features archive --example record
+//! cargo run --features archive --example replay
+//! ```
+
 use aeron_glide::AeronClient;
 use aeron_glide::archive::{self, ReplayParams};
 use std::thread;

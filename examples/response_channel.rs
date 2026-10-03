@@ -11,7 +11,7 @@ use aeron_glide::{
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-// Fixed ports for the example (the ping/pong examples use 20121).
+// Fixed ports for the example (basic_publisher/basic_subscriber use 20121).
 const REQUEST_ENDPOINT: &str = "localhost:20131";
 const RESPONSE_CONTROL: &str = "localhost:20132";
 const REQUEST_STREAM: i32 = 1001;

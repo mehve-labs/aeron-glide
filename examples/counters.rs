@@ -1,3 +1,15 @@
+//! List every counter of a running media driver (ID, type ID, label and
+//! value) through a connected client's counters reader, a minimal take on
+//! Aeron's `AeronStat.java`. See `driver_stats` for the fuller tool (error log
+//! and loss report too, without connecting a client).
+//!
+//! Needs a running media driver:
+//!
+//! ```text
+//! cargo run --features bin --bin mediadriver
+//! cargo run --example counters
+//! ```
+
 use aeron_glide::AeronClient;
 use std::thread;
 use std::time::Duration;

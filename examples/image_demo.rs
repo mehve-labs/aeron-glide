@@ -1,3 +1,16 @@
+//! The `Image` API: two exclusive publications on one IPC stream give the
+//! subscription one image each (one per session); the example then shows
+//! each image's metadata and position, polls each image on its own (raw,
+//! reassembled, and with `ControlledAction::Break` to stop early) and looks
+//! an image up by session ID. Not modelled on a specific Aeron sample.
+//!
+//! Needs a running media driver:
+//!
+//! ```text
+//! cargo run --features bin --bin mediadriver
+//! cargo run --example image_demo
+//! ```
+
 use aeron_glide::{AeronClient, ControlledAction, OfferError};
 use std::thread;
 use std::time::Duration;

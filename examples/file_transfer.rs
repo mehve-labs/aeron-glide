@@ -16,6 +16,7 @@
 use aeron_glide::{AeronClient, Context, MediaDriver, OfferError, ThreadingMode};
 use clap::Parser;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -58,15 +59,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut subscription = client.add_subscription(CHANNEL, STREAM_ID)?;
     let mut publication = client.add_exclusive_publication(CHANNEL, STREAM_ID)?;
     let start = Instant::now();
+    // Cleared if either side fails, so the other one stops instead of spinning.
+    let running = AtomicBool::new(true);
 
     let received = thread::scope(|scope| {
         // Sender: announce the file, then stream it in claimed chunks.
         scope.spawn(|| {
+            let stop = StopOnDrop(&running);
             let correlation_id = client.next_correlation_id();
             let mut create = header(FILE_CREATE, correlation_id);
             create.extend_from_slice(&(content.len() as u64).to_le_bytes());
             create.extend_from_slice(name.as_bytes());
             while !sent(publication.offer(&create)) {
+                if !running.load(Ordering::Acquire) {
+                    return; // the receiver failed
+                }
                 thread::yield_now();
             }
             let max_chunk = publication.max_payload_length() - CHUNK_PAYLOAD_OFFSET;
@@ -75,6 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut claim = loop {
                     match publication.try_claim(length) {
                         Ok(claim) => break claim,
+                        Err(_) if !running.load(Ordering::Acquire) => return,
                         Err(e) if e.is_retryable() => thread::yield_now(),
                         Err(e) => panic!("try_claim failed: {e}"),
                     }
@@ -90,13 +98,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "Sent {name}: {} bytes in {max_chunk}-byte chunks",
                 content.len()
             );
+            // Done: the receiver goes on until it has every chunk.
+            std::mem::forget(stop);
         });
 
         // Receiver: rebuild the file until every byte has arrived.
+        let _stop = StopOnDrop(&running);
         let mut file: Option<(String, Vec<u8>)> = None;
         let mut remaining = usize::MAX;
         let deadline = Instant::now() + Duration::from_secs(30);
         while remaining > 0 {
+            if !running.load(Ordering::Acquire) {
+                return Err("the sender failed".into());
+            }
             assert!(Instant::now() < deadline, "timed out receiving the file");
             let fragments = subscription.poll(10, |data, _| {
                 let u32_at = |at: usize| u32::from_le_bytes(data[at..at + 4].try_into().unwrap());
@@ -127,7 +141,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 thread::yield_now();
             }
         }
-        Ok::<_, aeron_glide::Error>(file.expect("the file"))
+        Ok::<_, Box<dyn std::error::Error>>(file.expect("the file"))
     })?;
 
     let (received_name, copy) = received;
@@ -149,6 +163,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!("The received copy matches the original.");
     Ok(())
+}
+
+/// Clears the shared `running` flag when dropped, so a side that fails or
+/// panics stops the other one instead of leaving it spinning (and
+/// `thread::scope` waiting for it forever).
+struct StopOnDrop<'a>(&'a AtomicBool);
+
+impl Drop for StopOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 /// The version, message type and correlation ID that start every message.

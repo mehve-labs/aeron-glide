@@ -1,3 +1,19 @@
+//! Catch up from a recording, then switch to the live stream, with
+//! `ReplayMerge` (set up as in Aeron's `ReplayMergeTest`): records an MDC
+//! publication (`control-mode=dynamic`), then a manual-control-mode
+//! subscription replays the recording and joins the live stream once it has
+//! caught up, printing the state transitions (live destination added,
+//! merged) and the messages it receives on the way.
+//!
+//! Uses UDP ports 24325 (MDC control) and 24327 (live data). Needs the
+//! archive server (an `ArchivingMediaDriver` on the default Aeron directory,
+//! control channel `localhost:8010`), not a plain media driver:
+//!
+//! ```text
+//! ./scripts/start-archive.sh
+//! cargo run --features archive --example replay_merge_demo
+//! ```
+
 use aeron_glide::archive::{self, ReplayMerge, SourceLocation};
 use aeron_glide::{AeronClient, OfferError};
 use std::thread;

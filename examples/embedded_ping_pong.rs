@@ -1,13 +1,16 @@
 //! Round-trip latency with an embedded media driver, like Aeron's
 //! `EmbeddedPingPong.java`: a pong thread echoes every ping back, the main
 //! thread sends pings stamped with the send time, waits for each echo and
-//! records the round trip in a histogram. A warm-up run comes first.
+//! records the round trip in a histogram. A warm-up run comes first. Both
+//! sides poll with fragment reassembly, so `--length` may exceed the MTU.
 //!
-//! Self-contained (no separate media driver):
+//! Self-contained (no separate media driver). Uses UDP ports 20125 and 20126
+//! (not `latency`'s 20123/20124, so both can run at the same time):
 //!
 //! ```text
 //! cargo run --release --example embedded_ping_pong
 //! cargo run --release --example embedded_ping_pong -- --messages 10000 --warmup 1000
+//! cargo run --release --example embedded_ping_pong -- --length 4000
 //! ```
 
 use aeron_glide::concurrent::{BusySpinIdleStrategy, IdleStrategy};
@@ -18,8 +21,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const PING_CHANNEL: &str = "aeron:udp?endpoint=localhost:20123";
-const PONG_CHANNEL: &str = "aeron:udp?endpoint=localhost:20124";
+const PING_CHANNEL: &str = "aeron:udp?endpoint=localhost:20125";
+const PONG_CHANNEL: &str = "aeron:udp?endpoint=localhost:20126";
 const PING_STREAM_ID: i32 = 1002;
 const PONG_STREAM_ID: i32 = 1003;
 const FRAGMENT_COUNT_LIMIT: i32 = 10;
@@ -56,14 +59,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let running = AtomicBool::new(true);
     thread::scope(|scope| -> Result<(), Box<dyn std::error::Error>> {
-        scope.spawn(|| pong(&client, &running));
-        let result = ping(&client, &args);
-        running.store(false, Ordering::Release);
-        result
+        // Each side stops the other when it ends, including by panicking.
+        scope.spawn(|| {
+            let _stop = StopOnDrop(&running);
+            pong(&client, &running)
+        });
+        let _stop = StopOnDrop(&running);
+        ping(&client, &args, &running)
     })
 }
 
-/// Echo each ping back on the pong stream until `running` is cleared.
+/// Clears the shared `running` flag when dropped, so a thread that ends,
+/// returns an error or panics stops the others instead of leaving them
+/// spinning (and `thread::scope` waiting for them forever).
+struct StopOnDrop<'a>(&'a AtomicBool);
+
+impl Drop for StopOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
+/// Echo each (reassembled) ping back on the pong stream until `running` is cleared.
 fn pong(client: &AeronClient, running: &AtomicBool) {
     let mut pings = client
         .add_subscription(PING_CHANNEL, PING_STREAM_ID)
@@ -74,8 +91,8 @@ fn pong(client: &AeronClient, running: &AtomicBool) {
     let mut idle = BusySpinIdleStrategy;
     while running.load(Ordering::Acquire) {
         let fragments = pings
-            .poll(FRAGMENT_COUNT_LIMIT, |data, _| {
-                while !sent(pongs.offer(data)) {
+            .poll_assembled(FRAGMENT_COUNT_LIMIT, |data, _| {
+                while !sent(pongs.offer(data)) && running.load(Ordering::Acquire) {
                     std::hint::spin_loop();
                 }
             })
@@ -84,7 +101,11 @@ fn pong(client: &AeronClient, running: &AtomicBool) {
     }
 }
 
-fn ping(client: &AeronClient, args: &Args) -> Result<(), Box<dyn std::error::Error>> {
+fn ping(
+    client: &AeronClient,
+    args: &Args,
+    running: &AtomicBool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut pings = client.add_exclusive_publication(PING_CHANNEL, PING_STREAM_ID)?;
     let mut pongs = client.add_subscription(PONG_CHANNEL, PONG_STREAM_ID)?;
     println!("Waiting for new image from Pong...");
@@ -104,15 +125,18 @@ fn ping(client: &AeronClient, args: &Args) -> Result<(), Box<dyn std::error::Err
             let sent_at = epoch.elapsed().as_nanos() as u64;
             message[..8].copy_from_slice(&sent_at.to_le_bytes());
             while !sent(pings.offer(&message)) {
+                stop_if_pong_stopped(running)?;
                 std::hint::spin_loop();
             }
-            // Busy-poll until the echo is back.
-            let mut echoed = 0;
-            while echoed == 0 {
-                echoed = pongs.poll(FRAGMENT_COUNT_LIMIT, |data, _| {
+            // Busy-poll until the whole echo is back (reassembled if fragmented).
+            let mut echoed = false;
+            while !echoed {
+                stop_if_pong_stopped(running)?;
+                pongs.poll_assembled(FRAGMENT_COUNT_LIMIT, |data, _| {
                     let sent_at = u64::from_le_bytes(data[..8].try_into().unwrap());
                     let rtt = epoch.elapsed().as_nanos() as u64 - sent_at;
                     histogram.saturating_record(rtt);
+                    echoed = true;
                 })?;
             }
         }
@@ -128,6 +152,16 @@ fn ping(client: &AeronClient, args: &Args) -> Result<(), Box<dyn std::error::Err
     }
     println!("  max     {:>10.2}", histogram.max() as f64 / 1000.0);
     Ok(())
+}
+
+/// An error once the pong thread has stopped (it panicked), instead of waiting
+/// for an echo that will never come.
+fn stop_if_pong_stopped(running: &AtomicBool) -> Result<(), Box<dyn std::error::Error>> {
+    if running.load(Ordering::Acquire) {
+        Ok(())
+    } else {
+        Err("the pong thread stopped".into())
+    }
 }
 
 /// `true` once offered, `false` to retry (back pressure, not connected yet, ...).
