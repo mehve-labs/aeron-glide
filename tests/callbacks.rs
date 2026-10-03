@@ -55,26 +55,6 @@ fn handler_panic_unwinds_to_the_caller() {
 }
 
 #[test]
-fn claim_panic_aborts_the_claim() {
-    let driver = TestDriver::start();
-    let client = driver.client();
-    let publication = client.add_publication("aeron:ipc", 1).unwrap();
-    let mut sub = client.add_subscription("aeron:ipc", 1).unwrap();
-    wait_connected(&sub);
-
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        let _ = publication.try_claim(8, |_| panic!("claim panic"));
-    }));
-    assert!(result.is_err());
-
-    // The aborted claim is skipped; the next message is delivered.
-    offer(&publication, b"after");
-    let mut received = Vec::new();
-    poll_n(&mut sub, 1, |data| received.push(data.to_vec()));
-    assert_eq!(received, [b"after".to_vec()]);
-}
-
-#[test]
 fn assembled_poll_panic_redelivers_the_fragment() {
     let driver = TestDriver::start();
     let client = driver.client();

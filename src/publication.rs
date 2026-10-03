@@ -1,6 +1,7 @@
 //! Publications ([`Publication`], [`ExclusivePublication`]).
 
 use super::*;
+use std::marker::PhantomData;
 
 /// Accessors shared by [`Publication`] and [`ExclusivePublication`] (C++ `Publication` /
 /// `ExclusivePublication`).
@@ -206,17 +207,18 @@ impl Publication {
         offer_parts(&*self.inner, parts, Some(supplier))
     }
 
-    /// Zero-copy publish: claims a region of the log buffer, calls `handler` with a mutable
-    /// slice pointing directly into shared memory, then commits or aborts based on the return value.
-    /// Returns the new stream position if the claim succeeded.
-    pub fn try_claim<F>(&self, length: usize, handler: F) -> std::result::Result<i64, OfferError>
-    where
-        F: FnMut(&mut [u8]) -> bool,
-    {
+    /// Zero-copy publish: claim `length` bytes in the log buffer and write the
+    /// message directly into them through the returned [`BufferClaim`], then
+    /// [`commit`](BufferClaim::commit) it. Dropping the claim without committing
+    /// aborts it.
+    ///
+    /// `length` must not exceed [`max_payload_length`](Self::max_payload_length):
+    /// a claim is a single fragment.
+    pub fn try_claim(&self, length: usize) -> std::result::Result<BufferClaim<'_>, OfferError> {
         let length = claim_length(length)?;
-        let mut cb = Callback::new(handler);
-        let result = self.inner.tryClaim(length, callback::claim::<F>, cb.ctx());
-        error::offer_result(cb.finish(result)?)
+        let mut frame = ffi::ClaimFrame { ptr: 0, len: 0 };
+        let position = error::offer_result(self.inner.tryClaim(length, &mut frame)?)?;
+        Ok(BufferClaim::new(frame, position))
     }
 
     /// Returns `true` if this publication is the original one for its channel and
@@ -290,21 +292,18 @@ impl ExclusivePublication {
         offer_parts(&*self.inner, parts, Some(supplier))
     }
 
-    /// Zero-copy publish: claims a region of the log buffer, calls `handler` with a mutable
-    /// slice pointing directly into shared memory, then commits or aborts based on the return value.
-    /// Returns the new stream position if the claim succeeded.
-    pub fn try_claim<F>(
-        &mut self,
-        length: usize,
-        handler: F,
-    ) -> std::result::Result<i64, OfferError>
-    where
-        F: FnMut(&mut [u8]) -> bool,
-    {
+    /// Zero-copy publish: claim `length` bytes in the log buffer and write the
+    /// message directly into them through the returned [`BufferClaim`], then
+    /// [`commit`](BufferClaim::commit) it. Dropping the claim without committing
+    /// aborts it.
+    ///
+    /// `length` must not exceed [`max_payload_length`](Self::max_payload_length):
+    /// a claim is a single fragment.
+    pub fn try_claim(&mut self, length: usize) -> std::result::Result<BufferClaim<'_>, OfferError> {
         let length = claim_length(length)?;
-        let mut cb = Callback::new(handler);
-        let result = self.inner.tryClaim(length, callback::claim::<F>, cb.ctx());
-        error::offer_result(cb.finish(result)?)
+        let mut frame = ffi::ClaimFrame { ptr: 0, len: 0 };
+        let position = error::offer_result(self.inner.tryClaim(length, &mut frame)?)?;
+        Ok(BufferClaim::new(frame, position))
     }
 
     /// Revoke and close the publication now: subscribers see the stream end
@@ -321,6 +320,137 @@ impl ExclusivePublication {
     }
 
     publication_accessors!();
+}
+
+/// A claimed region of a publication's log buffer (C++ `BufferClaim`), returned by
+/// `try_claim`.
+///
+/// Write the message into [`buffer_mut`](Self::buffer_mut), optionally set header
+/// fields, then [`commit`](Self::commit). Dropping the claim without committing
+/// aborts it, so subscribers skip it. Commit or abort promptly: later messages on
+/// the publication wait behind an open claim.
+#[must_use = "a claim is aborted when dropped; call `commit` to publish it"]
+pub struct BufferClaim<'a> {
+    frame: ffi::ClaimFrame,
+    position: i64,
+    finished: bool,
+    _publication: PhantomData<&'a ()>,
+}
+
+/// Length of the data frame header that precedes the claimed bytes.
+const DATA_HEADER_LENGTH: usize = 32;
+
+impl BufferClaim<'_> {
+    fn new(frame: ffi::ClaimFrame, position: i64) -> Self {
+        Self {
+            frame,
+            position,
+            finished: false,
+            _publication: PhantomData,
+        }
+    }
+
+    /// The stream position the publication reaches once this claim is committed.
+    pub fn position(&self) -> i64 {
+        self.position
+    }
+
+    /// The claimed bytes, to write the message into.
+    pub fn buffer_mut(&mut self) -> &mut [u8] {
+        // SAFETY: Aeron reserved `len` bytes at `ptr` (header first) for this claim
+        // until it is committed or aborted, and the borrowed publication keeps the
+        // log buffer mapped.
+        unsafe {
+            std::slice::from_raw_parts_mut(
+                (self.frame.ptr as *mut u8).add(DATA_HEADER_LENGTH),
+                self.len(),
+            )
+        }
+    }
+
+    /// The claimed bytes.
+    pub fn buffer(&self) -> &[u8] {
+        // SAFETY: as in `buffer_mut`.
+        unsafe {
+            std::slice::from_raw_parts(
+                (self.frame.ptr as *const u8).add(DATA_HEADER_LENGTH),
+                self.len(),
+            )
+        }
+    }
+
+    /// The number of claimed bytes.
+    pub fn len(&self) -> usize {
+        self.frame.len - DATA_HEADER_LENGTH
+    }
+
+    /// Returns `true` for a zero-length claim.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// The frame header flags.
+    pub fn flags(&self) -> u8 {
+        ffi::claimFlags(self.frame)
+    }
+
+    /// Set the frame header flags.
+    pub fn set_flags(&mut self, flags: u8) -> &mut Self {
+        ffi::claimSetFlags(self.frame, flags);
+        self
+    }
+
+    /// The frame header type.
+    pub fn header_type(&self) -> u16 {
+        ffi::claimHeaderType(self.frame)
+    }
+
+    /// Set the frame header type.
+    pub fn set_header_type(&mut self, header_type: u16) -> &mut Self {
+        ffi::claimSetHeaderType(self.frame, header_type);
+        self
+    }
+
+    /// The reserved value in the frame header.
+    pub fn reserved_value(&self) -> i64 {
+        ffi::claimReservedValue(self.frame)
+    }
+
+    /// Set the reserved value in the frame header (e.g. a checksum or timestamp).
+    pub fn set_reserved_value(&mut self, value: i64) -> &mut Self {
+        ffi::claimSetReservedValue(self.frame, value);
+        self
+    }
+
+    /// Publish the claimed bytes. Returns the new stream position.
+    pub fn commit(mut self) -> i64 {
+        self.finished = true;
+        ffi::claimCommit(self.frame);
+        self.position
+    }
+
+    /// Abandon the claim; subscribers skip it.
+    pub fn abort(mut self) {
+        self.finished = true;
+        ffi::claimAbort(self.frame);
+    }
+}
+
+impl Drop for BufferClaim<'_> {
+    fn drop(&mut self) {
+        if !self.finished {
+            ffi::claimAbort(self.frame);
+        }
+    }
+}
+
+impl std::fmt::Debug for BufferClaim<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BufferClaim")
+            .field("position", &self.position)
+            .field("len", &self.len())
+            .finish()
+    }
 }
 
 /// The two publication wrappers, for the shared vectored-offer helper.

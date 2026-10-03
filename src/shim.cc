@@ -34,7 +34,37 @@ int64_t PublicationWrapperT<P>::offerParts(
     return pub->offer(buffers, parts.size(), reservedValue);
 }
 
-// Defined here because it needs OfferPart from the generated bridge header.
+template <typename P>
+int64_t PublicationWrapperT<P>::tryClaim(size_t length, ClaimFrame &frame) const {
+    aeron::concurrent::logbuffer::BufferClaim bufferClaim;
+    int64_t position = pub->tryClaim(static_cast<aeron::util::index_t>(length), bufferClaim);
+    if (position > 0) {
+        frame.ptr = reinterpret_cast<size_t>(bufferClaim.buffer().buffer());
+        frame.len = static_cast<size_t>(bufferClaim.buffer().capacity());
+    }
+    return position;
+}
+
+namespace {
+aeron::concurrent::logbuffer::BufferClaim claimOf(const ClaimFrame &frame) {
+    aeron::concurrent::logbuffer::BufferClaim claim;
+    claim.wrap(reinterpret_cast<uint8_t *>(frame.ptr), static_cast<aeron::util::index_t>(frame.len));
+    return claim;
+}
+} // namespace
+
+void claimCommit(ClaimFrame frame) { claimOf(frame).commit(); }
+void claimAbort(ClaimFrame frame) { claimOf(frame).abort(); }
+uint8_t claimFlags(ClaimFrame frame) { return claimOf(frame).flags(); }
+void claimSetFlags(ClaimFrame frame, uint8_t flags) { claimOf(frame).flags(flags); }
+uint16_t claimHeaderType(ClaimFrame frame) { return claimOf(frame).headerType(); }
+void claimSetHeaderType(ClaimFrame frame, uint16_t type) { claimOf(frame).headerType(type); }
+int64_t claimReservedValue(ClaimFrame frame) { return claimOf(frame).reservedValue(); }
+void claimSetReservedValue(ClaimFrame frame, int64_t value) { claimOf(frame).reservedValue(value); }
+
+// Defined here because they need the shared structs from the generated bridge header.
+template int64_t PublicationWrapperT<aeron::Publication>::tryClaim(size_t, ClaimFrame &) const;
+template int64_t PublicationWrapperT<aeron::ExclusivePublication>::tryClaim(size_t, ClaimFrame &) const;
 template int64_t PublicationWrapperT<aeron::Publication>::offerParts(
     rust::Slice<const OfferPart>, ReservedValueFn, size_t, bool) const;
 template int64_t PublicationWrapperT<aeron::ExclusivePublication>::offerParts(

@@ -185,3 +185,56 @@ fn reserved_value_supplier_panic_unwinds() {
     assert_eq!(payload.downcast_ref::<&str>(), Some(&"supplier panic"));
     offer(&publication, b"after");
 }
+
+#[test]
+fn buffer_claim_commit_abort_and_header_fields() {
+    let driver = TestDriver::start();
+    let client = driver.client();
+    let publication = client.add_publication("aeron:ipc", 15).unwrap();
+    let mut exclusive = client.add_exclusive_publication("aeron:ipc", 15).unwrap();
+    let mut sub = client.add_subscription("aeron:ipc", 15).unwrap();
+    wait_connected(&sub);
+    wait_until("exclusive to connect", || exclusive.is_connected());
+
+    fn claim_retrying(p: &aeron_glide::Publication, n: usize) -> aeron_glide::BufferClaim<'_> {
+        loop {
+            match p.try_claim(n) {
+                Ok(claim) => return claim,
+                Err(e) => assert!(e.is_retryable(), "{e}"),
+            }
+        }
+    }
+
+    // Dropped without commit: aborted, subscribers skip it.
+    let mut dropped = claim_retrying(&publication, 4);
+    dropped.buffer_mut().copy_from_slice(b"drop");
+    drop(dropped);
+
+    // Explicit abort.
+    let mut aborted = claim_retrying(&publication, 5);
+    aborted.buffer_mut().copy_from_slice(b"abort");
+    aborted.abort();
+
+    // Committed, with header fields set.
+    let mut claim = claim_retrying(&publication, 6);
+    assert_eq!(claim.len(), 6);
+    claim.buffer_mut().copy_from_slice(b"commit");
+    claim.set_reserved_value(42);
+    assert_eq!(claim.reserved_value(), 42);
+    let position = claim.position();
+    assert_eq!(claim.commit(), position);
+
+    let mut exclusive_claim = loop {
+        match exclusive.try_claim(9) {
+            Ok(claim) => break claim,
+            Err(e) => assert!(e.is_retryable(), "{e}"),
+        }
+    };
+    exclusive_claim.buffer_mut().copy_from_slice(b"exclusive");
+    exclusive_claim.commit();
+
+    let mut received = Vec::new();
+    common::poll_n(&mut sub, 2, |data| received.push(data.to_vec()));
+    received.sort();
+    assert_eq!(received, [b"commit".to_vec(), b"exclusive".to_vec()]);
+}

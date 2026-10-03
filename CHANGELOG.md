@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of `Box<dyn Error>`. `Error` is `Send + Sync + 'static`. Aeron C++ exceptions
   and media driver errors are mapped to an `ErrorKind` matching the Aeron
   exception class, with the Aeron error code preserved.
+- **Breaking:** `try_claim(length)` returns a `BufferClaim` guard instead of
+  taking a closure: write into `buffer_mut()`, optionally set `flags`,
+  `header_type` or `reserved_value`, then `commit()` (returns the position) or
+  `abort()`; dropping it aborts. This also fixes `try_claim` reporting success
+  when the closure aborted the claim.
 - **Breaking:** `offer` and `try_claim` on `Publication` and `ExclusivePublication`
   return `Result<i64, OfferError>` instead of a raw position. Aeron errors such
   as an oversized message are returned as `OfferError::Error` instead of
@@ -31,12 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   thread-local `HashMap` registries: no hashing per poll, no `transmute`, and
   handlers may now poll other subscriptions, images or `ReplayMerge`s (this
   used to abort the process with "already borrowed").
-- A panic in a fragment, claim, counter or recording handler now unwinds to the
-  caller of `poll` / `try_claim` / `for_each` / `list_recordings` once the C++
-  call has returned, instead of aborting the process. The fragment being
-  handled by a controlled poll is aborted (re-delivered on the next poll);
-  remaining fragments of a plain poll are consumed without delivery; a
-  panicking claim is aborted.
+- A panic in a fragment, counter, recording or reserved-value handler now
+  unwinds to the caller of `poll` / `for_each` / `list_recordings` / `offer_*`
+  once the C++ call has returned, instead of aborting the process. The fragment
+  being handled by a controlled poll is aborted (re-delivered on the next poll);
+  remaining fragments of a plain poll are consumed without delivery.
 - **Breaking:** `CountersReader::for_each` returns `Result<()>`.
 - **Breaking:** `AeronClient::add_publication`, `add_exclusive_publication` and
   `add_subscription`, and `Publication::offer` / `try_claim`, take `&self`.

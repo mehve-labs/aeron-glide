@@ -35,14 +35,14 @@ impl Pub {
             Pub::Exclusive(p) => p.offer(buf),
         }
     }
-    fn try_claim<F>(&mut self, length: usize, handler: F) -> Result<i64, OfferError>
-    where
-        F: FnMut(&mut [u8]) -> bool,
-    {
-        match self {
-            Pub::Regular(p) => p.try_claim(length, handler),
-            Pub::Exclusive(p) => p.try_claim(length, handler),
-        }
+    /// Zero-copy publish: claim space in the log buffer and write into it.
+    fn send_claimed(&mut self, message: &[u8]) -> Result<i64, OfferError> {
+        let mut claim = match self {
+            Pub::Regular(p) => p.try_claim(message.len())?,
+            Pub::Exclusive(p) => p.try_claim(message.len())?,
+        };
+        claim.buffer_mut().copy_from_slice(message);
+        Ok(claim.commit())
     }
     fn is_connected(&self) -> bool {
         match self {
@@ -91,13 +91,7 @@ fn main() {
 
     for i in 0..10u32 {
         if args.zero_copy {
-            while publ
-                .try_claim(5, |buf| {
-                    buf[..5].copy_from_slice(b"ping!");
-                    true
-                })
-                .is_err()
-            {
+            while publ.send_claimed(b"ping!").is_err() {
                 thread::yield_now();
             }
         } else {

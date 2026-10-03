@@ -124,13 +124,6 @@ where
     })
 }
 
-/// Buffer claim handler: `true` commits, `false` aborts. A panic aborts the claim.
-pub(crate) fn claim<F: FnMut(&mut [u8]) -> bool>(ctx: usize, buffer: &mut [u8]) -> bool {
-    // SAFETY: as in `fragment`.
-    let cb = unsafe { Callback::<F>::from_ctx(ctx) };
-    cb.call(false, |f| f(buffer))
-}
-
 /// Reserved value supplier: called with each frame (header and payload), returns
 /// the value written into the frame header. A panic writes 0.
 pub(crate) fn reserved_value<F: FnMut(&[u8]) -> i64>(ctx: usize, frame: &[u8]) -> i64 {

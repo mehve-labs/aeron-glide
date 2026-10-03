@@ -96,9 +96,9 @@ fn run_pong(
     while running.load(Ordering::Acquire) {
         pong_sub.poll(FRAGMENT_COUNT_LIMIT, |data| {
             // Echo back using try_claim for zero-copy
-            let result = ping_pub.try_claim(data.len(), |buf| {
-                buf.copy_from_slice(data);
-                true
+            let result = ping_pub.try_claim(data.len()).map(|mut claim| {
+                claim.buffer_mut().copy_from_slice(data);
+                claim.commit()
             });
             if result.is_err() {
                 // Fallback to offer if claim fails

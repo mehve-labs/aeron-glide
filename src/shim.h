@@ -109,6 +109,17 @@ using ClaimFn = rust::Fn<bool(size_t, rust::Slice<uint8_t>)>;
 // (ctx, frame) -> reserved value for the frame header.
 using ReservedValueFn = rust::Fn<int64_t(size_t, rust::Slice<const uint8_t>)>;
 struct OfferPart; // shared with Rust (lib.rs)
+struct ClaimFrame; // shared with Rust (lib.rs): a claimed frame, header included
+
+// BufferClaim operations on a claimed frame (the C++ BufferClaim API).
+void claimCommit(ClaimFrame frame);
+void claimAbort(ClaimFrame frame);
+uint8_t claimFlags(ClaimFrame frame);
+void claimSetFlags(ClaimFrame frame, uint8_t flags);
+uint16_t claimHeaderType(ClaimFrame frame);
+void claimSetHeaderType(ClaimFrame frame, uint16_t type);
+int64_t claimReservedValue(ClaimFrame frame);
+void claimSetReservedValue(ClaimFrame frame, int64_t value);
 using CounterFn = rust::Fn<void(size_t, int32_t, int32_t, rust::Slice<const uint8_t>, rust::Slice<const uint8_t>)>;
 // Long-lived handler: (ctx, encoded exception). The release function frees ctx.
 using ErrorFn = rust::Fn<void(size_t, rust::Slice<const uint8_t>)>;
@@ -179,19 +190,8 @@ public:
     // value supplier. Up to 16 parts are wrapped on the stack.
     int64_t offerParts(rust::Slice<const OfferPart> parts, ReservedValueFn supplier, size_t ctx, bool useSupplier) const;
 
-    int64_t tryClaim(size_t length, ClaimFn handler, size_t ctx) const {
-        aeron::concurrent::logbuffer::BufferClaim bufferClaim;
-        int64_t position = pub->tryClaim(static_cast<aeron::util::index_t>(length), bufferClaim);
-        if (position > 0) {
-            rust::Slice<uint8_t> slice(bufferClaim.buffer().buffer() + bufferClaim.offset(), bufferClaim.length());
-            if (handler(ctx, slice)) {
-                bufferClaim.commit();
-            } else {
-                bufferClaim.abort();
-            }
-        }
-        return position;
-    }
+    // Claim `length` bytes; on success `frame` describes the claimed frame.
+    int64_t tryClaim(size_t length, ClaimFrame &frame) const;
 
     // Accessors (P1)
     rust::String channel() const { return rust::String::lossy(pub->channel()); }

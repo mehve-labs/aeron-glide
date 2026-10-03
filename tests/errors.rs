@@ -21,11 +21,9 @@ fn oversized_offer_and_claim_are_errors() {
     // Longer than the maximum message length (term length / 8).
     assert_illegal_argument(publication.offer(&vec![0u8; 512 * 1024]));
     // Longer than the maximum payload (MTU - header).
-    assert_illegal_argument(publication.try_claim(64 * 1024, |_| true));
+    assert_illegal_argument(publication.try_claim(64 * 1024).map(|c| c.commit()));
     // Beyond int32: rejected rather than truncated.
-    assert_illegal_argument(
-        publication.try_claim((1 << 32) + 16, |_| panic!("must not be called")),
-    );
+    assert_illegal_argument(publication.try_claim((1 << 32) + 16).map(|c| c.commit()));
 }
 
 #[test]

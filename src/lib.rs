@@ -97,7 +97,7 @@ pub use driver::{IdleStrategy, MediaDriver, MediaDriverBuilder, ThreadingMode};
 pub use driver_gen::{InferableBoolean, ThreadNaming};
 pub use error::{Error, ErrorKind, OfferError, Result};
 pub use image::Image;
-pub use publication::{ChannelStatus, ExclusivePublication, Publication};
+pub use publication::{BufferClaim, ChannelStatus, ExclusivePublication, Publication};
 use std::marker::PhantomData;
 pub use subscription::{ControlledAction, PollAction, Subscription};
 
@@ -110,8 +110,24 @@ pub mod ffi {
         len: usize,
     }
 
+    /// A claimed frame (header included): its address and length.
+    #[derive(Clone, Copy)]
+    struct ClaimFrame {
+        ptr: usize,
+        len: usize,
+    }
+
     unsafe extern "C++" {
         include!("shim.h");
+
+        fn claimCommit(frame: ClaimFrame);
+        fn claimAbort(frame: ClaimFrame);
+        fn claimFlags(frame: ClaimFrame) -> u8;
+        fn claimSetFlags(frame: ClaimFrame, flags: u8);
+        fn claimHeaderType(frame: ClaimFrame) -> u16;
+        fn claimSetHeaderType(frame: ClaimFrame, header_type: u16);
+        fn claimReservedValue(frame: ClaimFrame) -> i64;
+        fn claimSetReservedValue(frame: ClaimFrame, value: i64);
 
         type ContextWrapper;
         type AeronWrapper;
@@ -171,8 +187,7 @@ pub mod ffi {
         fn tryClaim(
             self: &PublicationWrapper,
             length: usize,
-            handler: fn(usize, &mut [u8]) -> bool,
-            ctx: usize,
+            frame: &mut ClaimFrame,
         ) -> Result<i64>;
         fn channel(self: &PublicationWrapper) -> String;
         fn streamId(self: &PublicationWrapper) -> i32;
@@ -206,8 +221,7 @@ pub mod ffi {
         fn tryClaim(
             self: &ExclusivePublicationWrapper,
             length: usize,
-            handler: fn(usize, &mut [u8]) -> bool,
-            ctx: usize,
+            frame: &mut ClaimFrame,
         ) -> Result<i64>;
         fn channel(self: &ExclusivePublicationWrapper) -> String;
         fn streamId(self: &ExclusivePublicationWrapper) -> i32;
