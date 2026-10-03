@@ -79,9 +79,11 @@ pub mod archive;
 
 mod callback;
 mod context;
+mod driver_gen;
 mod error;
 use callback::Callback;
 pub use context::Context;
+pub use driver_gen::{InferableBoolean, ThreadNaming};
 pub use error::{Error, ErrorKind, OfferError, Result};
 use std::marker::PhantomData;
 
@@ -134,25 +136,8 @@ pub mod ffi {
         fn countersReader(self: &AeronWrapper) -> UniquePtr<CountersReaderWrapper>;
 
         fn start(self: Pin<&mut MediaDriverWrapper>) -> Result<()>;
-        fn dir(self: &MediaDriverWrapper) -> String;
 
-        fn setDir(self: Pin<&mut MediaDriverWrapper>, dir: &str) -> Result<()>;
-        fn setDirDeleteOnStart(self: Pin<&mut MediaDriverWrapper>, value: bool) -> Result<()>;
-        fn setDirDeleteOnShutdown(self: Pin<&mut MediaDriverWrapper>, value: bool) -> Result<()>;
         fn setThreadingMode(self: Pin<&mut MediaDriverWrapper>, mode: i32) -> Result<()>;
-        fn setConductorIdleStrategy(self: Pin<&mut MediaDriverWrapper>, name: &str) -> Result<()>;
-        fn setSenderIdleStrategy(self: Pin<&mut MediaDriverWrapper>, name: &str) -> Result<()>;
-        fn setReceiverIdleStrategy(self: Pin<&mut MediaDriverWrapper>, name: &str) -> Result<()>;
-        fn setTermBufferLength(self: Pin<&mut MediaDriverWrapper>, value: usize) -> Result<()>;
-        fn setIpcTermBufferLength(self: Pin<&mut MediaDriverWrapper>, value: usize) -> Result<()>;
-        fn setMtuLength(self: Pin<&mut MediaDriverWrapper>, value: usize) -> Result<()>;
-        fn setIpcMtuLength(self: Pin<&mut MediaDriverWrapper>, value: usize) -> Result<()>;
-        fn setSocketSoRcvbuf(self: Pin<&mut MediaDriverWrapper>, value: usize) -> Result<()>;
-        fn setSocketSoSndbuf(self: Pin<&mut MediaDriverWrapper>, value: usize) -> Result<()>;
-        fn setPrintConfiguration(self: Pin<&mut MediaDriverWrapper>, value: bool) -> Result<()>;
-        fn setConductorCpuAffinity(self: Pin<&mut MediaDriverWrapper>, cpu_id: i32) -> Result<()>;
-        fn setSenderCpuAffinity(self: Pin<&mut MediaDriverWrapper>, cpu_id: i32) -> Result<()>;
-        fn setReceiverCpuAffinity(self: Pin<&mut MediaDriverWrapper>, cpu_id: i32) -> Result<()>;
 
         fn offer(self: &PublicationWrapper, buffer: &[u8]) -> Result<i64>;
         fn tryClaim(
@@ -795,11 +780,6 @@ impl MediaDriver {
     pub fn launch() -> Result<Self> {
         Self::builder().start()
     }
-
-    /// The Aeron directory the driver runs in, to pass to [`Context::aeron_dir`].
-    pub fn dir(&self) -> String {
-        self.inner.dir()
-    }
 }
 
 /// Configuration for a [`MediaDriver`], created by [`MediaDriver::builder`].
@@ -858,89 +838,12 @@ impl MediaDriverBuilder {
     }
 
     /// Threading model of the driver's conductor, sender and receiver.
+    ///
+    /// The other settings are generated from Aeron's `aeronmd.h`; see
+    /// `scripts/gen_driver_context.py`.
     pub fn threading_mode(mut self, mode: ThreadingMode) -> Self {
         self.threading_mode = mode;
         self.apply(|w| w.setThreadingMode(mode as i32))
-    }
-
-    /// The Aeron directory for shared memory files. Defaults to `AERON_DIR` or Aeron's platform default.
-    pub fn dir(self, dir: &str) -> Self {
-        self.apply(|w| w.setDir(dir))
-    }
-
-    /// Delete an existing Aeron directory on start, e.g. one left behind by a crashed driver.
-    pub fn dir_delete_on_start(self, value: bool) -> Self {
-        self.apply(|w| w.setDirDeleteOnStart(value))
-    }
-
-    /// Delete the Aeron directory when the driver shuts down.
-    pub fn dir_delete_on_shutdown(self, value: bool) -> Self {
-        self.apply(|w| w.setDirDeleteOnShutdown(value))
-    }
-
-    /// Idle strategy of the conductor thread.
-    pub fn conductor_idle_strategy(self, strategy: IdleStrategy) -> Self {
-        self.apply(|w| w.setConductorIdleStrategy(strategy.as_str()))
-    }
-
-    /// Idle strategy of the sender thread.
-    pub fn sender_idle_strategy(self, strategy: IdleStrategy) -> Self {
-        self.apply(|w| w.setSenderIdleStrategy(strategy.as_str()))
-    }
-
-    /// Idle strategy of the receiver thread.
-    pub fn receiver_idle_strategy(self, strategy: IdleStrategy) -> Self {
-        self.apply(|w| w.setReceiverIdleStrategy(strategy.as_str()))
-    }
-
-    /// Default term buffer length for network publications.
-    pub fn term_buffer_length(self, value: usize) -> Self {
-        self.apply(|w| w.setTermBufferLength(value))
-    }
-
-    /// Default term buffer length for IPC publications.
-    pub fn ipc_term_buffer_length(self, value: usize) -> Self {
-        self.apply(|w| w.setIpcTermBufferLength(value))
-    }
-
-    /// Default MTU length for network publications.
-    pub fn mtu_length(self, value: usize) -> Self {
-        self.apply(|w| w.setMtuLength(value))
-    }
-
-    /// Default MTU length for IPC publications.
-    pub fn ipc_mtu_length(self, value: usize) -> Self {
-        self.apply(|w| w.setIpcMtuLength(value))
-    }
-
-    /// `SO_RCVBUF` for UDP sockets.
-    pub fn socket_so_rcvbuf(self, value: usize) -> Self {
-        self.apply(|w| w.setSocketSoRcvbuf(value))
-    }
-
-    /// `SO_SNDBUF` for UDP sockets.
-    pub fn socket_so_sndbuf(self, value: usize) -> Self {
-        self.apply(|w| w.setSocketSoSndbuf(value))
-    }
-
-    /// Print the driver configuration on start.
-    pub fn print_configuration(self, value: bool) -> Self {
-        self.apply(|w| w.setPrintConfiguration(value))
-    }
-
-    /// Pin the conductor thread to a CPU.
-    pub fn conductor_cpu_affinity(self, cpu_id: i32) -> Self {
-        self.apply(|w| w.setConductorCpuAffinity(cpu_id))
-    }
-
-    /// Pin the sender thread to a CPU.
-    pub fn sender_cpu_affinity(self, cpu_id: i32) -> Self {
-        self.apply(|w| w.setSenderCpuAffinity(cpu_id))
-    }
-
-    /// Pin the receiver thread to a CPU.
-    pub fn receiver_cpu_affinity(self, cpu_id: i32) -> Self {
-        self.apply(|w| w.setReceiverCpuAffinity(cpu_id))
     }
 }
 
@@ -1240,6 +1143,42 @@ mod tests {
         drop(client);
         assert!(image.position().is_ok());
         assert!(!image.is_closed());
+    }
+
+    #[test]
+    fn generated_driver_settings_round_trip() {
+        let dir = std::env::temp_dir().join(format!("aeron-glide-gen-{}", std::process::id()));
+        let dir = dir.to_str().unwrap().to_string();
+        let driver = MediaDriver::builder()
+            .dir(&dir)
+            .dir_delete_on_start(true)
+            .dir_delete_on_shutdown(true)
+            .publication_linger_timeout_ns(1_000_000)
+            .term_buffer_length(1 << 20)
+            .conductor_idle_strategy(IdleStrategy::Sleeping)
+            .receiver_group_consideration(InferableBoolean::ForceTrue)
+            .receiver_group_tag(Some(7))
+            .sender_wildcard_port_range(20_000, 20_100)
+            .start()
+            .unwrap();
+        assert_eq!(driver.dir(), dir);
+        assert!(driver.dir_delete_on_shutdown());
+        assert_eq!(driver.publication_linger_timeout_ns(), 1_000_000);
+        assert_eq!(driver.term_buffer_length(), 1 << 20);
+        assert_eq!(driver.conductor_idle_strategy(), "sleeping");
+        assert_eq!(
+            driver.receiver_group_consideration(),
+            InferableBoolean::ForceTrue
+        );
+        assert!(driver.receiver_group_tag_is_present());
+        assert_eq!(driver.receiver_group_tag_value(), 7);
+
+        let err = MediaDriver::builder()
+            .term_buffer_length(1000)
+            .start()
+            .err()
+            .expect("a term length that is not a power of two is rejected");
+        assert_ne!(err.kind(), ErrorKind::Other, "{err}");
     }
 
     #[test]

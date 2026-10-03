@@ -95,7 +95,9 @@ fn main() {
     let driver_include_path = aeron_dir.join("aeron-driver/src/main/c");
 
     // Build the cxx bridge(s)
-    let mut bridge_sources: Vec<&str> = vec!["src/lib.rs"];
+    let mut bridge_sources: Vec<&str> = vec!["src/lib.rs", "src/driver_gen.rs"];
+    println!("cargo:rerun-if-changed=src/driver_gen.rs");
+    println!("cargo:rerun-if-changed=src/driver_gen.h");
     if archive_enabled {
         bridge_sources.push("src/archive.rs");
         println!("cargo:rerun-if-changed=src/archive.rs");
