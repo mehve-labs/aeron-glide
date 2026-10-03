@@ -79,6 +79,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Publication accessors on `Publication` and `ExclusivePublication`: `channel`,
+  `stream_id`, `session_id`, `initial_term_id`, `registration_id`,
+  `original_registration_id`, `is_original` (concurrent only), `max_message_length`,
+  `max_payload_length`, `term_buffer_length`, `position_bits_to_shift`,
+  `is_closed`, `max_possible_position`, `position`, `publication_limit`,
+  `publication_limit_id`, `available_window`, `channel_status` (new
+  `ChannelStatus` enum), `channel_status_id`, `local_socket_addresses`.
 - Every scalar media driver setting is available on `MediaDriverBuilder`
   (96 setters, e.g. `publication_linger_timeout_ns`, `sender_wildcard_port_range`,
   `receiver_group_tag`) with the matching getters on a started `MediaDriver`

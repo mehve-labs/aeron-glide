@@ -97,7 +97,7 @@ pub use driver::{IdleStrategy, MediaDriver, MediaDriverBuilder, ThreadingMode};
 pub use driver_gen::{InferableBoolean, ThreadNaming};
 pub use error::{Error, ErrorKind, OfferError, Result};
 pub use image::Image;
-pub use publication::{ExclusivePublication, Publication};
+pub use publication::{ChannelStatus, ExclusivePublication, Publication};
 use std::marker::PhantomData;
 pub use subscription::{ControlledAction, PollAction, Subscription};
 
@@ -160,17 +160,54 @@ pub mod ffi {
             handler: fn(usize, &mut [u8]) -> bool,
             ctx: usize,
         ) -> Result<i64>;
-        fn isConnected(self: &PublicationWrapper) -> bool;
+        fn channel(self: &PublicationWrapper) -> String;
+        fn streamId(self: &PublicationWrapper) -> i32;
         fn sessionId(self: &PublicationWrapper) -> i32;
-
-        fn offer(self: Pin<&mut ExclusivePublicationWrapper>, buffer: &[u8]) -> Result<i64>;
+        fn initialTermId(self: &PublicationWrapper) -> i32;
+        fn originalRegistrationId(self: &PublicationWrapper) -> i64;
+        fn registrationId(self: &PublicationWrapper) -> i64;
+        fn maxMessageLength(self: &PublicationWrapper) -> i32;
+        fn maxPayloadLength(self: &PublicationWrapper) -> i32;
+        fn termBufferLength(self: &PublicationWrapper) -> i32;
+        fn positionBitsToShift(self: &PublicationWrapper) -> i32;
+        fn isConnected(self: &PublicationWrapper) -> bool;
+        fn isClosed(self: &PublicationWrapper) -> bool;
+        fn maxPossiblePosition(self: &PublicationWrapper) -> i64;
+        fn position(self: &PublicationWrapper) -> Result<i64>;
+        fn publicationLimit(self: &PublicationWrapper) -> Result<i64>;
+        fn publicationLimitId(self: &PublicationWrapper) -> i32;
+        fn availableWindow(self: &PublicationWrapper) -> Result<i64>;
+        fn channelStatusId(self: &PublicationWrapper) -> i32;
+        fn channelStatus(self: &PublicationWrapper) -> Result<i64>;
+        fn localSocketAddresses(self: &PublicationWrapper) -> Result<Vec<String>>;
+        fn isOriginal(self: &PublicationWrapper) -> bool;
+        fn offer(self: &ExclusivePublicationWrapper, buffer: &[u8]) -> Result<i64>;
         fn tryClaim(
-            self: Pin<&mut ExclusivePublicationWrapper>,
+            self: &ExclusivePublicationWrapper,
             length: usize,
             handler: fn(usize, &mut [u8]) -> bool,
             ctx: usize,
         ) -> Result<i64>;
+        fn channel(self: &ExclusivePublicationWrapper) -> String;
+        fn streamId(self: &ExclusivePublicationWrapper) -> i32;
+        fn sessionId(self: &ExclusivePublicationWrapper) -> i32;
+        fn initialTermId(self: &ExclusivePublicationWrapper) -> i32;
+        fn originalRegistrationId(self: &ExclusivePublicationWrapper) -> i64;
+        fn registrationId(self: &ExclusivePublicationWrapper) -> i64;
+        fn maxMessageLength(self: &ExclusivePublicationWrapper) -> i32;
+        fn maxPayloadLength(self: &ExclusivePublicationWrapper) -> i32;
+        fn termBufferLength(self: &ExclusivePublicationWrapper) -> i32;
+        fn positionBitsToShift(self: &ExclusivePublicationWrapper) -> i32;
         fn isConnected(self: &ExclusivePublicationWrapper) -> bool;
+        fn isClosed(self: &ExclusivePublicationWrapper) -> bool;
+        fn maxPossiblePosition(self: &ExclusivePublicationWrapper) -> i64;
+        fn position(self: &ExclusivePublicationWrapper) -> Result<i64>;
+        fn publicationLimit(self: &ExclusivePublicationWrapper) -> Result<i64>;
+        fn publicationLimitId(self: &ExclusivePublicationWrapper) -> i32;
+        fn availableWindow(self: &ExclusivePublicationWrapper) -> Result<i64>;
+        fn channelStatusId(self: &ExclusivePublicationWrapper) -> i32;
+        fn channelStatus(self: &ExclusivePublicationWrapper) -> Result<i64>;
+        fn localSocketAddresses(self: &ExclusivePublicationWrapper) -> Result<Vec<String>>;
 
         fn poll(
             self: Pin<&mut SubscriptionWrapper>,

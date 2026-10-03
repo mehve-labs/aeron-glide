@@ -158,33 +158,69 @@ private:
     std::deque<std::string> strings_; // destroyed after the driver and context are closed
 };
 
-class PublicationWrapper {
+// One wrapper for both publication types. Members that exist on only one of them
+// (isOriginal, revoke, ...) are only instantiated for the type that uses them.
+// All members are const: a concurrent publication is used from several threads,
+// and the Rust side enforces single-writer access for exclusive publications.
+template <typename P>
+class PublicationWrapperT {
 public:
-    PublicationWrapper(std::shared_ptr<aeron::Publication> pub);
-    ~PublicationWrapper();
-    
-    // const: a concurrent publication may be used from several threads at once.
-    int64_t offer(rust::Slice<const uint8_t> buffer) const;
-    int64_t tryClaim(size_t length, ClaimFn handler, size_t ctx) const;
-    bool isConnected() const;
-    int32_t sessionId() const;
+    explicit PublicationWrapperT(std::shared_ptr<P> pub) : pub(std::move(pub)) {}
+
+    int64_t offer(rust::Slice<const uint8_t> buffer) const {
+        aeron::AtomicBuffer atomic_buffer(const_cast<uint8_t *>(buffer.data()), buffer.size());
+        return pub->offer(atomic_buffer);
+    }
+
+    int64_t tryClaim(size_t length, ClaimFn handler, size_t ctx) const {
+        aeron::concurrent::logbuffer::BufferClaim bufferClaim;
+        int64_t position = pub->tryClaim(static_cast<aeron::util::index_t>(length), bufferClaim);
+        if (position > 0) {
+            rust::Slice<uint8_t> slice(bufferClaim.buffer().buffer() + bufferClaim.offset(), bufferClaim.length());
+            if (handler(ctx, slice)) {
+                bufferClaim.commit();
+            } else {
+                bufferClaim.abort();
+            }
+        }
+        return position;
+    }
+
+    // Accessors (P1)
+    rust::String channel() const { return rust::String::lossy(pub->channel()); }
+    int32_t streamId() const { return pub->streamId(); }
+    int32_t sessionId() const { return pub->sessionId(); }
+    int32_t initialTermId() const { return pub->initialTermId(); }
+    int64_t originalRegistrationId() const { return pub->originalRegistrationId(); }
+    int64_t registrationId() const { return pub->registrationId(); }
+    bool isOriginal() const { return pub->isOriginal(); }
+    int32_t maxMessageLength() const { return pub->maxMessageLength(); }
+    int32_t maxPayloadLength() const { return pub->maxPayloadLength(); }
+    int32_t termBufferLength() const { return pub->termBufferLength(); }
+    int32_t positionBitsToShift() const { return pub->positionBitsToShift(); }
+    bool isConnected() const { return pub->isConnected(); }
+    bool isClosed() const { return pub->isClosed(); }
+    int64_t maxPossiblePosition() const { return pub->maxPossiblePosition(); }
+    int64_t position() const { return pub->position(); }
+    int64_t publicationLimit() const { return pub->publicationLimit(); }
+    int32_t publicationLimitId() const { return pub->publicationLimitId(); }
+    int64_t availableWindow() const { return pub->availableWindow(); }
+    int32_t channelStatusId() const { return pub->channelStatusId(); }
+    int64_t channelStatus() const { return pub->channelStatus(); }
+    rust::Vec<rust::String> localSocketAddresses() const {
+        rust::Vec<rust::String> addresses;
+        for (const auto &address : pub->localSocketAddresses()) {
+            addresses.push_back(rust::String::lossy(address));
+        }
+        return addresses;
+    }
 
 private:
-    std::shared_ptr<aeron::Publication> pub;
+    std::shared_ptr<P> pub;
 };
 
-class ExclusivePublicationWrapper {
-public:
-    ExclusivePublicationWrapper(std::shared_ptr<aeron::ExclusivePublication> pub);
-    ~ExclusivePublicationWrapper();
-
-    int64_t offer(rust::Slice<const uint8_t> buffer);
-    int64_t tryClaim(size_t length, ClaimFn handler, size_t ctx);
-    bool isConnected() const;
-
-private:
-    std::shared_ptr<aeron::ExclusivePublication> pub;
-};
+using PublicationWrapper = PublicationWrapperT<aeron::Publication>;
+using ExclusivePublicationWrapper = PublicationWrapperT<aeron::ExclusivePublication>;
 
 class ImageWrapper; // forward declaration
 

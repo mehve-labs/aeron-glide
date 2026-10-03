@@ -112,3 +112,11 @@ pub fn poll_n(sub: &mut Subscription, count: usize, mut handler: impl FnMut(&[u8
         seen >= count
     });
 }
+
+/// A UDP port that is free right now on localhost.
+pub fn free_udp_port() -> u16 {
+    std::net::UdpSocket::bind("127.0.0.1:0")
+        .and_then(|s| s.local_addr())
+        .expect("bind a UDP socket")
+        .port()
+}
