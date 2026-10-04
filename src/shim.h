@@ -144,7 +144,9 @@ using NewSubscriptionFn = rust::Fn<void(size_t, rust::Slice<const uint8_t>, int3
 using CounterEventFn = rust::Fn<void(size_t, int64_t, int32_t)>;
 using CloseClientFn = rust::Fn<void(size_t)>;
 // (ctx, registration id, session id, stream id, group tag, source port, address type, address bytes)
-using ErrorFrameFn = rust::Fn<void(size_t, int64_t, int32_t, int32_t, int64_t, uint16_t, int16_t, rust::Slice<const uint8_t>)>;
+struct ErrorFrameInfo;
+using ErrorFrameFn =
+    rust::Fn<void(size_t, const ErrorFrameInfo &, rust::Slice<const uint8_t>, rust::Slice<const uint8_t>)>;
 
 // Serialises the client conductor in agent invoker mode. There the C client runs
 // conductor work inline on whichever thread adds, closes or changes a resource,

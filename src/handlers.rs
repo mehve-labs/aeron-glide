@@ -83,6 +83,16 @@ pub struct CounterEvent {
 pub struct PublicationErrorFrame {
     /// The registration ID of the publication.
     pub registration_id: i64,
+    /// The registration ID of the destination the error came through, for a
+    /// multi-destination publication (or `NULL_VALUE`, -1).
+    pub destination_registration_id: i64,
+    /// The receiver that sent the error frame.
+    pub receiver_id: i64,
+    /// The error code the receiver reported, e.g. from `Image::reject`.
+    pub error_code: i32,
+    /// The receiver's message, e.g. the reason passed to `Image::reject`
+    /// (invalid UTF-8 replaced with `U+FFFD`).
+    pub error_message: String,
     /// The session ID of the publication.
     pub session_id: i32,
     /// The stream ID of the publication.
@@ -194,18 +204,13 @@ pub(crate) fn close_client<F: Fn() + Send + Sync + 'static>(ctx: usize) {
 const ADDRESS_TYPE_IPV4: i16 = 1;
 const ADDRESS_TYPE_IPV6: i16 = 2;
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn error_frame<F: Fn(&PublicationErrorFrame) + Send + Sync + 'static>(
     ctx: usize,
-    registration_id: i64,
-    session_id: i32,
-    stream_id: i32,
-    group_tag: i64,
-    source_port: u16,
-    address_type: i16,
+    info: &crate::ffi::ErrorFrameInfo,
     address: &[u8],
+    message: &[u8],
 ) {
-    let ip = match address_type {
+    let ip = match info.address_type {
         ADDRESS_TYPE_IPV4 if address.len() >= 4 => Some(IpAddr::V4(Ipv4Addr::new(
             address[0], address[1], address[2], address[3],
         ))),
@@ -217,11 +222,15 @@ pub(crate) fn error_frame<F: Fn(&PublicationErrorFrame) + Send + Sync + 'static>
         _ => None,
     };
     let event = PublicationErrorFrame {
-        registration_id,
-        session_id,
-        stream_id,
-        group_tag,
-        source: ip.map(|ip| SocketAddr::new(ip, source_port)),
+        registration_id: info.registration_id,
+        destination_registration_id: info.destination_registration_id,
+        receiver_id: info.receiver_id,
+        error_code: info.error_code,
+        error_message: String::from_utf8_lossy(message).into_owned(),
+        session_id: info.session_id,
+        stream_id: info.stream_id,
+        group_tag: info.group_tag,
+        source: ip.map(|ip| SocketAddr::new(ip, info.source_port)),
     };
     invoke::<F>(ctx, "publication error frame", |f| f(&event));
 }

@@ -307,6 +307,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `MIGRATION.md`: upgrading from 0.3, and moving from rusteron.
+- `PublicationErrorFrame` carries the receiver's `error_code` and
+  `error_message` (e.g. the reason given to `Image::reject`), the
+  `receiver_id` and the `destination_registration_id`, which Aeron's C++
+  wrapper leaves out.
 - `ChannelBuilder::publication_window_length` (`pub-wnd`),
   `untethered_linger_timeout`, `stream_id` and `ats`.
 - `frame` module: Aeron's data frame constants (`BEGIN_FLAG`, `END_FLAG`,

@@ -231,16 +231,36 @@ void ContextWrapper::setCloseClientHandler(CloseClientFn handler, ReleaseFn rele
     ctx->closeClientHandler(closeClientHandler(handler, release, context));
 }
 
+namespace {
+// The C values behind a PublicationErrorFrame (a private member, which explicit
+// instantiation may name): the C++ class leaves out the error code, message,
+// receiver and destination.
+struct ErrorValuesTag {
+    using type = aeron_publication_error_values_t *aeron::status::PublicationErrorFrame::*;
+    friend type member(ErrorValuesTag);
+};
+template <typename Tag, typename Tag::type M>
+struct ErrorValuesMember {
+    friend typename Tag::type member(Tag) { return M; }
+};
+template struct ErrorValuesMember<ErrorValuesTag, &aeron::status::PublicationErrorFrame::m_errorValues>;
+} // namespace
+
 void ContextWrapper::setErrorFrameHandler(ErrorFrameFn handler, ReleaseFn release, size_t context) {
     auto owner = std::make_shared<RustOwned>(release, context);
     aeron::on_publication_error_frame_t onErrorFrame = [owner, handler](aeron::status::PublicationErrorFrame &frame) {
         noUnwind("publication error frame", [&] {
-            if (!frame.isValid()) {
+            const aeron_publication_error_values_t *values = frame.*member(ErrorValuesTag());
+            if (values == nullptr) {
                 return;
             }
-            rust::Slice<const uint8_t> address(frame.sourceAddress(), 16);
-            handler(owner->ctx(), frame.registrationId(), frame.sessionId(), frame.streamId(), frame.groupTag(),
-                    frame.sourcePort(), frame.sourceAddressType(), address);
+            ErrorFrameInfo info{values->registration_id, values->destination_registration_id, values->session_id,
+                                values->stream_id, values->receiver_id, values->group_tag, values->source_port,
+                                values->address_type, values->error_code};
+            rust::Slice<const uint8_t> address(values->source_address, sizeof(values->source_address));
+            const auto length = static_cast<std::size_t>(std::max(values->error_message_length, 0));
+            rust::Slice<const uint8_t> message(values->error_message, length);
+            handler(owner->ctx(), info, address, message);
         });
     };
     ctx->errorFrameHandler(onErrorFrame);

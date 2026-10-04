@@ -171,6 +171,9 @@ fn error_frame_from_a_rejected_image() {
     assert_eq!(frame.registration_id, publication.registration_id());
     assert_eq!(frame.session_id, publication.session_id());
     assert_eq!(frame.stream_id, 6);
+    // The receiver's reason and code come through too.
+    assert!(frame.error_message.contains("go away"), "{frame:?}");
+    assert_ne!(frame.error_code, 0, "{frame:?}");
     let source = frame.source.expect("source address");
     assert!(source.ip().is_loopback(), "{source}");
 }

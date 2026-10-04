@@ -185,6 +185,19 @@ pub(crate) fn timeout_nanos(timeout: std::time::Duration) -> i64 {
 #[allow(clippy::type_complexity)]
 #[cxx::bridge(namespace = "aeron_rs")]
 pub(crate) mod ffi {
+    /// A publication error frame (C `aeron_publication_error_values_t`).
+    struct ErrorFrameInfo {
+        registration_id: i64,
+        destination_registration_id: i64,
+        session_id: i32,
+        stream_id: i32,
+        receiver_id: i64,
+        group_tag: i64,
+        source_port: u16,
+        address_type: i16,
+        error_code: i32,
+    }
+
     /// One part of a vectored offer: the address and length of a byte slice.
     #[derive(Clone, Copy)]
     struct OfferPart {
@@ -332,7 +345,7 @@ pub(crate) mod ffi {
         );
         fn setErrorFrameHandler(
             self: Pin<&mut ContextWrapper>,
-            handler: fn(usize, i64, i32, i32, i64, u16, i16, &[u8]),
+            handler: fn(usize, &ErrorFrameInfo, &[u8], &[u8]),
             release: fn(usize),
             ctx: usize,
         );
