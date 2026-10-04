@@ -1002,6 +1002,39 @@ std::unique_ptr<ContextWrapper> create_context() {
     return std::unique_ptr<ContextWrapper>(new ContextWrapper());
 }
 
+ClientEnvironment clientEnvironment() {
+    aeron_context_t *context = nullptr;
+    if (aeron_context_init(&context) < 0) {
+        // E.g. an AERON_* variable that does not parse.
+        using namespace aeron::util;
+        AERON_MAP_ERRNO_TO_SOURCED_EXCEPTION_AND_THROW;
+    }
+    std::unique_ptr<aeron_context_t, int (*)(aeron_context_t *)> owned(context, aeron_context_close);
+    const char *dir = aeron_context_get_dir(context);
+    const char *name = aeron_context_get_client_name(context);
+    return ClientEnvironment{
+        rust::String::lossy(dir != nullptr ? dir : ""),
+        rust::String::lossy(name != nullptr ? name : ""),
+        aeron_context_get_driver_timeout_ms(context),
+        aeron_context_get_resource_linger_duration_ns(context),
+        aeron_context_get_idle_sleep_duration_ns(context),
+        aeron_context_get_pre_touch_mapped_memory(context),
+    };
+}
+
+void applyClientEnvironment(aeron::Context &context) {
+    const ClientEnvironment env = clientEnvironment();
+    context.aeronDir(std::string(env.dir));
+    if (!env.client_name.empty()) {
+        context.clientName(std::string(env.client_name));
+    }
+    context.mediaDriverTimeout(static_cast<long>(std::min<uint64_t>(env.driver_timeout_ms, LONG_MAX)));
+    context.resourceLingerTimeout(static_cast<long>(std::min<uint64_t>(env.resource_linger_ns / 1000000, LONG_MAX)));
+    // Rounded up to whole milliseconds, as Context::idle_sleep_duration does.
+    context.idleSleepDuration(static_cast<long>(std::min<uint64_t>((env.idle_sleep_ns + 999999) / 1000000, LONG_MAX)));
+    context.preTouchMappedMemory(env.pre_touch_mapped_memory);
+}
+
 std::unique_ptr<AeronWrapper> create_aeron(std::unique_ptr<ContextWrapper> context) {
     auto shared_ctx = std::shared_ptr<ContextWrapper>(std::move(context));
     return std::unique_ptr<AeronWrapper>(new AeronWrapper(shared_ctx));

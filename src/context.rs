@@ -16,9 +16,13 @@ type Installer = Box<dyn FnOnce(Pin<&mut ffi::ContextWrapper>) + Send>;
 
 /// Configuration for an [`AeronClient`], mirroring the Aeron C++ `aeron::Context`.
 ///
-/// Apart from `AERON_DIR`, the `AERON_*` client environment variables are not
-/// applied: the Aeron C++ wrapper overwrites them with the values set here (or
-/// its defaults).
+/// Settings left unset come from Aeron's client environment variables, as in
+/// Aeron's C and Java clients: `AERON_DIR`, `AERON_CLIENT_NAME`,
+/// `AERON_DRIVER_TIMEOUT`, `AERON_CLIENT_RESOURCE_LINGER_DURATION`,
+/// `AERON_CLIENT_IDLE_SLEEP_DURATION` and `AERON_CLIENT_PRE_TOUCH_MAPPED_MEMORY`
+/// (parsed by Aeron: `AERON_DRIVER_TIMEOUT` in milliseconds, the durations
+/// with a unit, e.g. `5s` or `500ms`), then Aeron's defaults. A variable that
+/// does not parse fails [`AeronClient::connect`].
 ///
 /// ```no_run
 /// use aeron_glide::{AeronClient, Context};
@@ -303,37 +307,45 @@ impl Context {
 
     pub(crate) fn connect(self) -> Result<AeronClient> {
         let mut ctx = ffi::create_context().ffi()?;
-        if let Some(dir) = self
-            .aeron_dir
-            .or_else(|| std::env::var_os("AERON_DIR").map(Into::into))
-        {
-            ctx.pin_mut()
-                .setAeronDir(crate::error::path_str(&dir)?)
-                .ffi()?;
+        // The C++ context would overwrite Aeron's environment variables with its
+        // own defaults: apply them for every setting left unset.
+        let env = ffi::clientEnvironment().ffi()?;
+        let dir = self.aeron_dir.unwrap_or_else(|| env.dir.into());
+        ctx.pin_mut()
+            .setAeronDir(crate::error::path_str(&dir)?)
+            .ffi()?;
+        let name = self.client_name.unwrap_or(env.client_name);
+        if !name.is_empty() {
+            ctx.pin_mut().setClientName(&name).ffi()?;
         }
-        if let Some(name) = &self.client_name {
-            ctx.pin_mut().setClientName(name).ffi()?;
-        }
-        if let Some(timeout) = self.driver_timeout {
-            ctx.pin_mut().setDriverTimeoutMs(millis(timeout)).ffi()?;
-        }
-        if let Some(timeout) = self.resource_linger_timeout {
-            ctx.pin_mut()
-                .setResourceLingerTimeoutMs(millis(timeout))
-                .ffi()?;
-        }
-        if let Some(duration) = self.idle_sleep_duration {
-            // Round up: a sub-millisecond sleep must not truncate to 0 (a spin).
-            let ms = millis(
-                duration
-                    .checked_add(Duration::from_nanos(999_999))
-                    .unwrap_or(duration),
-            );
-            ctx.pin_mut().setIdleSleepDurationMs(ms).ffi()?;
-        }
-        if let Some(value) = self.pre_touch_mapped_memory {
-            ctx.pin_mut().setPreTouchMappedMemory(value).ffi()?;
-        }
+        let driver_timeout = self
+            .driver_timeout
+            .unwrap_or(Duration::from_millis(env.driver_timeout_ms));
+        ctx.pin_mut()
+            .setDriverTimeoutMs(millis(driver_timeout))
+            .ffi()?;
+        let linger = self
+            .resource_linger_timeout
+            .unwrap_or(Duration::from_nanos(env.resource_linger_ns));
+        ctx.pin_mut()
+            .setResourceLingerTimeoutMs(millis(linger))
+            .ffi()?;
+        let idle_sleep = self
+            .idle_sleep_duration
+            .unwrap_or(Duration::from_nanos(env.idle_sleep_ns));
+        // Round up: a sub-millisecond sleep must not truncate to 0 (a spin).
+        let ms = millis(
+            idle_sleep
+                .checked_add(Duration::from_nanos(999_999))
+                .unwrap_or(idle_sleep),
+        );
+        ctx.pin_mut().setIdleSleepDurationMs(ms).ffi()?;
+        ctx.pin_mut()
+            .setPreTouchMappedMemory(
+                self.pre_touch_mapped_memory
+                    .unwrap_or(env.pre_touch_mapped_memory),
+            )
+            .ffi()?;
         if let Some(value) = self.use_conductor_agent_invoker {
             ctx.pin_mut().setUseConductorAgentInvoker(value).ffi()?;
         }

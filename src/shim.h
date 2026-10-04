@@ -145,6 +145,7 @@ using CounterEventFn = rust::Fn<void(size_t, int64_t, int32_t)>;
 using CloseClientFn = rust::Fn<void(size_t)>;
 // (ctx, registration id, session id, stream id, group tag, source port, address type, address bytes)
 struct ErrorFrameInfo;
+struct ClientEnvironment;
 using ErrorFrameFn =
     rust::Fn<void(size_t, const ErrorFrameInfo &, rust::Slice<const uint8_t>, rust::Slice<const uint8_t>)>;
 
@@ -853,6 +854,13 @@ inline rust::String defaultAeronPath() { return rust::String::lossy(aeron::Conte
 
 // Factory functions that cxx can safely bind to
 std::unique_ptr<ContextWrapper> create_context();
+// The settings aeron_context_init reads from AERON_* environment variables.
+// The C++ Context overwrites them with its own defaults, so they are read here
+// and applied for the settings a Rust Context leaves unset.
+ClientEnvironment clientEnvironment();
+// Apply them to a C++ context (for clients the shim creates itself, e.g. the
+// archive's internal client); explicit settings are applied afterwards.
+void applyClientEnvironment(aeron::Context &context);
 std::unique_ptr<AeronWrapper> create_aeron(std::unique_ptr<ContextWrapper> context);
 
 

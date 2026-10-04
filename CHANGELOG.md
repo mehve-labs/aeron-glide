@@ -151,6 +151,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Aeron's client environment variables are applied, as in its C and Java
+  clients: `AERON_CLIENT_NAME`, `AERON_DRIVER_TIMEOUT`,
+  `AERON_CLIENT_RESOURCE_LINGER_DURATION`, `AERON_CLIENT_IDLE_SLEEP_DURATION`
+  and `AERON_CLIENT_PRE_TOUCH_MAPPED_MEMORY` (and `AERON_DIR`, as before) set
+  whatever a `Context` leaves unset, including for the archive's internal
+  client. Aeron's C++ wrapper used to overwrite them with its defaults. A
+  variable that does not parse fails `connect`.
 - Persistent-subscription counters leaked when creating failed early (no live
   or replay channel), or when a counter slot was set twice: they are freed.
 - A panicking agent's `on_close` now runs before `AgentRunner::close`

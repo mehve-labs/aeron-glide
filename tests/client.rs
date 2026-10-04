@@ -190,3 +190,48 @@ fn interior_nul_characters_are_rejected() {
         .expect_err("NUL in the directory");
     assert_eq!(err.kind(), ErrorKind::IllegalArgument, "{err}");
 }
+
+/// Settings left unset come from Aeron's environment variables, as in its C and
+/// Java clients (the C++ wrapper used to overwrite them with its defaults).
+#[test]
+fn unset_settings_come_from_the_environment() {
+    if !common::in_child_process(
+        "unset_settings_come_from_the_environment",
+        &[
+            ("AERON_CLIENT_NAME", "from-the-env"),
+            ("AERON_DRIVER_TIMEOUT", "7000"), // milliseconds
+            ("AERON_CLIENT_IDLE_SLEEP_DURATION", "2ms"),
+        ],
+    ) {
+        return;
+    }
+    let driver = TestDriver::start();
+    let client = driver.connect(Context::new());
+    assert_eq!(client.client_name(), "from-the-env");
+    assert_eq!(client.driver_timeout(), std::time::Duration::from_secs(7));
+    assert_eq!(
+        client.idle_sleep_duration(),
+        std::time::Duration::from_millis(2)
+    );
+    // Explicit settings win.
+    let client = driver.connect(
+        Context::new()
+            .client_name("explicit")
+            .driver_timeout(std::time::Duration::from_secs(3)),
+    );
+    assert_eq!(client.client_name(), "explicit");
+    assert_eq!(client.driver_timeout(), std::time::Duration::from_secs(3));
+}
+
+#[test]
+fn unparseable_environment_variables_fail_connect() {
+    if !common::in_child_process(
+        "unparseable_environment_variables_fail_connect",
+        &[("AERON_DRIVER_TIMEOUT", "not-a-duration")],
+    ) {
+        return;
+    }
+    let driver = TestDriver::start();
+    let err = aeron_glide::AeronClient::connect(Context::new().aeron_dir(&driver.dir)).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::IllegalArgument, "{err}");
+}

@@ -185,6 +185,17 @@ pub(crate) fn timeout_nanos(timeout: std::time::Duration) -> i64 {
 #[allow(clippy::type_complexity)]
 #[cxx::bridge(namespace = "aeron_rs")]
 pub(crate) mod ffi {
+    /// The client settings Aeron reads from its environment variables
+    /// (C `aeron_context_init`), with its defaults for those unset.
+    struct ClientEnvironment {
+        dir: String,
+        client_name: String,
+        driver_timeout_ms: u64,
+        resource_linger_ns: u64,
+        idle_sleep_ns: u64,
+        pre_touch_mapped_memory: bool,
+    }
+
     /// A publication error frame (C `aeron_publication_error_values_t`).
     struct ErrorFrameInfo {
         registration_id: i64,
@@ -350,6 +361,7 @@ pub(crate) mod ffi {
             ctx: usize,
         );
         fn create_aeron(context: UniquePtr<ContextWrapper>) -> Result<UniquePtr<AeronWrapper>>;
+        fn clientEnvironment() -> Result<ClientEnvironment>;
 
         fn isClosed(self: &AeronWrapper) -> bool;
         fn addPublication(self: &AeronWrapper, channel: &str, stream_id: i32) -> Result<i64>;

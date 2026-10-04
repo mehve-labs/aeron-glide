@@ -234,6 +234,7 @@ void ArchiveContextWrapper::conclude() {
         return;
     }
     aeron::Context clientContext;
+    applyClientEnvironment(clientContext);
     clientContext.errorHandler([](const std::exception &e) {
         std::cerr << "aeron-glide: Aeron archive client error: " << e.what() << std::endl;
     });
@@ -884,6 +885,7 @@ std::unique_ptr<PersistentSubscriptionWrapper> create_persistent_subscription(
             // As the C client would (an agent invoker client, driven by poll), but
             // with a non-exiting error handler instead of Aeron's default.
             aeron::Context clientContext;
+            applyClientEnvironment(clientContext);
             clientContext.useConductorAgentInvoker(true);
             clientContext.errorHandler([](const std::exception &e) {
                 std::cerr << "aeron-glide: persistent subscription client error: " << e.what() << std::endl;
