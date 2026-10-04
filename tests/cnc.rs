@@ -348,3 +348,23 @@ fn corrupt_error_log_and_labels_are_read_safely() {
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(labels[0], (0, 380), "clamped to the label field");
 }
+
+#[test]
+fn counter_buffers_must_match_record_for_record() {
+    // Counter ids come from the values buffer, their metadata is read at
+    // id * 512: a metadata buffer shorter than that used to pass validation and
+    // crash the first read of a high counter id.
+    let driver = TestDriver::start();
+    let dir =
+        std::env::temp_dir().join(format!("aeron-glide-short-metadata-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut file = std::fs::read(format!("{}/cnc.dat", driver.dir)).unwrap();
+    file[12..16].copy_from_slice(&512i32.to_le_bytes()); // counter metadata: one record
+    std::fs::write(dir.join("cnc.dat"), &file).unwrap();
+    let result = CncFile::map_existing_with_timeout(dir.to_str().unwrap(), Duration::ZERO);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(
+        result.expect_err("mismatched buffers").kind(),
+        ErrorKind::Io
+    );
+}

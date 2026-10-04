@@ -1148,3 +1148,16 @@ fn connect_async_from_a_handler_is_reentrant() {
     wait_until("the handler", || kind.lock().unwrap().is_some());
     assert_eq!(*kind.lock().unwrap(), Some(ErrorKind::Reentrant));
 }
+
+#[test]
+fn huge_max_error_message_length_is_capped() {
+    // `u32::MAX + 1` used to wrap the error buffer to nothing.
+    let driver = archive_or_skip!();
+    let client = driver.client();
+    let archive = driver
+        .context(&client)
+        .max_error_message_length(u32::MAX)
+        .connect()
+        .unwrap();
+    assert_eq!(archive.poll_for_error_response().unwrap(), None);
+}

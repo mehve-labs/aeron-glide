@@ -368,8 +368,12 @@ int32_t ArchiveWrapper::pollForRecordingSignals() const {
 rust::String ArchiveWrapper::pollForErrorResponse() const {
     ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
-    // At least the default length: a shorter buffer truncates messages to nothing.
-    std::vector<char> buffer(std::max<std::uint32_t>(archive_->context().maxErrorMessageLength(), 1000) + 1, '\0');
+    // At least the default length (a shorter buffer truncates messages to
+    // nothing), and at most 64 KiB (computed in size_t: the setting is a u32, so
+    // `+ 1` could wrap to an empty buffer).
+    const std::size_t length =
+        std::min<std::size_t>(std::max<std::size_t>(archive_->context().maxErrorMessageLength(), 1000), 64 * 1024);
+    std::vector<char> buffer(length + 1, '\0');
     if (aeron_archive_poll_for_error_response((*archive_).*member(CArchiveTag()), buffer.data(), buffer.size() - 1) < 0) {
         using namespace aeron::util;
         ARCHIVE_MAP_ERRNO_TO_SOURCED_EXCEPTION_AND_THROW;

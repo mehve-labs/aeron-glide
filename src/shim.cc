@@ -709,6 +709,15 @@ CncFileWrapper::CncFileWrapper(rust::Str directory, int64_t timeout_ms) {
         valid = valid && length >= 0;
         total += length;
     }
+    // Counter ids come from the values buffer (one COUNTER_LENGTH record each),
+    // while their metadata is read at id * METADATA_LENGTH: the buffers must
+    // match, record for record, or a counter id would read past the metadata.
+    constexpr int64_t valueLength = aeron::concurrent::CountersReader::COUNTER_LENGTH;
+    constexpr int64_t metadataLength = aeron::concurrent::CountersReader::METADATA_LENGTH;
+    valid = valid && c.counter_values_buffer_length % valueLength == 0 &&
+            c.counter_metadata_buffer_length % metadataLength == 0 &&
+            int64_t{c.counter_metadata_buffer_length} / metadataLength ==
+                int64_t{c.counter_values_buffer_length} / valueLength;
     if (!valid || static_cast<uint64_t>(total) > fileLength) {
         throw aeron::util::IOException("invalid cnc file in: " + dir, SOURCEINFO, EINVAL);
     }
