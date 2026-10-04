@@ -1,4 +1,17 @@
-use aeron_glide::AeronClient;
+//! The ping side of a ping-pong with messages larger than the MTU: sends five
+//! 8 KiB messages on `aeron:ipc` (stream 20), which Aeron fragments, and
+//! checks that each echo from `large_pong` (stream 21) comes back whole,
+//! reassembled by `poll_assembled` (Aeron's `FragmentAssembler`).
+//!
+//! Needs a running media driver and `large_pong`, started first:
+//!
+//! ```text
+//! cargo run --features bin --bin mediadriver
+//! cargo run --example large_pong
+//! cargo run --example large_ping
+//! ```
+
+use aeron_glide::{AeronClient, OfferError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -16,10 +29,9 @@ fn main() {
         MESSAGE_SIZE
     );
 
-    let mut client = AeronClient::new().expect("Failed to start Aeron");
-    client.start();
+    let client = AeronClient::new().expect("Failed to start Aeron");
 
-    let mut publ = client.add_publication(CHANNEL, PING_STREAM_ID).unwrap();
+    let publ = client.add_publication(CHANNEL, PING_STREAM_ID).unwrap();
     let mut sub = client.add_subscription(CHANNEL, PONG_STREAM_ID).unwrap();
 
     println!("Waiting for large_pong subscriber...");
@@ -38,7 +50,7 @@ fn main() {
             *byte = ((j + 4) % 256) as u8;
         }
 
-        while publ.offer(&msg) < 0 {
+        while !sent(publ.offer(&msg)) {
             thread::yield_now();
         }
         println!("Sent ping {} ({} bytes)", i, MESSAGE_SIZE);
@@ -46,7 +58,7 @@ fn main() {
         // Wait for the assembled response
         let mut received = false;
         while !received {
-            sub.poll_assembled(10, |data| {
+            sub.poll_assembled(10, |data, _| {
                 let seq = u32::from_le_bytes(data[..4].try_into().unwrap());
                 println!(
                     "  Received assembled pong: seq={}, size={} bytes, intact={}",
@@ -55,10 +67,21 @@ fn main() {
                     data.len() == MESSAGE_SIZE && data[4..] == msg[4..]
                 );
                 received = true;
-            });
+            })
+            .expect("poll failed");
             thread::yield_now();
         }
     }
 
     println!("5 large ping-pongs completed in {:?}", start.elapsed());
+}
+
+/// `true` once offered, `false` to retry (back pressure, not connected yet, ...).
+/// Errors that retrying cannot fix (e.g. a message too long) end the example.
+fn sent(result: Result<i64, OfferError>) -> bool {
+    match result {
+        Ok(_) => true,
+        Err(e) if e.is_retryable() => false,
+        Err(e) => panic!("offer failed: {e}"),
+    }
 }

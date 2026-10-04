@@ -1,4 +1,4 @@
-use aeron_glide::{IdleStrategy, MediaDriver, ThreadingMode};
+use aeron_glide::{DriverIdleStrategy, MediaDriver, ThreadingMode};
 use serde::Deserialize;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -6,6 +6,7 @@ use std::thread;
 use std::time::Duration;
 
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Config {
     dir: Option<String>,
     dir_delete_on_start: Option<bool>,
@@ -14,6 +15,10 @@ struct Config {
     conductor_idle_strategy: Option<String>,
     sender_idle_strategy: Option<String>,
     receiver_idle_strategy: Option<String>,
+    /// The idle strategy of the single thread in `shared` and `invoker` modes.
+    shared_idle_strategy: Option<String>,
+    /// The idle strategy of the sender and receiver thread in `shared_network` mode.
+    sharednetwork_idle_strategy: Option<String>,
     term_buffer_length: Option<usize>,
     ipc_term_buffer_length: Option<usize>,
     mtu_length: Option<usize>,
@@ -24,42 +29,40 @@ struct Config {
     conductor_cpu_affinity: Option<i32>,
     sender_cpu_affinity: Option<i32>,
     receiver_cpu_affinity: Option<i32>,
+    /// Accept termination requests carrying this token (e.g. from
+    /// `Context::request_driver_termination`) and shut down.
+    termination_token: Option<String>,
 }
 
-fn parse_threading_mode(s: &str) -> Result<ThreadingMode, String> {
-    match s {
-        "dedicated" => Ok(ThreadingMode::Dedicated),
-        "shared_network" => Ok(ThreadingMode::SharedNetwork),
-        "shared" => Ok(ThreadingMode::Shared),
-        "invoker" => Ok(ThreadingMode::Invoker),
-        _ => Err(format!(
-            "Unknown threading mode: '{}'. Expected: dedicated, shared_network, shared, invoker",
-            s
-        )),
+const USAGE: &str = "\
+Usage: mediadriver [CONFIG.yaml]
+
+Runs an Aeron media driver until Ctrl-C, SIGTERM or an accepted termination
+request. Settings come from the optional YAML file (see
+examples/mediadriver.yaml for every key), then from Aeron's AERON_*
+environment variables for anything the file leaves out.";
+
+fn main() -> std::process::ExitCode {
+    match run() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("mediadriver: {e}");
+            std::process::ExitCode::FAILURE
+        }
     }
 }
 
-fn parse_idle_strategy(s: &str) -> Result<IdleStrategy, String> {
-    match s {
-        "backoff" => Ok(IdleStrategy::Backoff),
-        "spin" => Ok(IdleStrategy::Spin),
-        "yield" => Ok(IdleStrategy::Yield),
-        "sleeping" => Ok(IdleStrategy::Sleeping),
-        "noop" => Ok(IdleStrategy::Noop),
-        _ => Err(format!(
-            "Unknown idle strategy: '{}'. Expected: backoff, spin, yield, sleeping, noop",
-            s
-        )),
-    }
-}
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config_path = std::env::args().nth(1);
+    if matches!(config_path.as_deref(), Some("-h" | "--help")) {
+        println!("{USAGE}");
+        return Ok(());
+    }
 
     let config = if let Some(ref path) = config_path {
         let contents = std::fs::read_to_string(path)
             .map_err(|e| format!("Failed to read config file '{}': {}", path, e))?;
-        let cfg: Config = serde_yaml::from_str(&contents)
+        let cfg: Config = serde_norway::from_str(&contents)
             .map_err(|e| format!("Failed to parse config file '{}': {}", path, e))?;
         println!("Loaded config from: {}", path);
         cfg
@@ -70,76 +73,103 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Starting Aeron Media Driver...");
 
-    let mut driver = MediaDriver::new()?;
+    let mut builder = MediaDriver::builder();
 
     // Apply configuration
     if let Some(ref dir) = config.dir {
-        driver.set_dir(dir)?;
+        builder = builder.dir(dir);
     }
     if let Some(v) = config.dir_delete_on_start {
-        driver.set_dir_delete_on_start(v)?;
+        builder = builder.dir_delete_on_start(v);
     }
     if let Some(v) = config.dir_delete_on_shutdown {
-        driver.set_dir_delete_on_shutdown(v)?;
+        builder = builder.dir_delete_on_shutdown(v);
     }
     if let Some(ref mode) = config.threading_mode {
-        driver.set_threading_mode(parse_threading_mode(mode)?)?;
+        builder = builder.threading_mode(mode.parse::<ThreadingMode>()?);
     }
     if let Some(ref s) = config.conductor_idle_strategy {
-        driver.set_conductor_idle_strategy(parse_idle_strategy(s)?)?;
+        builder = builder.conductor_idle_strategy(s.parse::<DriverIdleStrategy>()?);
     }
     if let Some(ref s) = config.sender_idle_strategy {
-        driver.set_sender_idle_strategy(parse_idle_strategy(s)?)?;
+        builder = builder.sender_idle_strategy(s.parse::<DriverIdleStrategy>()?);
     }
     if let Some(ref s) = config.receiver_idle_strategy {
-        driver.set_receiver_idle_strategy(parse_idle_strategy(s)?)?;
+        builder = builder.receiver_idle_strategy(s.parse::<DriverIdleStrategy>()?);
+    }
+    if let Some(ref s) = config.shared_idle_strategy {
+        builder = builder.shared_idle_strategy(s.parse::<DriverIdleStrategy>()?);
+    }
+    if let Some(ref s) = config.sharednetwork_idle_strategy {
+        builder = builder.sharednetwork_idle_strategy(s.parse::<DriverIdleStrategy>()?);
     }
     if let Some(v) = config.term_buffer_length {
-        driver.set_term_buffer_length(v)?;
+        builder = builder.term_buffer_length(v);
     }
     if let Some(v) = config.ipc_term_buffer_length {
-        driver.set_ipc_term_buffer_length(v)?;
+        builder = builder.ipc_term_buffer_length(v);
     }
     if let Some(v) = config.mtu_length {
-        driver.set_mtu_length(v)?;
+        builder = builder.mtu_length(v);
     }
     if let Some(v) = config.ipc_mtu_length {
-        driver.set_ipc_mtu_length(v)?;
+        builder = builder.ipc_mtu_length(v);
     }
     if let Some(v) = config.socket_so_rcvbuf {
-        driver.set_socket_so_rcvbuf(v)?;
+        builder = builder.socket_so_rcvbuf(v);
     }
     if let Some(v) = config.socket_so_sndbuf {
-        driver.set_socket_so_sndbuf(v)?;
+        builder = builder.socket_so_sndbuf(v);
     }
     if let Some(v) = config.print_configuration {
-        driver.set_print_configuration(v)?;
+        builder = builder.print_configuration(v);
     }
     if let Some(v) = config.conductor_cpu_affinity {
-        driver.set_conductor_cpu_affinity(v)?;
+        builder = builder.conductor_cpu_affinity(v);
     }
     if let Some(v) = config.sender_cpu_affinity {
-        driver.set_sender_cpu_affinity(v)?;
+        builder = builder.sender_cpu_affinity(v);
     }
     if let Some(v) = config.receiver_cpu_affinity {
-        driver.set_receiver_cpu_affinity(v)?;
+        builder = builder.receiver_cpu_affinity(v);
     }
 
-    driver.start()?;
-    println!("Media Driver started successfully.");
-    println!("Press Ctrl+C to shut down...");
-
     let running = Arc::new(AtomicBool::new(true));
+    // Stop on SIGINT, SIGTERM or SIGHUP (e.g. systemd, Kubernetes), from before
+    // the driver starts, so the driver is always closed (and its directory
+    // deleted if configured).
     let r = running.clone();
-
     ctrlc::set_handler(move || {
         println!("\nShutting down Media Driver...");
         r.store(false, Ordering::SeqCst);
     })
-    .expect("Error setting Ctrl-C handler");
+    .expect("Error setting the signal handler");
+
+    // Stop on an accepted termination request: one carrying the configured
+    // token, or whatever AERON_DRIVER_TERMINATION_VALIDATOR accepts.
+    if let Some(token) = config.termination_token.clone() {
+        builder = builder.termination_validator(move |request| request == token.as_bytes());
+    }
+    let r = running.clone();
+    builder = builder.termination_hook(move || {
+        println!("\nTermination requested, shutting down Media Driver...");
+        r.store(false, Ordering::SeqCst);
+    });
+
+    let driver = builder.start()?;
+    let invoker = driver.threading_mode() == ThreadingMode::Invoker;
+    println!("Media Driver started in {}", driver.dir());
+    println!("Media Driver started successfully.");
+    println!("Press Ctrl+C to shut down...");
 
     while running.load(Ordering::SeqCst) {
-        thread::sleep(Duration::from_millis(100));
+        if invoker {
+            // No driver threads: run its duty cycle here.
+            let work = driver.do_work()?;
+            driver.idle(work)?;
+        } else {
+            thread::sleep(Duration::from_millis(100));
+        }
     }
 
     println!("Media Driver stopped.");

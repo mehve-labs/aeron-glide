@@ -5,221 +5,346 @@
 [![docs.rs](https://docs.rs/aeron-glide/badge.svg)](https://docs.rs/aeron-glide)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
+A safe, idiomatic Rust API for [Aeron](https://github.com/aeron-io/aeron): the
+client, the embedded C media driver and the archive client, built on Aeron's
+C++ API with [`cxx`](https://cxx.rs/). It is built against Aeron **1.53.3**.
 
-A safe, idiomatic Rust wrapper for the [Aeron](https://github.com/real-logic/aeron) C++ API, built using [`cxx`](https://cxx.rs/).
+```rust
+use aeron_glide::AeronClient;
 
-## Why `aeron-glide`?
+let client = AeronClient::new()?; // connects to a running media driver
+let publication = client.add_publication("aeron:ipc", 1001)?;
+let mut subscription = client.add_subscription("aeron:ipc", 1001)?;
 
-Previously, the Rust ecosystem relied on projects like [rusteron](https://github.com/mimiquate/rusteron) to interface with Aeron. While `rusteron` successfully bridged the gap to the underlying C API, doing so heavily relied on complex generic code generation, unsafe bindings, and verbose C structs exposed directly to Rust developers. This often led to difficult-to-maintain abstractions and safety boundaries that were hard to enforce.
+// Retry while not connected or back pressured; other errors are real.
+while let Err(e) = publication.offer(b"hello aeron") {
+    if !e.is_retryable() {
+        return Err(e.into());
+    }
+}
 
-We decided to build something better.
+subscription.poll(10, |data, _header| {
+    println!("received {}", String::from_utf8_lossy(data));
+})?;
+```
 
-`aeron-glide` takes a fundamentally different approach. Instead of binding strictly to the Aeron C API using `bindgen`, we bind directly to the **Aeron C++ API** using `cxx`. `cxx` creates a safe, statically verified bridge between Rust and C++, allowing us to eliminate vast amounts of boilerplate. Our C++ shim carefully wraps Aeron's `Context`, `Publication`, and `Subscription` objects, passing closures cleanly through trampolines into safe, idiomatic Rust structures.
+## What it covers
 
-The result is a fast, safe, and significantly cleaner Aeron client for Rust.
+- **Client**: publications (concurrent and exclusive), `offer`, zero-copy
+  `try_claim`, vectored offers, block offers and padding (exclusive
+  publications), subscriptions with fragment reassembly and
+  controlled polling, images, synchronous and asynchronous adds, destinations
+  (MDC/MDS), response channels, and the client's lifecycle handlers.
+- **Channels**: `ChannelBuilder` builds and validates channel URIs (every C++
+  `ChannelUriStringBuilder` parameter); `ChannelUri` parses them.
+- **Counters**: your own counters, the driver's counters (`CountersReader`),
+  and the driver's CnC file without a client (`CncFile`: counters, error log,
+  loss report, driver liveness).
+- **Embedded media driver** (`MediaDriver`, `driver` feature): every
+  `aeronmd.h` setting, threaded or invoker mode (you run its duty cycle),
+  termination validators and hooks. Also a `mediadriver` binary (`bin`
+  feature) configured from YAML.
+- **Agents** (`concurrent`): Aeron's idle strategies, and `AgentRunner` /
+  `AgentInvoker` to run a client or driver duty cycle (or your own) on a
+  thread you control.
+- **Archive client** (`archive` feature): recording, replay (including
+  bounded replays), queries, replication, `ReplayMerge`,
+  `PersistentSubscription`, recording signals and typed archive error codes.
+
+## How it differs from rusteron
+
+[rusteron](https://github.com/gsrxyz/rusteron) is the other complete Aeron
+binding for Rust. It is generated from Aeron's C API, exposes nearly every C
+function with little abstraction, and is used in production. Its README
+is upfront that the API "operates in an `unsafe` context": misuse, such as
+using a publication after its client is closed, is undefined behaviour.
+
+aeron-glide takes the opposite approach: a hand-written API where that misuse
+cannot be expressed in safe code. Performance is the same (on the hot path
+both call Aeron's C client functions; see [Benchmarks](#benchmarks)), so the
+difference is in what the API guarantees.
+
+The same publish/subscribe setup with each (rusteron's half adapted from its
+README):
+
+```rust
+// rusteron
+let ctx = AeronContext::new()?;
+ctx.set_dir(&cformat!("{}", dir))?;
+let aeron = Aeron::new(&ctx)?;
+aeron.start()?;
+let publication = aeron
+    .async_add_publication(c"aeron:ipc", 123)?
+    .poll_blocking(Duration::from_secs(5))?;
+let subscription = aeron
+    .async_add_subscription(c"aeron:ipc", 123, Handlers::NONE, Handlers::NONE)?
+    .poll_blocking(Duration::from_secs(5))?;
+subscription.poll_fn(|msg: &[u8], header: AeronHeader| { /* ... */ }, 10)?;
+
+// aeron-glide
+let client = AeronClient::connect(Context::new().aeron_dir(dir))?;
+let publication = client.add_publication("aeron:ipc", 123)?;
+let mut subscription = client.add_subscription("aeron:ipc", 123)?;
+subscription.poll(10, |msg, header| { /* ... */ })?;
+```
+
+**Where aeron-glide is stronger**
+
+- **Safe by construction.** Publications, subscriptions and counters keep
+  their client alive; borrowed objects (images, `ReplayMerge`, buffer claims)
+  carry lifetimes; closing is dropping, in any order.
+- **Thread safety in the types.** `Send` and `Sync` follow Aeron's documented
+  rules out of the box: a client and a concurrent publication are `Sync`,
+  subscriptions and exclusive publications are `Send` only. rusteron makes its
+  handles `Sync` only with its `multi-threaded` feature.
+- **Handlers that can't take the process down.** A panic in a handler is
+  caught and resumed after the poll, or reported; in rusteron, callbacks are
+  `extern "C"`, so a panic aborts. Handlers may drop what they own, including
+  the client, and calls Aeron cannot make from a handler fail with an error
+  instead of deadlocking.
+- **Hardened against Aeron's own bugs.** Writing the bindings turned up bugs
+  in Aeron's C++ wrapper, C client and archive client: a counter
+  use-after-free, a `compareAndSet` that can succeed without writing on ARM,
+  timeouts that overflow, an archive connect that can hang forever, readers
+  that trust lengths from corrupt files, and more. The shim works around them
+  and the tests check each workaround. Several are in Aeron's C client (the
+  timeouts, the archive hang, the file readers), so code calling it directly,
+  rusteron included, is exposed to those.
+- **Rust-shaped API.** `&str` channels, builders that validate, one `Error`
+  type with Aeron's error codes, idle strategies and agents, and documentation
+  on every public item.
+
+**Where rusteron is stronger**
+
+- **Breadth.** Being generated, it covers nearly all of the C API, including
+  the driver's pluggable flow control, congestion control and interceptors,
+  which aeron-glide does not expose yet. If you need a C function we don't
+  wrap, rusteron probably has it (and please open an issue).
+
+| | aeron-glide | rusteron |
+|---|---|---|
+| Binds | Aeron's C++ API through `cxx`, and the C API where C++ lacks a call or has a bug | Aeron's C API, generated with `bindgen` and its own code generator |
+| Misuse | Rejected by the compiler or returned as an error | Undefined behaviour, as its README documents |
+| Panics in callbacks | Caught, then resumed or reported | Abort the process |
+| Errors | `Error` with an `ErrorKind` and Aeron's error code, `OfferError`, typed archive error codes | `AeronCError` with an `AeronErrorType`, `AeronOfferError` |
+| API surface | Curated and documented; gaps added by hand | Nearly all of the C API |
+| Performance | Same | Same |
 
 ## Installation
 
 ```toml
 [dependencies]
-aeron-glide = "0.3"
+aeron-glide = "0.4"
 ```
 
-## Prerequisites
+| Feature | Default | What it adds |
+|---|---|---|
+| `driver` | yes | The embedded C media driver (`MediaDriver`). Without it only the client is built; run a driver separately. |
+| `archive` | no | The Aeron Archive client (needs Java 17+ to build). |
+| `bin` | no | The `mediadriver` binary (`cargo install aeron-glide --features bin`). |
 
-- **CMake** (for building the Aeron C++ Driver from source)
-- **Rust 1.97+** (Cargo)
-- **C++14+ compiler**
-- **Java JDK 17+** (only required when building with `--features archive`)
+### Prerequisites
 
-*(Note: The `build.rs` script will automatically fetch and compile Aeron `v1.53.3` for you during the initial `cargo build`.)*
+- **Rust 1.97+**
+- **CMake 3.30+** (Aeron 1.53 requires it; Debian 12 ships 3.25, so install a
+  newer one from cmake.org or pip)
+- **A C++17 compiler**
+- **Java 17+**, only with the `archive` feature
+- On Linux, `libbsd` and `libuuid` headers are recommended (`libbsd-dev
+  uuid-dev` on Debian/Ubuntu): Aeron uses them when CMake finds them
 
-## Quick Start
+The build script downloads the Aeron source release from GitHub, checks its
+SHA-256 and compiles it on the first build. With the `archive` feature, Aeron's
+build also runs its Gradle wrapper, which downloads Gradle and Java
+dependencies that the source checksum does not cover (and writes to
+`~/.gradle`); build with a warm Gradle cache or a mirror if that matters to
+you. Environment variables:
 
-```rust
-use aeron_glide::AeronClient;
+| Variable | Effect |
+|---|---|
+| `AERON_SOURCE_DIR` | Build from this Aeron source tree instead of downloading (offline builds). With `archive`, Aeron's Gradle build of the jar runs in that tree and needs the network unless Gradle's cache is warm |
+| `AERON_VERSION` | Another Aeron release (the generated bindings target 1.53.3) |
+| `AERON_SHA256` | The expected SHA-256 of the downloaded tarball (overrides the built-in one) |
+| `AERON_GLIDE_SANITIZER` | Build Aeron and the shims with `-fsanitize=<value>`, e.g. `address` |
 
-let mut client = AeronClient::new()?;
-client.start();
+CI tests Linux (x86_64 and arm64) and macOS. Windows builds are experimental.
 
-let mut pub1 = client.add_publication("aeron:ipc", 1001)?;
-let mut sub1 = client.add_subscription("aeron:ipc", 1001)?;
+## Thread safety
 
-// Publish
-while pub1.offer(b"hello aeron") < 0 {}
+| Type | `Send` | `Sync` |
+|---|---|---|
+| `AeronClient`, `Publication`, `Counter`, `CountersReader`, `CncFile`, `MediaDriver`, `AeronArchive` | yes | yes |
+| `ExclusivePublication`, `Subscription`, `PersistentSubscription`, `ReplayMerge` | yes | no |
+| `Image` (borrows its `Subscription`) | no | no |
 
-// Subscribe
-sub1.poll(10, |data| {
-    println!("Received: {}", std::str::from_utf8(data).unwrap());
-});
-```
+Share one client per process (`Arc<AeronClient>`) and add resources from any
+thread. A concurrent `Publication` can be offered to from several threads;
+move exclusive publications and subscriptions to the thread that uses them.
 
-## Running the Examples
+A client in agent invoker mode (`Context::use_conductor_agent_invoker`) has no
+conductor thread: call `AeronClient::invoke` (or run a `ClientAgent` with an
+`AgentRunner`) to do its work. Calls from other threads are serialised with
+it.
 
-All examples require a running Aeron Media Driver. You can start one with:
+## Handlers and panics
+
+Closures run on Aeron's threads or inside Aeron calls, so a panic must not
+unwind through C++:
+
+- **Poll handlers** (`poll`, `poll_assembled`, `controlled_poll`, ...): the
+  panic is caught and resumed once Aeron returns from the poll. The remaining
+  fragments of that poll are consumed without being delivered; a controlled
+  handler's fragment is aborted instead, so the next poll delivers it again.
+- **Reserved value suppliers** (`offer_with_reserved_value`): the message is
+  still published, and the panic is resumed afterwards.
+- **Client, driver and archive handlers** (error handlers, image and counter
+  handlers, termination hooks, recording signals, ...): the panic is caught
+  and printed to stderr, since they run on Aeron's conductor threads.
+
+Handlers may drop the objects they own, including the client: the drop is
+moved off Aeron's thread when it would otherwise join or free the thread it
+runs on. Calls Aeron cannot make from inside a handler (for example adding or
+removing client handlers, waiting for an asynchronous add, or a blocking
+archive request from an archive handler) fail with
+an error instead of deadlocking.
+
+## Examples
+
+The `embedded_*`, `streaming_rate`, `file_transfer`, `multi_destination`,
+`non_blocking_publisher` and `response_channel` examples start their own media
+driver. The archive examples use the archive server's driver. The others need a
+media driver; start one in its own terminal:
 
 ```bash
-cargo run --bin mediadriver
+cargo run --features bin --bin mediadriver                              # defaults
+cargo run --features bin --bin mediadriver -- examples/mediadriver.yaml # from a config
 ```
 
-This launches an embedded C media driver that manages shared memory buffers and handles publication/subscription matching. Keep it running in a dedicated terminal, then use any of the examples below in separate terminals.
-
-You can optionally pass a YAML config file to tune driver settings (threading mode, buffer sizes, idle strategies, etc.):
+| Example | Shows |
+|---|---|
+| `ping` / `pong` | Round trips over IPC or UDP; `--exclusive` and `--zero-copy` (`try_claim`) |
+| `large_ping` / `large_pong` | Messages larger than the MTU: reassembly and controlled polling |
+| `throughput` / `latency` | IPC throughput and UDP latency benchmarks |
+| `counters` | The driver's counters |
+| `image_demo` | Images and their positions |
+| `response_channel` | Request/response over response channels |
+| `basic_publisher` / `basic_subscriber` | Aeron's basic samples: publish once a second, print what arrives |
+| `non_blocking_publisher` | Asynchronous adds polled from your own loop, and a publisher `Agent` on an `AgentRunner` |
+| `driver_stats` | A driver's CnC file without a client: counters, liveness, the distinct error log and the loss report |
+| `embedded_ping_pong` / `embedded_exclusive_ipc_throughput` | Latency and throughput with the driver in-process |
+| `streaming_rate` | Streaming as fast as possible, with messages larger than the MTU |
+| `file_transfer` | A file sent in `try_claim` chunks, reassembled and checksummed |
+| `multi_destination` | Multi-destination cast (dynamic and manual) and a multi-destination subscription |
+| `record` / `replay` / `replay_merge_demo` | Archive client (`--features archive`, archive server below) |
+| `persistent_subscription` | Replay, join the live stream, fall back to replay when live is lost, rejoin |
+| `recording_replication` / `recording_throughput` | Replicating a recording; recording rate and the catalog |
+| `archive_error_handling` | Typed archive error codes, error responses, connect retries, closed clients |
 
 ```bash
-cargo run --bin mediadriver -- examples/mediadriver.yaml
-```
-
-### Ping / Pong
-
-Basic pub/sub round-trip. Sends 10 `"ping!"` messages and measures total time.
-
-```bash
-# Terminal 1                                    # Terminal 2
-cargo run --example pong                        cargo run --example ping
-```
-
-**Exclusive publication** (single-writer, lower contention):
-```bash
-cargo run --example pong -- --exclusive
-cargo run --example ping -- --exclusive
-```
-
-**Zero-copy publish** (writes directly into Aeron's log buffer via `tryClaim`):
-```bash
-cargo run --example pong
-cargo run --example ping -- --zero-copy
-```
-
-**Both combined:**
-```bash
-cargo run --example pong -- --exclusive
+cargo run --example pong              # terminal 2
+cargo run --example ping              # terminal 3
 cargo run --example ping -- --exclusive --zero-copy
-```
 
-**UDP transport** (instead of IPC shared memory):
-```bash
+# Over UDP: both sides on the same channel
 cargo run --example pong -- --channel "aeron:udp?endpoint=localhost:20121"
 cargo run --example ping -- --channel "aeron:udp?endpoint=localhost:20121"
 ```
 
-### Large Ping / Pong
+## Archive
 
-Sends 8 KB messages that exceed the MTU and get fragmented by Aeron. Demonstrates `poll_assembled` (automatic fragment reassembly) and `ControlledAction` (back-pressure flow control).
-
-```bash
-# Terminal 1                                    # Terminal 2
-cargo run --example large_pong                  cargo run --example large_ping
-```
-
-`large_pong` uses `ControlledAction::Abort` when it can't echo back immediately, causing Aeron to re-deliver the message on the next poll -- no user-side buffering needed.
-
-### Counters
-
-Reads Aeron's CNC (command-and-control) counters -- real-time stats like bytes sent/received, NAKs, errors, and heartbeats.
+The archive **server** is Java only (Aeron's C and C++ APIs only include the
+client), so run the Java `ArchivingMediaDriver` next to your application.
+`--features archive` builds Aeron's `aeron-all` jar along with the client, and
+`scripts/start-archive.sh` in this repository starts the server from it:
 
 ```bash
-cargo run --example counters
-```
-
-The `ping` example also prints counters after its run.
-
-## Benchmarks
-
-See [BENCHMARKS.md](BENCHMARKS.md) for full results. Summary on Apple Silicon:
-
-| Test | Result |
-|------|--------|
-| IPC Throughput (exclusive, 32B) | ~67.5M msgs/sec |
-| UDP Latency p50 (32B, localhost) | ~17.5 us |
-| UDP Latency p99 (32B, localhost) | ~28.2 us |
-
-```bash
-cargo run --release --example throughput   # IPC throughput
-cargo run --release --example latency      # UDP ping-pong latency
-```
-
-## Archive Support
-
-The Aeron Archive enables recording streams to disk and replaying them later.
-
-**Important**: The Aeron Archive **server** (the process that actually records and replays streams) is Java-only -- it is not exposed by the C or C++ API. You must run the Java `ArchivingMediaDriver` separately. This crate provides the **client** bindings that connect to and control that server.
-
-Archive support is behind a Cargo feature flag because it requires Java 17+ at build time (for SBE codec generation):
-
-```bash
-cargo build --features archive
-```
-
-If your default Java is too old, set `JAVA_HOME`:
-
-```bash
-JAVA_HOME=/path/to/jdk17+ cargo build --features archive
-```
-
-### Running the Archive Server
-
-Start the Java ArchivingMediaDriver (which includes both a media driver and the archive):
-
-```bash
-bash scripts/start-archive.sh
-```
-
-This finds the `aeron-all` jar built during `cargo build --features archive` and launches the server. Keep it running in a dedicated terminal.
-
-### Record / Replay
-
-With the archive server running:
-
-```bash
-# Terminal 2: Record 10 messages to the archive
+cargo build --features archive        # JAVA_HOME=/path/to/jdk17+ if needed
+bash scripts/start-archive.sh         # terminal 1
 cargo run --features archive --example record
-
-# Terminal 3: Replay all recorded messages from the beginning
 cargo run --features archive --example replay
 ```
 
-### Archive Client API
-
-The archive client API provides:
-- **Recording**: start/stop recording any channel+stream to the archive
-- **Replay**: replay recorded streams from any position
-- **Listing**: query recording descriptors by ID, channel, or stream
-- **Position queries**: get recording/start/stop/max positions
-- **Truncation**: truncate stopped recordings
-
 ```rust
-use aeron_glide::archive::{AeronArchive, SourceLocation};
+use aeron_glide::archive::{self, ReplayParams, SourceLocation};
 
-let mut archive = AeronArchive::connect(
-    "aeron:udp?endpoint=localhost:8010", 10,  // control request
-    "aeron:udp?endpoint=localhost:0", 20,     // control response
-)?;
+let archive = archive::Context::new()
+    .control_request_channel("aeron:udp?endpoint=localhost:8010")
+    .control_response_channel("aeron:udp?endpoint=localhost:0")
+    .connect()?;
 
-// Start recording
-let sub_id = archive.start_recording("aeron:ipc", 1001, SourceLocation::Local, false)?;
-
-// List recordings
-archive.list_recordings(0, 100, |desc| {
-    println!("Recording {}: stream={} channel={}", desc.recording_id, desc.stream_id, desc.stripped_channel);
+let subscription_id =
+    archive.start_recording("aeron:ipc", 1001, SourceLocation::Local, false)?;
+archive.list_recordings(0, 100, |recording| {
+    println!("{}: {}", recording.recording_id, recording.stripped_channel);
 })?;
-
-// Replay
-let replay_session = archive.start_replay(0, "aeron:ipc", 1002, 0, i64::MAX)?;
+let mut replay = archive.replay(0, "aeron:ipc", 1002, &ReplayParams::new().position(0))?;
+replay.poll(10, |data, _| println!("{} bytes", data.len()))?;
 ```
+
+The archive tests start a Java `ArchivingMediaDriver` per test. They are
+skipped when Java or the jar is missing, unless
+`AERON_GLIDE_REQUIRE_ARCHIVE=1` is set (`AERON_ALL_JAR` points them to another
+jar).
+
+## Benchmarks
+
+aeron-glide performs the same as rusteron: on the hot path both call Aeron's C
+client functions. On an Apple M4 Pro, against one shared media driver (Aeron
+1.53.3), median of three alternating rounds:
+
+| | IPC throughput | UDP round trip p50 | p99 | p99.9 |
+|---|---|---|---|---|
+| aeron-glide 0.4.0 | 39.7M msgs/sec | 19.8 µs | 29.6 µs | 43.1 µs |
+| rusteron 0.2.10 | 39.9M msgs/sec | 20.1 µs | 29.8 µs | 46.4 µs |
+
+**[BENCHMARKS.md](BENCHMARKS.md)** has the method, a run pinned with
+`taskset` on Linux, and how to reproduce them with
+[`scripts/benchmark.py`](scripts/benchmark.py).
+
+## Built with AI
+
+This project would not exist without AI. aeron-glide is developed with
+AI coding agents doing most of the writing, and humans deciding what to build,
+setting the bar and checking the results. We say so plainly because it shaped
+the project.
+
+A safe binding for Aeron means reading, line by line, Aeron's Java, C and C++
+clients and media driver; checking every wrapper against them; and asking at
+each call what happens on another thread, inside a handler, after the driver
+dies, or with a corrupt file. AI agents made that amount of work possible:
+
+- they compared each API with Aeron's own code and tests, phase by phase;
+- separate agents reviewed every phase adversarially, looking for ways to break
+  it, and those findings were fixed and turned into regression tests;
+- they ran the suite on Linux x86_64 and arm64 and under AddressSanitizer, and
+  ran the benchmarks against rusteron;
+- along the way they found and reproduced the Aeron bugs the shim works around.
+
+Nothing is trusted because an AI wrote it: changes land only when the tests,
+the sanitizer and the reviews agree.
+
+If you don't want AI-developed code in your stack, this crate is not for you,
+and that's fine. If you do use it, the same tools can help you read, extend or
+fork it.
 
 ## Documentation
 
-Full API documentation is available on [docs.rs](https://docs.rs/aeron-glide).
+API documentation is on [docs.rs](https://docs.rs/aeron-glide), and
+[CHANGELOG.md](CHANGELOG.md) lists the changes in each release.
 
-## Minimum Supported Rust Version
+## Minimum supported Rust version
 
-The MSRV is **1.97.0**. CI also tests against the latest stable Rust.
+1.97. CI also tests the latest stable Rust.
 
 ## License
 
-> **Disclaimer:** This project is not officially associated with or endorsed by Adaptive Financial Consulting Ltd. (Adaptive) or the Aeron project.
+> **Disclaimer:** This project is not officially associated with or endorsed
+> by Adaptive Financial Consulting Ltd. (Adaptive) or the Aeron project.
 
-This project is licensed under the [Apache License 2.0](LICENSE) — free for everyone, any purpose (including proprietary and closed-source use), subject only to the attribution and notice terms of the license. See [NOTICE](NOTICE) for attribution details.
+Licensed under the [Apache License 2.0](LICENSE): free for any purpose,
+including proprietary and closed-source use, subject to the license's
+attribution and notice terms. See [NOTICE](NOTICE) for attribution details.
 
-Unless you explicitly state otherwise, any contribution you submit for inclusion in aeron-glide shall be licensed under the Apache License 2.0, without any additional terms or conditions. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Unless you explicitly state otherwise, any contribution you submit for
+inclusion in aeron-glide is licensed under the Apache License 2.0, without
+any additional terms or conditions. See [CONTRIBUTING.md](CONTRIBUTING.md).

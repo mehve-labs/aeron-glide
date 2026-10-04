@@ -1,5 +1,20 @@
+//! Replay a recording with Aeron Archive, in the spirit of Aeron's
+//! `ReplayedBasicSubscriber.java`: lists the archive's recordings, replays
+//! the last one onto `aeron:ipc` stream 1002 and prints the replayed
+//! messages (reassembled), stopping once the replay has gone quiet for a
+//! second. Run `record` first to have something to replay.
+//!
+//! Needs the archive server (an `ArchivingMediaDriver` on the default Aeron
+//! directory, control channel `localhost:8010`):
+//!
+//! ```text
+//! ./scripts/start-archive.sh
+//! cargo run --features archive --example record
+//! cargo run --features archive --example replay
+//! ```
+
 use aeron_glide::AeronClient;
-use aeron_glide::archive::AeronArchive;
+use aeron_glide::archive::{self, ReplayParams};
 use std::thread;
 use std::time::Duration;
 
@@ -8,12 +23,12 @@ const REPLAY_STREAM_ID: i32 = 1002;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Connecting to Aeron Archive...");
-    let mut archive = AeronArchive::connect(
-        "aeron:udp?endpoint=localhost:8010",
-        10,
-        "aeron:udp?endpoint=localhost:0",
-        20,
-    )?;
+    let archive = archive::Context::new()
+        .control_request_channel("aeron:udp?endpoint=localhost:8010")
+        .control_request_stream_id(10)
+        .control_response_channel("aeron:udp?endpoint=localhost:0")
+        .control_response_stream_id(20)
+        .connect()?;
     println!(
         "Connected (archive_id={}, session={})",
         archive.archive_id(),
@@ -53,8 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Create Aeron client and subscribe to the replay channel
-    let mut client = AeronClient::new()?;
-    client.start();
+    let client = AeronClient::new()?;
 
     let mut sub = client.add_subscription(REPLAY_CHANNEL, REPLAY_STREAM_ID)?;
 
@@ -63,8 +77,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         recording_id,
         REPLAY_CHANNEL,
         REPLAY_STREAM_ID,
-        target_start_pos,
-        length,
+        &ReplayParams::new()
+            .position(target_start_pos)
+            .length(length),
     )?;
     println!("Replay started (session={})", replay_session);
 
@@ -80,11 +95,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut idle_count = 0;
 
     while idle_count < 100 {
-        let fragments = sub.poll_assembled(10, |data| {
+        let fragments = sub.poll_assembled(10, |data, _| {
             let msg = std::str::from_utf8(data).unwrap_or("<binary>");
             println!("  [{}] {}", total_received, msg);
             total_received += 1;
-        });
+        })?;
         if fragments == 0 {
             idle_count += 1;
             thread::sleep(Duration::from_millis(10));

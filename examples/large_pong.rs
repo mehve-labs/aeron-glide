@@ -1,4 +1,18 @@
-use aeron_glide::{AeronClient, ControlledAction};
+//! The pong side of `large_ping`: reassembles each fragmented ping on
+//! `aeron:ipc` (stream 20) with `poll_assembled` and echoes it on stream 21.
+//! The handler returns a `ControlledAction` (Aeron's controlled poll): when
+//! the echo is back-pressured it returns `Abort`, so the same message is
+//! delivered again on the next poll. Runs until Ctrl-C.
+//!
+//! Needs a running media driver; start this before `large_ping`:
+//!
+//! ```text
+//! cargo run --features bin --bin mediadriver
+//! cargo run --example large_pong
+//! cargo run --example large_ping
+//! ```
+
+use aeron_glide::{AeronClient, ControlledAction, OfferError};
 use std::thread;
 use std::time::Duration;
 
@@ -9,21 +23,20 @@ const PONG_STREAM_ID: i32 = 21;
 fn main() {
     println!("Starting large_pong (controlled flow + fragment assembler)...");
 
-    let mut client = AeronClient::new().expect("Failed to start Aeron");
-    client.start();
+    let client = AeronClient::new().expect("Failed to start Aeron");
 
     let mut sub = client.add_subscription(CHANNEL, PING_STREAM_ID).unwrap();
-    let mut publ = client.add_publication(CHANNEL, PONG_STREAM_ID).unwrap();
+    let publ = client.add_publication(CHANNEL, PONG_STREAM_ID).unwrap();
 
     println!("large_pong waiting for messages...");
 
     loop {
         // poll_assembled with ControlledAction: if we can't echo back immediately,
         // return Abort so Aeron rewinds and re-delivers the message next poll.
-        let _ = sub.poll_assembled(10, |data| -> ControlledAction {
+        sub.poll_assembled(10, |data, _| -> ControlledAction {
             let seq = u32::from_le_bytes(data[..4].try_into().unwrap());
 
-            if publ.offer(data) < 0 {
+            if !sent(publ.offer(data)) {
                 // Back-pressure: can't send right now, tell Aeron to retry
                 println!("  seq={}: back-pressure, aborting", seq);
                 return ControlledAction::Abort;
@@ -31,8 +44,19 @@ fn main() {
 
             println!("Echoed ping: seq={}, size={} bytes", seq, data.len());
             ControlledAction::Continue
-        });
+        })
+        .expect("poll failed");
 
         thread::sleep(Duration::from_millis(1));
+    }
+}
+
+/// `true` once offered, `false` to retry (back pressure, not connected yet, ...).
+/// Errors that retrying cannot fix (e.g. a message too long) end the example.
+fn sent(result: Result<i64, OfferError>) -> bool {
+    match result {
+        Ok(_) => true,
+        Err(e) if e.is_retryable() => false,
+        Err(e) => panic!("offer failed: {e}"),
     }
 }

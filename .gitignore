@@ -2,3 +2,6 @@
 **/*.rs.bk
 .claude/
 aeron-archive/
+docs/
+.DS_Store
+__pycache__/

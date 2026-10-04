@@ -12,9 +12,14 @@ dir_delete_on_start: true
 # threading_mode: dedicated
 
 # Idle strategies: backoff | spin | yield | sleeping | noop
+# dedicated mode: conductor, sender and receiver threads
 # conductor_idle_strategy: backoff
 # sender_idle_strategy: backoff
 # receiver_idle_strategy: backoff
+# shared and invoker modes: the single thread
+# shared_idle_strategy: backoff
+# shared_network mode: the sender and receiver thread (conductor as above)
+# sharednetwork_idle_strategy: backoff
 
 # Buffer sizes (bytes, must be power of 2)
 # term_buffer_length: 16777216
@@ -33,3 +38,7 @@ print_configuration: true
 # conductor_cpu_affinity: -1
 # sender_cpu_affinity: -1
 # receiver_cpu_affinity: -1
+
+# Shut down when a termination request with this token arrives
+# (Context::request_driver_termination). Unset: requests are rejected.
+# termination_token: "let me stop"

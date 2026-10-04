@@ -1,11 +1,22 @@
+//! List every counter of a running media driver (ID, type ID, label and
+//! value) through a connected client's counters reader, a minimal take on
+//! Aeron's `AeronStat.java`. See `driver_stats` for the fuller tool (error log
+//! and loss report too, without connecting a client).
+//!
+//! Needs a running media driver:
+//!
+//! ```text
+//! cargo run --features bin --bin mediadriver
+//! cargo run --example counters
+//! ```
+
 use aeron_glide::AeronClient;
 use std::thread;
 use std::time::Duration;
 
 fn main() {
     println!("Connecting to Media Driver for Counters...");
-    let mut client = AeronClient::new().expect("Failed to create AeronClient");
-    client.start();
+    let client = AeronClient::new().expect("Failed to create AeronClient");
 
     // Give it a moment to connect and synchronize CNC metadata
     thread::sleep(Duration::from_millis(500));
@@ -16,10 +27,12 @@ fn main() {
     let max_id = reader.max_counter_id();
     println!("Max Counter ID capacity: {}", max_id);
 
-    reader.for_each(|id, type_id, _key_buffer, label| {
-        let value = reader.get_counter_value(id);
-        println!("{:>3} [{:<4}] {}: {}", id, type_id, label, value);
-    });
+    reader
+        .for_each(|id, type_id, _key_buffer, label| {
+            let value = reader.get_counter_value(id).unwrap_or(0);
+            println!("{:>3} [{:<4}] {}: {}", id, type_id, label, value);
+        })
+        .expect("failed to read counters");
 
     println!("----------------------");
 }

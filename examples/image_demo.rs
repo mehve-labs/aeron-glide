@@ -1,4 +1,17 @@
-use aeron_glide::{AeronClient, ControlledAction};
+//! The `Image` API: two exclusive publications on one IPC stream give the
+//! subscription one image each (one per session); the example then shows
+//! each image's metadata and position, polls each image on its own (raw,
+//! reassembled, and with `ControlledAction::Break` to stop early) and looks
+//! an image up by session ID. Not modelled on a specific Aeron sample.
+//!
+//! Needs a running media driver:
+//!
+//! ```text
+//! cargo run --features bin --bin mediadriver
+//! cargo run --example image_demo
+//! ```
+
+use aeron_glide::{AeronClient, ControlledAction, OfferError};
 use std::thread;
 use std::time::Duration;
 
@@ -12,15 +25,14 @@ fn pick_stream_id() -> i32 {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stream_id = pick_stream_id();
-    let mut client = AeronClient::new()?;
-    client.start();
+    let client = AeronClient::new()?;
 
     // Exclusive publications each get their own session — this is what creates
     // separate Images on the subscriber side. Regular publications on the same
     // channel+stream share a session (even across clients).
     let mut pub1 = client.add_exclusive_publication(CHANNEL, stream_id)?;
     let mut pub2 = client.add_exclusive_publication(CHANNEL, stream_id)?;
-    let mut sub = client.add_subscription(CHANNEL, stream_id)?;
+    let sub = client.add_subscription(CHANNEL, stream_id)?;
 
     // Wait for both images to appear
     println!("Waiting for publishers to connect...");
@@ -32,12 +44,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Publish some messages from each publisher
     for i in 0..5 {
         let msg1 = format!("pub1: message #{}", i);
-        while pub1.offer(msg1.as_bytes()) < 0 {
+        while !sent(pub1.offer(msg1.as_bytes())) {
             thread::yield_now();
         }
 
         let msg2 = format!("pub2: message #{}", i);
-        while pub2.offer(msg2.as_bytes()) < 0 {
+        while !sent(pub2.offer(msg2.as_bytes())) {
             thread::yield_now();
         }
     }
@@ -48,8 +60,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let count = sub.image_count();
     println!("=== {} Active Images (one per publisher) ===\n", count);
 
-    for i in 0..count as usize {
-        let image = sub.image_by_index(i)?;
+    for i in 0..count {
+        let image = sub.image_by_index(i).ok_or("no image")?;
         println!(
             "  Image[{}]: session_id={:<10} correlation_id={} join_position={} source=\"{}\"",
             i,
@@ -60,7 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         println!(
             "            position={} closed={} end_of_stream={}",
-            image.position(),
+            image.position()?,
             image.is_closed(),
             image.is_end_of_stream(),
         );
@@ -69,28 +81,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Poll messages per-image using raw poll — each image only sees its own publisher
     println!("\n=== Per-Image Raw Poll ===");
     println!("  (Each image only contains messages from its publisher)\n");
-    for i in 0..count as usize {
-        let mut image = sub.image_by_index(i)?;
+    for i in 0..count {
+        let mut image = sub.image_by_index(i).ok_or("no image")?;
         let sid = image.session_id();
-        let fragments = image.poll(10, |data| {
+        let fragments = image.poll(10, |data, _| {
             let msg = std::str::from_utf8(data).unwrap_or("<binary>");
             println!("  [session={}] {}", sid, msg);
-        });
+        })?;
         println!(
             "  -> {} fragments, position now={}\n",
             fragments,
-            image.position()
+            image.position()?
         );
     }
 
     // Publish more messages for assembled poll demo
     for i in 5..10 {
         let msg1 = format!("pub1: message #{}", i);
-        while pub1.offer(msg1.as_bytes()) < 0 {
+        while !sent(pub1.offer(msg1.as_bytes())) {
             thread::yield_now();
         }
         let msg2 = format!("pub2: message #{}", i);
-        while pub2.offer(msg2.as_bytes()) < 0 {
+        while !sent(pub2.offer(msg2.as_bytes())) {
             thread::yield_now();
         }
     }
@@ -98,13 +110,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Assembled poll with auto-Continue
     println!("=== Per-Image Assembled Poll ===\n");
-    for i in 0..count as usize {
-        let mut image = sub.image_by_index(i)?;
+    for i in 0..count {
+        let mut image = sub.image_by_index(i).ok_or("no image")?;
         let sid = image.session_id();
-        let fragments = image.poll_assembled(10, |data| {
+        let fragments = image.poll_assembled(10, |data, _| {
             let msg = std::str::from_utf8(data).unwrap_or("<binary>");
             println!("  [session={}] {}", sid, msg);
-        });
+        })?;
         println!("  -> {} fragments (auto-Continue)\n", fragments);
     }
 
@@ -112,23 +124,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Flow Control: Break after 2 messages ===\n");
     for j in 10..15 {
         let msg1 = format!("pub1: extra #{}", j);
-        while pub1.offer(msg1.as_bytes()) < 0 {
+        while !sent(pub1.offer(msg1.as_bytes())) {
             thread::yield_now();
         }
         let msg2 = format!("pub2: extra #{}", j);
-        while pub2.offer(msg2.as_bytes()) < 0 {
+        while !sent(pub2.offer(msg2.as_bytes())) {
             thread::yield_now();
         }
     }
     thread::sleep(Duration::from_millis(100));
 
-    for i in 0..count as usize {
-        let mut image = sub.image_by_index(i)?;
+    for i in 0..count {
+        let mut image = sub.image_by_index(i).ok_or("no image")?;
         let sid = image.session_id();
-        let pos_before = image.position();
+        let pos_before = image.position()?;
 
         let mut seen = 0;
-        let fragments = image.poll_assembled(10, |data| -> ControlledAction {
+        let fragments = image.poll_assembled(10, |data, _| -> ControlledAction {
             let msg = std::str::from_utf8(data).unwrap_or("<binary>");
             seen += 1;
             println!("  [session={}] {} (seen={})", sid, msg, seen);
@@ -137,38 +149,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 ControlledAction::Continue
             }
-        });
+        })?;
         println!(
             "  -> {} fragments delivered, position {} -> {} (remaining still queued)\n",
             fragments,
             pos_before,
-            image.position()
+            image.position()?
         );
     }
 
     // Lookup by session_id
     println!("=== Lookup by Session ID ===\n");
-    let img0 = sub.image_by_index(0)?;
+    let img0 = sub.image_by_index(0).ok_or("no image")?;
     let sid = img0.session_id();
-    let img_lookup = sub.image_by_session_id(sid)?;
+    let img_lookup = sub.image_by_session_id(sid).ok_or("no image")?;
     println!(
         "  image_by_session_id({}) -> position={}",
         sid,
-        img_lookup.position()
+        img_lookup.position()?
     );
 
     // Final positions
     println!("\n=== Final Position Tracking ===\n");
-    for i in 0..count as usize {
-        let image = sub.image_by_index(i)?;
+    for i in 0..count {
+        let image = sub.image_by_index(i).ok_or("no image")?;
         println!(
             "  Image[{}] session={}: position={}",
             i,
             image.session_id(),
-            image.position()
+            image.position()?
         );
     }
 
     println!("\nDone!");
     Ok(())
+}
+
+/// `true` once offered, `false` to retry (back pressure, not connected yet, ...).
+/// Errors that retrying cannot fix (e.g. a message too long) end the example.
+fn sent(result: Result<i64, OfferError>) -> bool {
+    match result {
+        Ok(_) => true,
+        Err(e) if e.is_retryable() => false,
+        Err(e) => panic!("offer failed: {e}"),
+    }
 }

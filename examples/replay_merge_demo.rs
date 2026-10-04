@@ -1,5 +1,21 @@
-use aeron_glide::AeronClient;
-use aeron_glide::archive::{AeronArchive, ReplayMerge, SourceLocation};
+//! Catch up from a recording, then switch to the live stream, with
+//! `ReplayMerge` (set up as in Aeron's `ReplayMergeTest`): records an MDC
+//! publication (`control-mode=dynamic`), then a manual-control-mode
+//! subscription replays the recording and joins the live stream once it has
+//! caught up, printing the state transitions (live destination added,
+//! merged) and the messages it receives on the way.
+//!
+//! Uses UDP ports 24325 (MDC control) and 24327 (live data). Needs the
+//! archive server (an `ArchivingMediaDriver` on the default Aeron directory,
+//! control channel `localhost:8010`), not a plain media driver:
+//!
+//! ```text
+//! ./scripts/start-archive.sh
+//! cargo run --features archive --example replay_merge_demo
+//! ```
+
+use aeron_glide::archive::{self, ReplayMerge, SourceLocation};
+use aeron_glide::{AeronClient, OfferError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -20,20 +36,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- Setup ---
     println!("Connecting to Aeron Archive...");
-    let mut archive = AeronArchive::connect(
-        "aeron:udp?endpoint=localhost:8010",
-        10,
-        "aeron:udp?endpoint=localhost:0",
-        20,
-    )?;
+    let mut archive = archive::Context::new()
+        .control_request_channel("aeron:udp?endpoint=localhost:8010")
+        .control_request_stream_id(10)
+        .control_response_channel("aeron:udp?endpoint=localhost:0")
+        .control_response_stream_id(20)
+        .connect()?;
     println!(
         "Archive connected (id={}, session={})\n",
         archive.archive_id(),
         archive.control_session_id()
     );
 
-    let mut client = AeronClient::new()?;
-    client.start();
+    let client = AeronClient::new()?;
 
     // --- Phase 1: Create publication, then record ---
     println!("--- Phase 1: Recording Messages ---\n");
@@ -44,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         CONTROL_ENDPOINT
     );
 
-    let mut pub1 = client.add_publication(&pub_channel, STREAM_ID)?;
+    let pub1 = client.add_publication(&pub_channel, STREAM_ID)?;
 
     // Session ID is available immediately (assigned by media driver on creation).
     let pub_session_id = pub1.session_id();
@@ -73,7 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let initial_count = 20;
     for i in 0..initial_count {
         let msg = format!("recorded-msg-{}", i);
-        while pub1.offer(msg.as_bytes()) < 0 {
+        while !sent(pub1.offer(msg.as_bytes())) {
             thread::yield_now();
         }
     }
@@ -158,11 +173,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         merge.do_work()?;
 
         // Poll for fragments
-        let fragments = merge.poll(10, |data| {
+        let fragments = merge.poll(10, |data, _| {
             let msg = std::str::from_utf8(data).unwrap_or("<binary>");
             total_received += 1;
             println!("  [{}] {}", total_received, msg);
-        });
+        })?;
 
         // Monitor state transitions
         if !was_live_added && merge.is_live_added() {
@@ -185,7 +200,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // for the ATTEMPT_LIVE_JOIN -> MERGED transition.
         if !merge.is_merged() && merge.is_live_added() {
             let msg = format!("live-msg-{}", live_published);
-            if pub1.offer(msg.as_bytes()) > 0 {
+            if sent(pub1.offer(msg.as_bytes())) {
                 live_published += 1;
             }
         }
@@ -193,13 +208,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Once merged, drain remaining fragments then exit
         if merge.is_merged() && fragments == 0 {
             thread::sleep(Duration::from_millis(100));
-            merge.poll(100, |data| {
+            merge.poll(100, |data, _| {
                 let msg = std::str::from_utf8(data).unwrap_or("<binary>");
                 total_received += 1;
                 if total_received <= 5 || total_received % 10 == 0 {
                     println!("  [{}] {}", total_received, msg);
                 }
-            });
+            })?;
             break;
         }
 
@@ -218,20 +233,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if merge.is_merged() {
         match merge.image() {
-            Ok(image) => {
+            Some(image) => {
                 println!(
                     "  Merged image: session_id={} position={}",
                     image.session_id(),
-                    image.position()
+                    image.position()?
                 );
             }
-            Err(e) => println!("  Could not get merged image: {}", e),
+            None => println!("  Merged image not available yet"),
         }
     }
 
-    // Cleanup
+    // Cleanup: the merge borrows the archive client until it is dropped.
+    drop(merge);
     archive.stop_recording(sub_id)?;
     println!("\nRecording stopped. Done!");
 
     Ok(())
+}
+
+/// `true` once offered, `false` to retry (back pressure, not connected yet, ...).
+/// Errors that retrying cannot fix (e.g. a message too long) end the example.
+fn sent(result: Result<i64, OfferError>) -> bool {
+    match result {
+        Ok(_) => true,
+        Err(e) if e.is_retryable() => false,
+        Err(e) => panic!("offer failed: {e}"),
+    }
 }

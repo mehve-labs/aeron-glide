@@ -1,44 +1,58 @@
 use cmake::Config;
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     println!("cargo:rerun-if-changed=src/lib.rs");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/shim.cc");
     println!("cargo:rerun-if-changed=src/shim.h");
+    println!("cargo:rerun-if-changed=src/counter_types.h");
 
     // docs.rs builds in a network-isolated sandbox and only runs `cargo doc`,
     // which compiles the crate but never links. Skip the Aeron download, the
     // CMake build, and the cxx C++ compilation entirely — the cxx bridge still
     // expands to pure-Rust FFI declarations, so rustdoc succeeds without them.
+    println!("cargo:rerun-if-env-changed=DOCS_RS");
     if env::var("DOCS_RS").is_ok() {
         return;
     }
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-    // Configurable Aeron version
+    // Inputs of the CMake build that Cargo doesn't track by itself.
+    for var in [
+        "CC",
+        "CXX",
+        "CFLAGS",
+        "CXXFLAGS",
+        "CMAKE_GENERATOR",
+        "JAVA_HOME",
+    ] {
+        println!("cargo:rerun-if-env-changed={var}");
+    }
+
+    // Configurable Aeron version. The generated src/driver_gen.{rs,h} target the
+    // default; other versions may need `scripts/gen_driver_context.py` rerun.
     let aeron_version = env::var("AERON_VERSION").unwrap_or_else(|_| "1.53.3".to_string());
     println!("cargo:rerun-if-env-changed=AERON_VERSION");
 
-    let aeron_dir = out_dir.join(format!("aeron-{}", aeron_version));
-
-    // Download and extract Aeron if it doesn't exist
-    if !aeron_dir.exists() {
-        let url = format!(
-            "https://github.com/real-logic/aeron/archive/refs/tags/{}.tar.gz",
-            aeron_version
-        );
-        download_and_extract(&url, &out_dir);
-    }
+    let aeron_dir = aeron_source(&aeron_version, &out_dir);
 
     let archive_enabled = env::var("CARGO_FEATURE_ARCHIVE").is_ok();
+    let driver_enabled = env::var("CARGO_FEATURE_DRIVER").is_ok();
 
     // Build Aeron C++ using CMake
     let mut config = Config::new(&aeron_dir);
     config
-        .define("BUILD_AERON_DRIVER", "ON")
+        // Aeron's CMake stamps `git log` of its source directory into the driver
+        // (e.g. the "Aeron software" counter label). The extracted tarball is not a
+        // repository, so stop git from finding the enclosing project's instead.
+        .env("GIT_CEILING_DIRECTORIES", &out_dir)
+        .define(
+            "BUILD_AERON_DRIVER",
+            if driver_enabled { "ON" } else { "OFF" },
+        )
         .define(
             "BUILD_AERON_ARCHIVE_API",
             if archive_enabled { "ON" } else { "OFF" },
@@ -46,14 +60,49 @@ fn main() {
         .define("AERON_TESTS", "OFF")
         .define("AERON_BUILD_SAMPLES", "OFF")
         .define("AERON_BUILD_DOCUMENTATION", "OFF");
+    // Aeron's CMake only reads JAVA_HOME into its cache once: pass it on every
+    // build so a corrected JAVA_HOME takes effect.
+    if archive_enabled && let Ok(java_home) = env::var("JAVA_HOME") {
+        config.define("JAVA_HOME", java_home);
+    }
+
+    // AERON_GLIDE_SANITIZER=address (or another -fsanitize value) instruments
+    // Aeron and the shims, for runs with e.g. RUSTFLAGS=-Zsanitizer=address.
+    // Unlike CFLAGS, it doesn't reach other crates' C code.
+    println!("cargo:rerun-if-env-changed=AERON_GLIDE_SANITIZER");
+    let sanitizer = env::var("AERON_GLIDE_SANITIZER")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("-fsanitize={s} -fno-omit-frame-pointer"));
+    if let Some(flags) = &sanitizer {
+        config.cflag(flags).cxxflag(flags);
+    }
 
     if env::var("PROFILE").unwrap() == "release" {
         config.profile("Release");
+    } else if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        // Aeron's Debug configuration compiles against MSVC's debug C runtime
+        // (/MDd), but Rust links the release one (/MD) even in debug builds.
+        config.profile("RelWithDebInfo");
     } else {
         config.profile("Debug");
     }
 
-    let cmake_output = config.build();
+    // Only the static libraries linked below: not Aeron's shared libraries,
+    // executables (aeronmd) or install step. The archive client's dependencies
+    // also build the Aeron jar (its codecs are generated from it), which the
+    // archive tests run.
+    let mut targets = vec!["aeron_static"];
+    if driver_enabled {
+        targets.push("aeron_driver_static");
+    }
+    if archive_enabled {
+        targets.push("aeron_archive_c_client_static");
+    }
+    let mut cmake_output = PathBuf::new();
+    for target in targets {
+        cmake_output = config.build_target(target).build();
+    }
     let base_lib_dir = cmake_output.join("build");
 
     // Add search paths for linker
@@ -69,23 +118,10 @@ fn main() {
         "cargo:rustc-link-search=native={}",
         base_lib_dir.join("lib/Release").display()
     );
-
-    println!("cargo:rustc-link-lib=static=aeron_static");
-    println!("cargo:rustc-link-lib=static=aeron_driver_static");
-
-    if archive_enabled {
-        println!("cargo:rustc-link-lib=static=aeron_archive_c_client_static");
-    }
-
-    // OS specific dependencies
-    if cfg!(target_os = "windows") {
-        println!("cargo:rustc-link-lib=shell32");
-        println!("cargo:rustc-link-lib=iphlpapi");
-    }
-    if cfg!(target_os = "linux") {
-        println!("cargo:rustc-link-lib=uuid");
-        println!("cargo:rustc-link-lib=bsd");
-    }
+    println!(
+        "cargo:rustc-link-search=native={}",
+        base_lib_dir.join("lib/RelWithDebInfo").display()
+    );
 
     let include_path = aeron_dir.join("aeron-client/src/main/cpp_wrapper");
     let c_client_include_path = aeron_dir.join("aeron-client/src/main/c");
@@ -93,9 +129,27 @@ fn main() {
 
     // Build the cxx bridge(s)
     let mut bridge_sources: Vec<&str> = vec!["src/lib.rs"];
+    if driver_enabled {
+        bridge_sources.extend(["src/driver.rs", "src/driver_gen.rs"]);
+    }
+    for file in [
+        "src/driver.rs",
+        "src/driver_gen.rs",
+        "src/driver_gen.h",
+        "src/driver_shim.h",
+        "src/driver_shim.cc",
+    ] {
+        println!("cargo:rerun-if-changed={file}");
+    }
     if archive_enabled {
-        bridge_sources.push("src/archive.rs");
-        println!("cargo:rerun-if-changed=src/archive.rs");
+        bridge_sources.push("src/archive/mod.rs");
+        for file in [
+            "src/archive/mod.rs",
+            "src/archive_shim.h",
+            "src/archive_shim.cc",
+        ] {
+            println!("cargo:rerun-if-changed={file}");
+        }
     }
 
     let mut builder = cxx_build::bridges(bridge_sources);
@@ -103,12 +157,20 @@ fn main() {
         .file("src/shim.cc")
         .include(&include_path)
         .include(&c_client_include_path)
-        .include(&driver_include_path)
         .include("src")
-        .flag_if_supported("-std=c++14")
+        // C++17 for guaranteed copy elision: aeron::CncFileReader is copyable but
+        // closes its mapping in its destructor, so it must never be copied.
+        .flag_if_supported("-std=c++17")
+        .flag_if_supported("/std:c++17")
         .flag_if_supported("-Wno-unused-parameter");
 
+    if driver_enabled {
+        builder
+            .file("src/driver_shim.cc")
+            .include(&driver_include_path);
+    }
     if archive_enabled {
+        builder.file("src/archive_shim.cc");
         let archive_cpp_path = aeron_dir.join("aeron-archive/src/main/cpp_wrapper");
         let archive_c_path = aeron_dir.join("aeron-archive/src/main/c");
         builder
@@ -117,18 +179,201 @@ fn main() {
             .define("AERON_ARCHIVE", None);
     }
 
+    for flag in sanitizer.iter().flat_map(|flags| flags.split(' ')) {
+        builder.flag(flag);
+    }
+
     builder.compile("aeron_rs_cxx");
+
+    if archive_enabled {
+        // Plain C helpers reaching into the client conductor (see the file),
+        // linked after the shim that calls them.
+        println!("cargo:rerun-if-changed=src/conductor_helper.c");
+        let mut helper = cc::Build::new();
+        helper
+            .file("src/conductor_helper.c")
+            .include(&c_client_include_path)
+            .include(aeron_dir.join("aeron-archive/src/main/c/client"));
+        for flag in sanitizer.iter().flat_map(|flags| flags.split(' ')) {
+            helper.flag(flag);
+        }
+        helper.compile("aeron_glide_c_helpers");
+    }
+
+    // After the shim library (emitted by `compile`), in dependency order: GNU ld
+    // resolves static libraries left to right.
+    if archive_enabled {
+        println!("cargo:rustc-link-lib=static=aeron_archive_c_client_static");
+    }
+    if driver_enabled {
+        println!("cargo:rustc-link-lib=static=aeron_driver_static");
+    }
+    println!("cargo:rustc-link-lib=static=aeron_static");
+
+    // OS-specific dependencies of the target (not the host running build.rs).
+    match env::var("CARGO_CFG_TARGET_OS").as_deref() {
+        Ok("windows") => {
+            println!("cargo:rustc-link-lib=shell32");
+            println!("cargo:rustc-link-lib=iphlpapi");
+        }
+        Ok("linux") => {
+            // As Aeron links them: libbsd and libuuid only when CMake found them
+            // (libuuid is the driver's), libatomic on aarch64.
+            let cache =
+                std::fs::read_to_string(base_lib_dir.join("CMakeCache.txt")).unwrap_or_default();
+            let found = |var: &str| {
+                cache.lines().any(|line| {
+                    line.strip_prefix(var)
+                        .and_then(|rest| rest.split_once('='))
+                        .is_some_and(|(_, value)| {
+                            !value.is_empty() && !value.ends_with("-NOTFOUND")
+                        })
+                })
+            };
+            if driver_enabled && found("LIBUUID_EXISTS:") {
+                println!("cargo:rustc-link-lib=uuid");
+            }
+            if found("LIBBSD_EXISTS:") {
+                println!("cargo:rustc-link-lib=bsd");
+            }
+            if env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("aarch64") {
+                println!("cargo:rustc-link-lib=atomic");
+            }
+        }
+        _ => {}
+    }
 }
 
-fn download_and_extract(url: &str, dest_dir: &PathBuf) {
-    println!("cargo:warning=Downloading Aeron source from {}", url);
-    let response = reqwest::blocking::get(url).expect("Failed to download Aeron");
-    let bytes = response.bytes().expect("Failed to read response bytes");
-    let cursor = std::io::Cursor::new(bytes);
+/// SHA-256 of the GitHub source tarball of each supported Aeron version.
+const AERON_SHA256: &[(&str, &str)] = &[(
+    "1.53.3",
+    "b7861c4aa9bd4918c0c3cb3b83b4a631cf48c1403e496008ccbcb950a121f125",
+)];
 
-    let decoder = flate2::read::GzDecoder::new(cursor);
-    let mut archive = tar::Archive::new(decoder);
-    archive
-        .unpack(dest_dir)
-        .expect("Failed to unpack Aeron archive");
+/// The Aeron source tree: `AERON_SOURCE_DIR` if set (offline builds), otherwise
+/// the release tarball, downloaded once per target directory, checked against
+/// its SHA-256 (`AERON_SHA256` overrides the expected hash, e.g. for another
+/// `AERON_VERSION`) and extracted into `OUT_DIR`.
+fn aeron_source(version: &str, out_dir: &Path) -> PathBuf {
+    println!("cargo:rerun-if-env-changed=AERON_SOURCE_DIR");
+    println!("cargo:rerun-if-env-changed=AERON_SHA256");
+    if let Some(dir) = env::var_os("AERON_SOURCE_DIR") {
+        let dir = PathBuf::from(dir);
+        assert!(
+            dir.join("CMakeLists.txt").exists(),
+            "AERON_SOURCE_DIR={} is not an Aeron source tree (no CMakeLists.txt)",
+            dir.display()
+        );
+        return dir;
+    }
+    let aeron_dir = out_dir.join(format!("aeron-{version}"));
+    // Written last: a tree without it is a partial extract, e.g. of an
+    // interrupted build.
+    let complete = out_dir.join(format!("aeron-{version}.complete"));
+    // The marker holds the tarball's SHA-256: a changed AERON_SHA256 re-downloads.
+    if aeron_dir.exists()
+        && let Ok(extracted) = std::fs::read_to_string(&complete)
+        && env::var("AERON_SHA256").map_or(true, |expected| {
+            expected.trim().eq_ignore_ascii_case(extracted.trim())
+        })
+    {
+        return aeron_dir;
+    }
+
+    let expected = env::var("AERON_SHA256").ok().or_else(|| {
+        AERON_SHA256
+            .iter()
+            .find(|(v, _)| *v == version)
+            .map(|(_, sha)| sha.to_string())
+    });
+    let matches = |sha: &str| {
+        expected
+            .as_deref()
+            .is_some_and(|expected| sha.eq_ignore_ascii_case(expected.trim()))
+    };
+
+    // Each build configuration (profile, features, target) has its own OUT_DIR:
+    // share the tarball between them, in the target directory. Only a tarball
+    // with the expected hash is reused.
+    let cached = tarball_cache(out_dir).map(|dir| dir.join(format!("aeron-{version}.tar.gz")));
+    let reused = cached
+        .as_ref()
+        .and_then(|path| std::fs::read(path).ok())
+        .map(|bytes| (sha256_hex(&bytes), bytes))
+        .filter(|(sha, _)| matches(sha));
+    let (actual, tarball) = match reused {
+        Some(reused) => reused,
+        None => {
+            let url =
+                format!("https://github.com/real-logic/aeron/archive/refs/tags/{version}.tar.gz");
+            println!("cargo:warning=Downloading Aeron source from {url}");
+            let tarball = download(&url);
+            let actual = sha256_hex(&tarball);
+            match &expected {
+                Some(expected) => assert!(
+                    matches(&actual),
+                    "the Aeron {version} tarball from {url} has SHA-256 {actual}, expected {expected}; \
+                     set AERON_SHA256 to accept it, or AERON_SOURCE_DIR to build from a local source tree"
+                ),
+                None => println!(
+                    "cargo:warning=No known SHA-256 for Aeron {version} (downloaded {actual}); set AERON_SHA256 to verify it"
+                ),
+            }
+            if let Some(path) = &cached {
+                // Best effort, and written whole: concurrent builds may share it.
+                let partial = path.with_extension(format!("{}.partial", std::process::id()));
+                if std::fs::write(&partial, &tarball).is_err()
+                    || std::fs::rename(&partial, path).is_err()
+                {
+                    let _ = std::fs::remove_file(&partial);
+                }
+            }
+            (actual, tarball)
+        }
+    };
+
+    // Extract next to the final directory, then move it into place.
+    let staging = out_dir.join(format!("aeron-{version}.extracting"));
+    let _ = std::fs::remove_dir_all(&staging);
+    let _ = std::fs::remove_dir_all(&aeron_dir);
+    let _ = std::fs::remove_file(&complete);
+    tar::Archive::new(flate2::read::GzDecoder::new(tarball.as_slice()))
+        .unpack(&staging)
+        .expect("Failed to unpack the Aeron tarball");
+    std::fs::rename(staging.join(format!("aeron-{version}")), &aeron_dir)
+        .expect("Unexpected layout of the Aeron tarball");
+    let _ = std::fs::remove_dir_all(&staging);
+    std::fs::write(&complete, &actual).expect("Failed to mark the Aeron source as complete");
+    aeron_dir
+}
+
+/// `aeron-glide/` in the Cargo target directory holding `out_dir` (the
+/// nearest ancestor with Cargo's `CACHEDIR.TAG`), created if needed.
+fn tarball_cache(out_dir: &Path) -> Option<PathBuf> {
+    let target_dir = out_dir
+        .ancestors()
+        .find(|dir| dir.join("CACHEDIR.TAG").is_file())?;
+    let dir = target_dir.join("aeron-glide");
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir)
+}
+
+fn download(url: &str) -> Vec<u8> {
+    let mut response = ureq::get(url)
+        .call()
+        .unwrap_or_else(|e| panic!("Failed to download {url}: {e}"));
+    response
+        .body_mut()
+        .with_config()
+        .limit(256 * 1024 * 1024)
+        .read_to_vec()
+        .unwrap_or_else(|e| panic!("Failed to download {url}: {e}"))
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::Digest;
+    sha2::Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }

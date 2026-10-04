@@ -1,4 +1,22 @@
-use aeron_glide::AeronClient;
+//! IPC throughput of an exclusive publication against a separate media driver
+//! (the counterpart of rusteron's `embedded_exclusive_ipc_throughput`; see
+//! `embedded_exclusive_ipc_throughput` for the version with an embedded
+//! driver, after Aeron's `EmbeddedExclusiveIpcThroughput.java`). A publisher
+//! thread sends 32-byte messages flat out on `aeron:ipc`, the main thread
+//! counts them and prints the rate about once a second, until Ctrl-C.
+//!
+//! Each side has its own client, unless `--shared-client` is given: then one
+//! client serves both, as in rusteron's example.
+//!
+//! Needs a running media driver:
+//!
+//! ```text
+//! cargo run --features bin --bin mediadriver
+//! cargo run --release --example throughput
+//! cargo run --release --example throughput -- --shared-client
+//! ```
+
+use aeron_glide::{AeronClient, OfferError};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -8,10 +26,6 @@ const STREAM_ID: i32 = 1001;
 const MESSAGE_LENGTH: usize = 32;
 const BURST_LENGTH: u64 = 1_000_000;
 
-/// IPC exclusive-publication throughput test.
-/// Equivalent to rusteron's embedded_exclusive_ipc_throughput example.
-///
-/// Requires a running media driver: cargo run --bin mediadriver
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let channel = "aeron:ipc";
 
@@ -21,16 +35,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         running_ctrl.store(false, Ordering::SeqCst);
     })?;
 
+    let shared_client = std::env::args().any(|arg| arg == "--shared-client");
+    let shared = if shared_client {
+        Some(Arc::new(AeronClient::new()?))
+    } else {
+        None
+    };
+
     println!("IPC Exclusive Throughput Test");
-    println!("  message_length={} channel={}", MESSAGE_LENGTH, channel);
+    println!(
+        "  message_length={} channel={} clients={}",
+        MESSAGE_LENGTH,
+        channel,
+        if shared_client {
+            "shared"
+        } else {
+            "one per side"
+        }
+    );
     println!("  Press Ctrl-C to stop\n");
 
-    // --- Publisher thread (own client) ---
+    // --- Publisher thread (its own client, or the shared one) ---
     let running_pub = Arc::clone(&running);
     let pub_channel = channel.to_string();
+    let pub_client = shared.clone();
     let pub_thread = thread::spawn(move || {
-        let mut client = AeronClient::new().expect("Failed to create publisher client");
-        client.start();
+        // Stops the subscriber loop if the publisher ends early or panics.
+        let _stop = StopOnDrop(&running_pub);
+        let client = match pub_client {
+            Some(client) => client,
+            None => Arc::new(AeronClient::new().expect("Failed to create publisher client")),
+        };
         let mut publication = client
             .add_exclusive_publication(&pub_channel, STREAM_ID)
             .expect("Failed to add publication");
@@ -50,7 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut total_messages: u64 = 0;
 
         while running_pub.load(Ordering::Acquire) {
-            while publication.offer(&buffer) < 0 {
+            while !sent(publication.offer(&buffer)) {
                 back_pressure_count += 1;
                 if !running_pub.load(Ordering::Acquire) {
                     break;
@@ -65,9 +100,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // --- Subscriber (main thread, own client) ---
-    let mut client = AeronClient::new()?;
-    client.start();
+    // --- Subscriber (main thread, its own client or the shared one) ---
+    let client = match shared {
+        Some(client) => client,
+        None => Arc::new(AeronClient::new()?),
+    };
     let mut subscription = client.add_subscription(channel, STREAM_ID)?;
 
     let mut message_count: u64 = 0;
@@ -75,9 +112,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut next_check = BURST_LENGTH;
 
     while running.load(Ordering::Acquire) {
-        subscription.poll(MESSAGE_LENGTH as i32, |_data| {
+        subscription.poll(MESSAGE_LENGTH, |_data, _| {
             message_count += 1;
-        });
+        })?;
 
         if message_count >= next_check && start.elapsed() >= Duration::from_secs(1) {
             let elapsed = start.elapsed().as_secs_f64();
@@ -95,4 +132,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     pub_thread.join().expect("Publisher thread panicked");
     Ok(())
+}
+
+/// Clears the shared `running` flag when dropped, so the publisher thread
+/// ending (by an error or a panic) stops the subscriber loop.
+struct StopOnDrop<'a>(&'a AtomicBool);
+
+impl Drop for StopOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
+/// `true` once offered, `false` to retry (back pressure, not connected yet, ...).
+/// Errors that retrying cannot fix (e.g. a message too long) end the example.
+fn sent(result: Result<i64, OfferError>) -> bool {
+    match result {
+        Ok(_) => true,
+        Err(e) if e.is_retryable() => false,
+        Err(e) => panic!("offer failed: {e}"),
+    }
 }

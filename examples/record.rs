@@ -1,5 +1,19 @@
-use aeron_glide::AeronClient;
-use aeron_glide::archive::{AeronArchive, SourceLocation};
+//! Record a stream with Aeron Archive, in the spirit of Aeron's
+//! `RecordedBasicPublisher.java`: starts a local recording of `aeron:ipc`
+//! stream 1001, publishes ten messages on it, stops the recording and lists
+//! the archive's recordings. `replay` then plays the last one back.
+//!
+//! Needs the archive server (an `ArchivingMediaDriver` on the default Aeron
+//! directory, control channel `localhost:8010`):
+//!
+//! ```text
+//! ./scripts/start-archive.sh
+//! cargo run --features archive --example record
+//! cargo run --features archive --example replay
+//! ```
+
+use aeron_glide::archive::{self, SourceLocation};
+use aeron_glide::{AeronClient, OfferError};
 use std::thread;
 use std::time::Duration;
 
@@ -9,12 +23,12 @@ const MESSAGE_COUNT: usize = 10;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Connecting to Aeron Archive...");
-    let mut archive = AeronArchive::connect(
-        "aeron:udp?endpoint=localhost:8010",
-        10,
-        "aeron:udp?endpoint=localhost:0",
-        20,
-    )?;
+    let archive = archive::Context::new()
+        .control_request_channel("aeron:udp?endpoint=localhost:8010")
+        .control_request_stream_id(10)
+        .control_response_channel("aeron:udp?endpoint=localhost:0")
+        .control_response_stream_id(20)
+        .connect()?;
     println!(
         "Connected (archive_id={}, session={})",
         archive.archive_id(),
@@ -35,10 +49,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Recording started (subscription_id={})", sub_id);
 
     // Connect an Aeron client and publish messages
-    let mut client = AeronClient::new()?;
-    client.start();
+    let client = AeronClient::new()?;
 
-    let mut publ = client.add_publication(RECORDING_CHANNEL, RECORDING_STREAM_ID)?;
+    let publ = client.add_publication(RECORDING_CHANNEL, RECORDING_STREAM_ID)?;
 
     println!("Waiting for publication to connect...");
     while !publ.is_connected() {
@@ -48,7 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Publishing {} messages...", MESSAGE_COUNT);
     for i in 0..MESSAGE_COUNT {
         let msg = format!("Hello Archive! Message #{}", i);
-        while publ.offer(msg.as_bytes()) < 0 {
+        while !sent(publ.offer(msg.as_bytes())) {
             thread::yield_now();
         }
         println!("  Sent: {}", msg);
@@ -76,6 +89,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     })?;
 
-    println!("\nDone. Run the replay binary to replay these messages.");
+    println!("\nDone. Replay them with: cargo run --features archive --example replay");
     Ok(())
+}
+
+/// `true` once offered, `false` to retry (back pressure, not connected yet, ...).
+/// Errors that retrying cannot fix (e.g. a message too long) end the example.
+fn sent(result: Result<i64, OfferError>) -> bool {
+    match result {
+        Ok(_) => true,
+        Err(e) if e.is_retryable() => false,
+        Err(e) => panic!("offer failed: {e}"),
+    }
 }
