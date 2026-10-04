@@ -117,6 +117,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `links = "aeron"`: Cargo now rejects a build with two copies of the crate
+  (or another crate linking Aeron statically) instead of failing at link time
+  with duplicate symbols.
+- The build reruns when `CC`, `CXX`, `CFLAGS`, `CXXFLAGS`, `CMAKE_GENERATOR`
+  or `JAVA_HOME` change, and passes `JAVA_HOME` to Aeron's CMake each time.
 - Setting a driver idle strategy's init args reloaded Aeron's recorded name
   ("backoff"), replacing a strategy chosen by `AERON_*_IDLE_STRATEGY`; it
   reloads the strategy in effect.

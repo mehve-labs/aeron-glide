@@ -130,7 +130,11 @@ aeron-glide = "0.4"
   uuid-dev` on Debian/Ubuntu): Aeron uses them when CMake finds them
 
 The build script downloads the Aeron source release from GitHub, checks its
-SHA-256 and compiles it on the first build. Environment variables:
+SHA-256 and compiles it on the first build. With the `archive` feature, Aeron's
+build also runs its Gradle wrapper, which downloads Gradle and Java
+dependencies that the source checksum does not cover (and writes to
+`~/.gradle`); build with a warm Gradle cache or a mirror if that matters to
+you. Environment variables:
 
 | Variable | Effect |
 |---|---|

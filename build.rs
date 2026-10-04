@@ -20,6 +20,11 @@ fn main() {
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
+    // Inputs of the CMake build that Cargo doesn't track by itself.
+    for var in ["CC", "CXX", "CFLAGS", "CXXFLAGS", "CMAKE_GENERATOR", "JAVA_HOME"] {
+        println!("cargo:rerun-if-env-changed={var}");
+    }
+
     // Configurable Aeron version. The generated src/driver_gen.{rs,h} target the
     // default; other versions may need `scripts/gen_driver_context.py` rerun.
     let aeron_version = env::var("AERON_VERSION").unwrap_or_else(|_| "1.53.3".to_string());
@@ -48,6 +53,11 @@ fn main() {
         .define("AERON_TESTS", "OFF")
         .define("AERON_BUILD_SAMPLES", "OFF")
         .define("AERON_BUILD_DOCUMENTATION", "OFF");
+    // Aeron's CMake only reads JAVA_HOME into its cache once: pass it on every
+    // build so a corrected JAVA_HOME takes effect.
+    if archive_enabled && let Ok(java_home) = env::var("JAVA_HOME") {
+        config.define("JAVA_HOME", java_home);
+    }
 
     // AERON_GLIDE_SANITIZER=address (or another -fsanitize value) instruments
     // Aeron and the shims, for runs with e.g. RUSTFLAGS=-Zsanitizer=address.
