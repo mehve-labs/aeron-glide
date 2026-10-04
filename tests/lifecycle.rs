@@ -99,13 +99,13 @@ fn error_handler_may_drop_the_client() {
 fn generated_driver_settings_round_trip() {
     let driver = TestDriver::start_with(|builder| {
         builder
-            .publication_linger_timeout_ns(1_000_000)
+            .publication_linger_timeout(Duration::from_millis(1))
             .term_buffer_length(1 << 20)
             .conductor_idle_strategy(DriverIdleStrategy::Sleeping)
             .receiver_group_consideration(InferableBoolean::ForceTrue)
             .receiver_group_tag(Some(7))
             .sender_wildcard_port_range(20_000, 20_100)
-            .untethered_linger_timeout_ns(u64::MAX)
+            .untethered_linger_timeout(None)
             // Init args set after their strategy still apply (the strategy is reloaded).
             .sender_idle_strategy(DriverIdleStrategy::Sleeping)
             .sender_idle_strategy_init_args("1us")
@@ -117,7 +117,7 @@ fn generated_driver_settings_round_trip() {
     assert_eq!(d.dir(), driver.dir);
     assert!(d.dir_delete_on_shutdown());
     assert_eq!(d.threading_mode(), ThreadingMode::Shared);
-    assert_eq!(d.publication_linger_timeout_ns(), 1_000_000);
+    assert_eq!(d.publication_linger_timeout(), Duration::from_millis(1));
     assert_eq!(d.term_buffer_length(), 1 << 20);
     assert_eq!(d.conductor_idle_strategy(), "sleeping");
     assert_eq!(
@@ -126,7 +126,7 @@ fn generated_driver_settings_round_trip() {
     );
     assert_eq!(d.receiver_group_tag(), Some(7));
     assert_eq!(d.sender_wildcard_port_range(), (20_000, 20_100));
-    assert_eq!(d.untethered_linger_timeout_ns(), u64::MAX);
+    assert_eq!(d.untethered_linger_timeout(), None);
     assert_eq!(d.sender_idle_strategy(), "sleeping");
     assert_eq!(d.sender_idle_strategy_init_args(), "1us");
     assert_eq!(

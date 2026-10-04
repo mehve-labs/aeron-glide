@@ -45,7 +45,7 @@ impl TestDriver {
             // Small IPC terms keep memory low; max message length is term / 8 = 128 KiB.
             .ipc_term_buffer_length(1 << 20)
             // Close publications (and their images) quickly once released.
-            .publication_linger_timeout_ns(Duration::from_millis(50).as_nanos() as u64);
+            .publication_linger_timeout(Duration::from_millis(50));
         let driver = configure(builder).start().expect("start media driver");
         Self {
             driver: Some(driver),

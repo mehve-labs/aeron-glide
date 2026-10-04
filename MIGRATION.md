@@ -124,7 +124,9 @@ let driver = MediaDriver::builder()
 
 `MediaDriver::launch()` starts one with the defaults. The idle strategy enum
 for the driver's threads is renamed `DriverIdleStrategy` (`IdleStrategy` is now
-the trait in `aeron_glide::concurrent`).
+the trait in `aeron_glide::concurrent`). Time settings take a `Duration` and drop their
+unit suffix: `publication_linger_timeout(Duration::from_millis(50))`, not
+`set_publication_linger_timeout_ns(50_000_000)`.
 
 ### Archive client
 

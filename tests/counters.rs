@@ -227,7 +227,8 @@ fn counter_handles_from_a_reader() {
 
 #[test]
 fn writes_stop_once_the_record_is_reused() {
-    let driver = TestDriver::start_with(|b| b.counters_free_to_reuse_timeout_ns(0));
+    let driver =
+        TestDriver::start_with(|b| b.counters_free_to_reuse_timeout(std::time::Duration::ZERO));
     let client = driver.client();
     let reader = client.counters_reader();
     let first = client.add_counter(TYPE_ID, &[], "first").unwrap();

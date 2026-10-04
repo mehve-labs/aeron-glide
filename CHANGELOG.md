@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** the media driver's time settings take and return a
+  `Duration`, named without their unit (`client_liveness_timeout`,
+  `publication_linger_timeout`, `timer_interval`, `driver_timeout`, ...; were
+  `*_ns` / `*_ms` taking `u64`). `untethered_linger_timeout` takes and returns
+  an `Option<Duration>` (`None`: use the untethered window limit timeout).
 - **Breaking:** `Subscription::for_each_image` passes `&mut Image`, so the
   closure can poll each image.
 - **Breaking:** registrations the media driver rejects (adds and
@@ -154,8 +159,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ("backoff"), replacing a strategy chosen by `AERON_*_IDLE_STRATEGY`; it
   reloads the strategy in effect.
 - Driver settings are range-checked as Aeron checks the same environment
-  variables (e.g. `nak_multicast_group_size >= 1`, `client_liveness_timeout_ns
-  >= 1000`, NAK delay times ratio within `i64`); invalid ones fail `start`
+  variables (e.g. `nak_multicast_group_size >= 1`, `client_liveness_timeout
+  >= 1 µs`, NAK delay times ratio within `i64`); invalid ones fail `start`
   with `IllegalArgument` instead of reaching the driver.
 - The driver's CPU affinity and cpuset settings (`conductor_cpu_affinity`,
   `cpuset_affinity`, ...) were accepted but never applied: the driver now
@@ -379,7 +384,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ExclusivePublication::revoke` (consumes the publication) and
   `revoke_on_close`: end the stream for subscribers without lingering.
 - Every scalar media driver setting is available on `MediaDriverBuilder`
-  (96 setters, e.g. `publication_linger_timeout_ns`, `sender_wildcard_port_range`,
+  (96 setters, e.g. `publication_linger_timeout`, `sender_wildcard_port_range`,
   `receiver_group_tag`) with the matching getters on a started `MediaDriver`
   (97, e.g. `dir()`, `receiver_group_tag() -> Option<i64>`), generated from
   Aeron's `aeronmd.h`. New enums `ThreadNaming` and `InferableBoolean`

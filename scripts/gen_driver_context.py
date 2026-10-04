@@ -62,6 +62,18 @@ DECL = re.compile(
 )
 
 
+def time_unit(name, c_type):
+    """'ns' or 'ms' for a time setting (a u64 named *_ns / *_ms), else None."""
+    if c_type == "uint64_t" and name.endswith(("_ns", "_ms")):
+        return name[-2:]
+    return None
+
+
+def without_unit(name):
+    """The Rust name of a time setting: its type, Duration, carries the unit."""
+    return name[:-3]
+
+
 # Getters named after their setter where Aeron's C names differ.
 GETTER_RENAMES = {
     "resolver_bootstrap_resolution_interval_ns": "resolver_bootstrap_neighbor_resolution_interval_ns",
@@ -165,6 +177,7 @@ def generate(header):
         refs = [f"`aeron_driver_context_set_{name}`"] + ([f"environment variable `{env}`"] if env else [])
         lines = (doc or [f"Sets `{name}`."]) + ["", "C: " + ", ".join(refs) + "."]
         cfn = f"driver_set_{name}"
+        rname = name
         after = ""
         if name.endswith("_idle_strategy_init_args"):
             base = name[: -len("_init_args")]
@@ -191,17 +204,21 @@ def generate(header):
             rparams, bparams, cparams = f"value: {rt}", f"value: {bt}", f"{ct} value"
             cargs = expr.format(v="value")
             rcall = "value as i32" if bt == "i32" and rt != "i32" else "value"
-            if types[0] == "uint64_t" and name.endswith(("_ns", "_ms")):
-                # The driver adds times to its clock in signed 64-bit arithmetic:
-                # cap them like the client's timeouts so huge ones don't overflow.
-                cap = "crate::MAX_TIMEOUT_NS" if name.endswith("_ns") else "(crate::MAX_TIMEOUT_NS / 1_000_000)"
+            unit = time_unit(name, types[0])
+            if unit:
+                # A Duration; the driver adds times to its clock in signed 64-bit
+                # arithmetic, so huge ones are capped like the client's timeouts.
+                rname = without_unit(name)
+                convert = "crate::timeout_nanos(value) as u64" if unit == "ns" else "crate::timeout_millis(value) as u64"
                 if name in NULL_VALUE_DEFAULT:
-                    # u64::MAX is Aeron's null value here (-1 as int64_t): keep it.
-                    rcall = f"if value == u64::MAX {{ value }} else {{ value.min({cap} as u64) }}"
-                    lines[-2:-2] = ["", NULL_VALUE_DEFAULT[name] + " Other values above about 73 years are capped: the driver adds this to its clock."]
+                    # u64::MAX is Aeron's null value here (-1 as int64_t): None.
+                    rparams = "value: Option<std::time::Duration>"
+                    rcall = f"value.map_or(u64::MAX, |value| {convert})"
+                    lines[-2:-2] = ["", NULL_VALUE_DEFAULT[name] + " Durations above about 73 years are capped: the driver adds this to its clock."]
                 else:
-                    rcall = f"value.min({cap} as u64)"
-                    lines[-2:-2] = ["", "Values above about 73 years are capped: the driver adds this to its clock."]
+                    rparams = "value: std::time::Duration"
+                    rcall = convert
+                    lines[-2:-2] = ["", "Durations above about 73 years are capped: the driver adds this to its clock."]
         else:
             not_generated.append(f"aeron_driver_context_set_{name}({', '.join(types)})")
             continue
@@ -224,7 +241,9 @@ def generate(header):
                     f'            "{name} must be in [{low or "-"}, {high or "-"}] (as for {env}), got " + std::to_string(value), SOURCEINFO, EINVAL);\n'
                     f"    }}\n"
                 )
-                lines[-2:-2] = ["", f"Must be within the range Aeron accepts from `{env}`: from {low or 'any'} to {high or 'any'}; checked by `start`."]
+                unit = time_unit(name, types[0])
+                where = f" ({unit})" if unit else ""
+                lines[-2:-2] = ["", f"Must be within the range Aeron accepts from `{env}`: from {low or 'any'} to {high or 'any'}{where}; checked by `start`."]
         h.append(
             f"inline void {cfn}(MediaDriverWrapper &driver, {cparams}) {{\n"
             f"    driver.ensureNotStarted();\n{check}"
@@ -235,7 +254,7 @@ def generate(header):
         bridge.append(f"        fn {cfn}(driver: Pin<&mut MediaDriverWrapper>, {bparams}) -> Result<()>;\n")
         builder.append(
             rust_doc(lines)
-            + f"    pub fn {name}(self, {rparams}) -> Self {{\n"
+            + f"    pub fn {rname}(self, {rparams}) -> Self {{\n"
             f"        self.apply(|w| ffi::{cfn}(w, {rcall}))\n    }}\n"
         )
     for name, types in skipped:
@@ -267,6 +286,17 @@ def generate(header):
             cexpr = "{e} != 0" if wanted == "bool" else f"static_cast<{ct}>({{e}})"
         cfn = f"driver_get_{name}"
         rust_name = GETTER_RENAMES.get(name, name)
+        unit = time_unit(rust_name, setter_types.get(rust_name))
+        if unit:
+            # As its setter: a Duration, `None` for the null value.
+            rust_name = without_unit(rust_name)
+            make = "from_nanos" if unit == "ns" else "from_millis"
+            if GETTER_RENAMES.get(name, name) in NULL_VALUE_DEFAULT:
+                rt = "Option<std::time::Duration>"
+                rconv = f"{{{{ let value = {{e}}; (value != u64::MAX).then(|| std::time::Duration::{make}(value)) }}}}"
+            else:
+                rt = "std::time::Duration"
+                rconv = f"std::time::Duration::{make}({{e}})"
         h.append(
             f"inline {ct} {cfn}(const MediaDriverWrapper &driver) {{\n"
             f"    return {cexpr.format(e=f'aeron_driver_context_get_{name}(driver.context())')};\n}}\n"

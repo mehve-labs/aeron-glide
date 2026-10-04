@@ -243,12 +243,15 @@ fn huge_driver_timeouts_are_capped() {
         .dir_delete_on_shutdown(true)
         // Explicit: another test sets AERON_THREADING_MODE=INVOKER for the process.
         .threading_mode(ThreadingMode::Shared)
-        .image_liveness_timeout_ns(u64::MAX)
-        .publication_linger_timeout_ns(u64::MAX)
-        .untethered_window_limit_timeout_ns(u64::MAX)
+        .image_liveness_timeout(Duration::MAX)
+        .publication_linger_timeout(Duration::MAX)
+        .untethered_window_limit_timeout(Duration::MAX)
         .start()
         .unwrap();
-    assert_eq!(driver.image_liveness_timeout_ns(), (i64::MAX / 4) as u64);
+    assert_eq!(
+        driver.image_liveness_timeout(),
+        Duration::from_nanos((i64::MAX / 4) as u64)
+    );
     let client = AeronClient::connect(Context::new().aeron_dir(&dir)).unwrap();
     let mut sub = client
         .add_subscription("aeron:udp?endpoint=localhost:0", 9)
@@ -437,10 +440,10 @@ fn driver_settings_are_range_checked() {
     let invalid: [fn(Builder) -> Builder; 4] = [
         |b| b.nak_multicast_group_size(0),
         |b| b.nak_unicast_retry_delay_ratio(0),
-        |b| b.client_liveness_timeout_ns(999),
+        |b| b.client_liveness_timeout(Duration::from_nanos(999)),
         // Each in range, but their product overflows.
         |b| {
-            b.nak_unicast_delay_ns(1 << 40)
+            b.nak_unicast_delay(Duration::from_nanos(1 << 40))
                 .nak_unicast_retry_delay_ratio(1 << 40)
         },
     ];

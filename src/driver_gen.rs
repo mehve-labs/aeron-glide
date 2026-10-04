@@ -627,14 +627,14 @@ impl MediaDriverBuilder {
 
     /// Client liveness timeout in nanoseconds
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
-    /// Must be within the range Aeron accepts from `AERON_CLIENT_LIVENESS_TIMEOUT`: from 1000 to INT64_MAX; checked by `start`.
+    /// Must be within the range Aeron accepts from `AERON_CLIENT_LIVENESS_TIMEOUT`: from 1000 to INT64_MAX (ns); checked by `start`.
     ///
     /// C: `aeron_driver_context_set_client_liveness_timeout_ns`, environment variable `AERON_CLIENT_LIVENESS_TIMEOUT`.
-    pub fn client_liveness_timeout_ns(self, value: u64) -> Self {
+    pub fn client_liveness_timeout(self, value: std::time::Duration) -> Self {
         self.apply(|w| {
-            ffi::driver_set_client_liveness_timeout_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+            ffi::driver_set_client_liveness_timeout_ns(w, crate::timeout_nanos(value) as u64)
         })
     }
 
@@ -725,17 +725,14 @@ impl MediaDriverBuilder {
 
     /// Linger timeout in nanoseconds on publications.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
-    /// Must be within the range Aeron accepts from `AERON_PUBLICATION_LINGER_TIMEOUT`: from 1000 to INT64_MAX; checked by `start`.
+    /// Must be within the range Aeron accepts from `AERON_PUBLICATION_LINGER_TIMEOUT`: from 1000 to INT64_MAX (ns); checked by `start`.
     ///
     /// C: `aeron_driver_context_set_publication_linger_timeout_ns`, environment variable `AERON_PUBLICATION_LINGER_TIMEOUT`.
-    pub fn publication_linger_timeout_ns(self, value: u64) -> Self {
+    pub fn publication_linger_timeout(self, value: std::time::Duration) -> Self {
         self.apply(|w| {
-            ffi::driver_set_publication_linger_timeout_ns(
-                w,
-                value.min(crate::MAX_TIMEOUT_NS as u64),
-            )
+            ffi::driver_set_publication_linger_timeout_ns(w, crate::timeout_nanos(value) as u64)
         })
     }
 
@@ -777,30 +774,27 @@ impl MediaDriverBuilder {
 
     /// Status Message timeout in nanoseconds.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
-    /// Must be within the range Aeron accepts from `AERON_RCV_STATUS_MESSAGE_TIMEOUT`: from 1000 to INT64_MAX; checked by `start`.
+    /// Must be within the range Aeron accepts from `AERON_RCV_STATUS_MESSAGE_TIMEOUT`: from 1000 to INT64_MAX (ns); checked by `start`.
     ///
     /// C: `aeron_driver_context_set_rcv_status_message_timeout_ns`, environment variable `AERON_RCV_STATUS_MESSAGE_TIMEOUT`.
-    pub fn rcv_status_message_timeout_ns(self, value: u64) -> Self {
+    pub fn rcv_status_message_timeout(self, value: std::time::Duration) -> Self {
         self.apply(|w| {
-            ffi::driver_set_rcv_status_message_timeout_ns(
-                w,
-                value.min(crate::MAX_TIMEOUT_NS as u64),
-            )
+            ffi::driver_set_rcv_status_message_timeout_ns(w, crate::timeout_nanos(value) as u64)
         })
     }
 
     /// Image liveness timeout in nanoseconds
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
-    /// Must be within the range Aeron accepts from `AERON_IMAGE_LIVENESS_TIMEOUT`: from 1000 to INT64_MAX; checked by `start`.
+    /// Must be within the range Aeron accepts from `AERON_IMAGE_LIVENESS_TIMEOUT`: from 1000 to INT64_MAX (ns); checked by `start`.
     ///
     /// C: `aeron_driver_context_set_image_liveness_timeout_ns`, environment variable `AERON_IMAGE_LIVENESS_TIMEOUT`.
-    pub fn image_liveness_timeout_ns(self, value: u64) -> Self {
+    pub fn image_liveness_timeout(self, value: std::time::Duration) -> Self {
         self.apply(|w| {
-            ffi::driver_set_image_liveness_timeout_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+            ffi::driver_set_image_liveness_timeout_ns(w, crate::timeout_nanos(value) as u64)
         })
     }
 
@@ -824,47 +818,39 @@ impl MediaDriverBuilder {
 
     /// Timeout for publication unblock in nanoseconds.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
-    /// Must be within the range Aeron accepts from `AERON_PUBLICATION_UNBLOCK_TIMEOUT`: from 1000 to INT64_MAX; checked by `start`.
+    /// Must be within the range Aeron accepts from `AERON_PUBLICATION_UNBLOCK_TIMEOUT`: from 1000 to INT64_MAX (ns); checked by `start`.
     ///
     /// C: `aeron_driver_context_set_publication_unblock_timeout_ns`, environment variable `AERON_PUBLICATION_UNBLOCK_TIMEOUT`.
-    pub fn publication_unblock_timeout_ns(self, value: u64) -> Self {
+    pub fn publication_unblock_timeout(self, value: std::time::Duration) -> Self {
         self.apply(|w| {
-            ffi::driver_set_publication_unblock_timeout_ns(
-                w,
-                value.min(crate::MAX_TIMEOUT_NS as u64),
-            )
+            ffi::driver_set_publication_unblock_timeout_ns(w, crate::timeout_nanos(value) as u64)
         })
     }
 
     /// Timeout for publication connection in nanoseconds.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
-    /// Must be within the range Aeron accepts from `AERON_PUBLICATION_CONNECTION_TIMEOUT`: from 1000 to INT64_MAX; checked by `start`.
+    /// Must be within the range Aeron accepts from `AERON_PUBLICATION_CONNECTION_TIMEOUT`: from 1000 to INT64_MAX (ns); checked by `start`.
     ///
     /// C: `aeron_driver_context_set_publication_connection_timeout_ns`, environment variable `AERON_PUBLICATION_CONNECTION_TIMEOUT`.
-    pub fn publication_connection_timeout_ns(self, value: u64) -> Self {
+    pub fn publication_connection_timeout(self, value: std::time::Duration) -> Self {
         self.apply(|w| {
-            ffi::driver_set_publication_connection_timeout_ns(
-                w,
-                value.min(crate::MAX_TIMEOUT_NS as u64),
-            )
+            ffi::driver_set_publication_connection_timeout_ns(w, crate::timeout_nanos(value) as u64)
         })
     }
 
     /// Interval (in nanoseconds) between checks for timers and timeouts.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
-    /// Must be within the range Aeron accepts from `AERON_TIMER_INTERVAL`: from 1000 to INT64_MAX; checked by `start`.
+    /// Must be within the range Aeron accepts from `AERON_TIMER_INTERVAL`: from 1000 to INT64_MAX (ns); checked by `start`.
     ///
     /// C: `aeron_driver_context_set_timer_interval_ns`, environment variable `AERON_TIMER_INTERVAL`.
-    pub fn timer_interval_ns(self, value: u64) -> Self {
-        self.apply(|w| {
-            ffi::driver_set_timer_interval_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
-        })
+    pub fn timer_interval(self, value: std::time::Duration) -> Self {
+        self.apply(|w| ffi::driver_set_timer_interval_ns(w, crate::timeout_nanos(value) as u64))
     }
 
     /// Idle strategy to be employed by Sender for DEDICATED Threading Mode.
@@ -965,31 +951,25 @@ impl MediaDriverBuilder {
 
     /// Timeout for freed counters before they can be reused.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
-    /// Must be within the range Aeron accepts from `AERON_COUNTERS_FREE_TO_REUSE_TIMEOUT`: from 0 to INT64_MAX; checked by `start`.
+    /// Must be within the range Aeron accepts from `AERON_COUNTERS_FREE_TO_REUSE_TIMEOUT`: from 0 to INT64_MAX (ns); checked by `start`.
     ///
     /// C: `aeron_driver_context_set_counters_free_to_reuse_timeout_ns`, environment variable `AERON_COUNTERS_FREE_TO_REUSE_TIMEOUT`.
-    pub fn counters_free_to_reuse_timeout_ns(self, value: u64) -> Self {
+    pub fn counters_free_to_reuse_timeout(self, value: std::time::Duration) -> Self {
         self.apply(|w| {
-            ffi::driver_set_counters_free_to_reuse_timeout_ns(
-                w,
-                value.min(crate::MAX_TIMEOUT_NS as u64),
-            )
+            ffi::driver_set_counters_free_to_reuse_timeout_ns(w, crate::timeout_nanos(value) as u64)
         })
     }
 
     /// Timeout for a receiver to be tracked.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
     /// C: `aeron_driver_context_set_flow_control_receiver_timeout_ns`, environment variable `AERON_FLOW_CONTROL_RECEIVER_TIMEOUT`.
-    pub fn flow_control_receiver_timeout_ns(self, value: u64) -> Self {
+    pub fn flow_control_receiver_timeout(self, value: std::time::Duration) -> Self {
         self.apply(|w| {
-            ffi::driver_set_flow_control_receiver_timeout_ns(
-                w,
-                value.min(crate::MAX_TIMEOUT_NS as u64),
-            )
+            ffi::driver_set_flow_control_receiver_timeout_ns(w, crate::timeout_nanos(value) as u64)
         })
     }
 
@@ -1037,68 +1017,56 @@ impl MediaDriverBuilder {
 
     /// Untethered subscriptions window limit timeout after which they are removed from flow control.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
-    /// Must be within the range Aeron accepts from `AERON_UNTETHERED_WINDOW_LIMIT_TIMEOUT`: from 0 to INT64_MAX; checked by `start`.
+    /// Must be within the range Aeron accepts from `AERON_UNTETHERED_WINDOW_LIMIT_TIMEOUT`: from 0 to INT64_MAX (ns); checked by `start`.
     ///
     /// C: `aeron_driver_context_set_untethered_window_limit_timeout_ns`, environment variable `AERON_UNTETHERED_WINDOW_LIMIT_TIMEOUT`.
-    pub fn untethered_window_limit_timeout_ns(self, value: u64) -> Self {
+    pub fn untethered_window_limit_timeout(self, value: std::time::Duration) -> Self {
         self.apply(|w| {
             ffi::driver_set_untethered_window_limit_timeout_ns(
                 w,
-                value.min(crate::MAX_TIMEOUT_NS as u64),
+                crate::timeout_nanos(value) as u64,
             )
         })
     }
 
     /// Timeout for an untethered subscriptions to stay in the linger state.
     ///
-    /// `u64::MAX` (Aeron's null value, the default) uses the untethered window limit timeout. Other values above about 73 years are capped: the driver adds this to its clock.
+    /// `u64::MAX` (Aeron's null value, the default) uses the untethered window limit timeout. Durations above about 73 years are capped: the driver adds this to its clock.
     ///
     /// C: `aeron_driver_context_set_untethered_linger_timeout_ns`, environment variable `AERON_UNTETHERED_LINGER_TIMEOUT`.
-    pub fn untethered_linger_timeout_ns(self, value: u64) -> Self {
+    pub fn untethered_linger_timeout(self, value: Option<std::time::Duration>) -> Self {
         self.apply(|w| {
             ffi::driver_set_untethered_linger_timeout_ns(
                 w,
-                if value == u64::MAX {
-                    value
-                } else {
-                    value.min(crate::MAX_TIMEOUT_NS as u64)
-                },
+                value.map_or(u64::MAX, |value| crate::timeout_nanos(value) as u64),
             )
         })
     }
 
     /// Untethered subscriptions resting timeout before they are allowed to re join an active stream.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
-    /// Must be within the range Aeron accepts from `AERON_UNTETHERED_RESTING_TIMEOUT`: from 0 to INT64_MAX; checked by `start`.
+    /// Must be within the range Aeron accepts from `AERON_UNTETHERED_RESTING_TIMEOUT`: from 0 to INT64_MAX (ns); checked by `start`.
     ///
     /// C: `aeron_driver_context_set_untethered_resting_timeout_ns`, environment variable `AERON_UNTETHERED_RESTING_TIMEOUT`.
-    pub fn untethered_resting_timeout_ns(self, value: u64) -> Self {
+    pub fn untethered_resting_timeout(self, value: std::time::Duration) -> Self {
         self.apply(|w| {
-            ffi::driver_set_untethered_resting_timeout_ns(
-                w,
-                value.min(crate::MAX_TIMEOUT_NS as u64),
-            )
+            ffi::driver_set_untethered_resting_timeout_ns(w, crate::timeout_nanos(value) as u64)
         })
     }
 
     /// Timeout in which the driver is expected to respond or heartbeat.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
-    /// Must be within the range Aeron accepts from `AERON_DRIVER_TIMEOUT`: from 0 to INT64_MAX; checked by `start`.
+    /// Must be within the range Aeron accepts from `AERON_DRIVER_TIMEOUT`: from 0 to INT64_MAX (ms); checked by `start`.
     ///
     /// C: `aeron_driver_context_set_driver_timeout_ms`, environment variable `AERON_DRIVER_TIMEOUT`.
-    pub fn driver_timeout_ms(self, value: u64) -> Self {
-        self.apply(|w| {
-            ffi::driver_set_driver_timeout_ms(
-                w,
-                value.min((crate::MAX_TIMEOUT_NS / 1_000_000) as u64),
-            )
-        })
+    pub fn driver_timeout(self, value: std::time::Duration) -> Self {
+        self.apply(|w| ffi::driver_set_driver_timeout_ms(w, crate::timeout_millis(value) as u64))
     }
 
     /// Expected size of multicast receiver groups property name.
@@ -1112,28 +1080,26 @@ impl MediaDriverBuilder {
 
     /// Max backoff time for multicast NAK delay randomisation in nanoseconds.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
-    /// Must be within the range Aeron accepts from `AERON_NAK_MULTICAST_MAX_BACKOFF`: from 1000 to INT64_MAX; checked by `start`.
+    /// Must be within the range Aeron accepts from `AERON_NAK_MULTICAST_MAX_BACKOFF`: from 1000 to INT64_MAX (ns); checked by `start`.
     ///
     /// C: `aeron_driver_context_set_nak_multicast_max_backoff_ns`, environment variable `AERON_NAK_MULTICAST_MAX_BACKOFF`.
-    pub fn nak_multicast_max_backoff_ns(self, value: u64) -> Self {
+    pub fn nak_multicast_max_backoff(self, value: std::time::Duration) -> Self {
         self.apply(|w| {
-            ffi::driver_set_nak_multicast_max_backoff_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+            ffi::driver_set_nak_multicast_max_backoff_ns(w, crate::timeout_nanos(value) as u64)
         })
     }
 
     /// How long to delay before sending an initial NAK.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
-    /// Must be within the range Aeron accepts from `AERON_NAK_UNICAST_DELAY`: from any to INT64_MAX; checked by `start`.
+    /// Must be within the range Aeron accepts from `AERON_NAK_UNICAST_DELAY`: from any to INT64_MAX (ns); checked by `start`.
     ///
     /// C: `aeron_driver_context_set_nak_unicast_delay_ns`, environment variable `AERON_NAK_UNICAST_DELAY`.
-    pub fn nak_unicast_delay_ns(self, value: u64) -> Self {
-        self.apply(|w| {
-            ffi::driver_set_nak_unicast_delay_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
-        })
+    pub fn nak_unicast_delay(self, value: std::time::Duration) -> Self {
+        self.apply(|w| ffi::driver_set_nak_unicast_delay_ns(w, crate::timeout_nanos(value) as u64))
     }
 
     /// A ratio to apply to the nak unicast delay to calculate the resend delay. Used as a multipler.
@@ -1156,27 +1122,27 @@ impl MediaDriverBuilder {
 
     /// How long to delay before sending a retransmit following a NAK.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
-    /// Must be within the range Aeron accepts from `AERON_RETRANSMIT_UNICAST_DELAY`: from 0 to INT64_MAX; checked by `start`.
+    /// Must be within the range Aeron accepts from `AERON_RETRANSMIT_UNICAST_DELAY`: from 0 to INT64_MAX (ns); checked by `start`.
     ///
     /// C: `aeron_driver_context_set_retransmit_unicast_delay_ns`, environment variable `AERON_RETRANSMIT_UNICAST_DELAY`.
-    pub fn retransmit_unicast_delay_ns(self, value: u64) -> Self {
+    pub fn retransmit_unicast_delay(self, value: std::time::Duration) -> Self {
         self.apply(|w| {
-            ffi::driver_set_retransmit_unicast_delay_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+            ffi::driver_set_retransmit_unicast_delay_ns(w, crate::timeout_nanos(value) as u64)
         })
     }
 
     /// How long to linger after delay on a NAK.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
-    /// Must be within the range Aeron accepts from `AERON_RETRANSMIT_UNICAST_LINGER`: from 1000 to INT64_MAX; checked by `start`.
+    /// Must be within the range Aeron accepts from `AERON_RETRANSMIT_UNICAST_LINGER`: from 1000 to INT64_MAX (ns); checked by `start`.
     ///
     /// C: `aeron_driver_context_set_retransmit_unicast_linger_ns`, environment variable `AERON_RETRANSMIT_UNICAST_LINGER`.
-    pub fn retransmit_unicast_linger_ns(self, value: u64) -> Self {
+    pub fn retransmit_unicast_linger(self, value: std::time::Duration) -> Self {
         self.apply(|w| {
-            ffi::driver_set_retransmit_unicast_linger_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+            ffi::driver_set_retransmit_unicast_linger_ns(w, crate::timeout_nanos(value) as u64)
         })
     }
 
@@ -1252,75 +1218,75 @@ impl MediaDriverBuilder {
     /// Property name for time to wait before removing a neighbor entry from the cache if an update for that neighbor has
     /// not been received.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
-    /// Must be within the range Aeron accepts from `AERON_DRIVER_RESOLVER_NEIGHBOR_TIMEOUT`: from 1000 * 1000 to INT64_MAX; checked by `start`.
+    /// Must be within the range Aeron accepts from `AERON_DRIVER_RESOLVER_NEIGHBOR_TIMEOUT`: from 1000 * 1000 to INT64_MAX (ns); checked by `start`.
     ///
     /// C: `aeron_driver_context_set_resolver_neighbor_timeout_ns`, environment variable `AERON_DRIVER_RESOLVER_NEIGHBOR_TIMEOUT`.
-    pub fn resolver_neighbor_timeout_ns(self, value: u64) -> Self {
+    pub fn resolver_neighbor_timeout(self, value: std::time::Duration) -> Self {
         self.apply(|w| {
-            ffi::driver_set_resolver_neighbor_timeout_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+            ffi::driver_set_resolver_neighbor_timeout_ns(w, crate::timeout_nanos(value) as u64)
         })
     }
 
     /// Property name for the interval between sending name to address messages for this driver to its neighbors.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
-    /// Must be within the range Aeron accepts from `AERON_DRIVER_RESOLVER_SELF_RESOLUTION_INTERVAL`: from 1000 * 1000 to INT64_MAX; checked by `start`.
+    /// Must be within the range Aeron accepts from `AERON_DRIVER_RESOLVER_SELF_RESOLUTION_INTERVAL`: from 1000 * 1000 to INT64_MAX (ns); checked by `start`.
     ///
     /// C: `aeron_driver_context_set_self_resolution_interval_ns`, environment variable `AERON_DRIVER_RESOLVER_SELF_RESOLUTION_INTERVAL`.
-    pub fn self_resolution_interval_ns(self, value: u64) -> Self {
+    pub fn self_resolution_interval(self, value: std::time::Duration) -> Self {
         self.apply(|w| {
-            ffi::driver_set_self_resolution_interval_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+            ffi::driver_set_self_resolution_interval_ns(w, crate::timeout_nanos(value) as u64)
         })
     }
 
     /// Property name for the interval between sending name to address messages for all known neighbors.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
-    /// Must be within the range Aeron accepts from `AERON_DRIVER_RESOLVER_NEIGHBOR_RESOLUTION_INTERVAL`: from 1000 * 1000 to INT64_MAX; checked by `start`.
+    /// Must be within the range Aeron accepts from `AERON_DRIVER_RESOLVER_NEIGHBOR_RESOLUTION_INTERVAL`: from 1000 * 1000 to INT64_MAX (ns); checked by `start`.
     ///
     /// C: `aeron_driver_context_set_resolver_neighbor_resolution_interval_ns`, environment variable `AERON_DRIVER_RESOLVER_NEIGHBOR_RESOLUTION_INTERVAL`.
-    pub fn resolver_neighbor_resolution_interval_ns(self, value: u64) -> Self {
+    pub fn resolver_neighbor_resolution_interval(self, value: std::time::Duration) -> Self {
         self.apply(|w| {
             ffi::driver_set_resolver_neighbor_resolution_interval_ns(
                 w,
-                value.min(crate::MAX_TIMEOUT_NS as u64),
+                crate::timeout_nanos(value) as u64,
             )
         })
     }
 
     /// Sets `resolver_bootstrap_neighbor_resolution_interval_ns`.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
-    /// Must be within the range Aeron accepts from `AERON_DRIVER_RESOLVER_BOOTSTRAP_NEIGHBOR_RESOLUTION_INTERVAL`: from 1000 * 1000 to INT64_MAX; checked by `start`.
+    /// Must be within the range Aeron accepts from `AERON_DRIVER_RESOLVER_BOOTSTRAP_NEIGHBOR_RESOLUTION_INTERVAL`: from 1000 * 1000 to INT64_MAX (ns); checked by `start`.
     ///
     /// C: `aeron_driver_context_set_resolver_bootstrap_neighbor_resolution_interval_ns`, environment variable `AERON_DRIVER_RESOLVER_BOOTSTRAP_NEIGHBOR_RESOLUTION_INTERVAL`.
-    pub fn resolver_bootstrap_neighbor_resolution_interval_ns(self, value: u64) -> Self {
+    pub fn resolver_bootstrap_neighbor_resolution_interval(
+        self,
+        value: std::time::Duration,
+    ) -> Self {
         self.apply(|w| {
             ffi::driver_set_resolver_bootstrap_neighbor_resolution_interval_ns(
                 w,
-                value.min(crate::MAX_TIMEOUT_NS as u64),
+                crate::timeout_nanos(value) as u64,
             )
         })
     }
 
     /// Specify the interval which checks for re-resolutions of names occurs.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
-    /// Must be within the range Aeron accepts from `AERON_DRIVER_RERESOLUTION_CHECK_INTERVAL`: from 0 to INT64_MAX; checked by `start`.
+    /// Must be within the range Aeron accepts from `AERON_DRIVER_RERESOLUTION_CHECK_INTERVAL`: from 0 to INT64_MAX (ns); checked by `start`.
     ///
     /// C: `aeron_driver_context_set_re_resolution_check_interval_ns`, environment variable `AERON_DRIVER_RERESOLUTION_CHECK_INTERVAL`.
-    pub fn re_resolution_check_interval_ns(self, value: u64) -> Self {
+    pub fn re_resolution_check_interval(self, value: std::time::Duration) -> Self {
         self.apply(|w| {
-            ffi::driver_set_re_resolution_check_interval_ns(
-                w,
-                value.min(crate::MAX_TIMEOUT_NS as u64),
-            )
+            ffi::driver_set_re_resolution_check_interval_ns(w, crate::timeout_nanos(value) as u64)
         })
     }
 
@@ -1340,45 +1306,45 @@ impl MediaDriverBuilder {
 
     /// Specify the duty cycle time threshold for the conductor.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
     /// C: `aeron_driver_context_set_conductor_cycle_threshold_ns`, environment variable `AERON_DRIVER_CONDUCTOR_CYCLE_THRESHOLD`.
-    pub fn conductor_cycle_threshold_ns(self, value: u64) -> Self {
+    pub fn conductor_cycle_threshold(self, value: std::time::Duration) -> Self {
         self.apply(|w| {
-            ffi::driver_set_conductor_cycle_threshold_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+            ffi::driver_set_conductor_cycle_threshold_ns(w, crate::timeout_nanos(value) as u64)
         })
     }
 
     /// Specify the duty cycle time threshold for the sender.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
     /// C: `aeron_driver_context_set_sender_cycle_threshold_ns`, environment variable `AERON_DRIVER_SENDER_CYCLE_THRESHOLD`.
-    pub fn sender_cycle_threshold_ns(self, value: u64) -> Self {
+    pub fn sender_cycle_threshold(self, value: std::time::Duration) -> Self {
         self.apply(|w| {
-            ffi::driver_set_sender_cycle_threshold_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+            ffi::driver_set_sender_cycle_threshold_ns(w, crate::timeout_nanos(value) as u64)
         })
     }
 
     /// Specify the duty cycle time threshold for the receiver.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
     /// C: `aeron_driver_context_set_receiver_cycle_threshold_ns`, environment variable `AERON_DRIVER_RECEIVER_CYCLE_THRESHOLD`.
-    pub fn receiver_cycle_threshold_ns(self, value: u64) -> Self {
+    pub fn receiver_cycle_threshold(self, value: std::time::Duration) -> Self {
         self.apply(|w| {
-            ffi::driver_set_receiver_cycle_threshold_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+            ffi::driver_set_receiver_cycle_threshold_ns(w, crate::timeout_nanos(value) as u64)
         })
     }
 
     /// Specify the duty cycle time threshold for the name_resolver.
     ///
-    /// Values above about 73 years are capped: the driver adds this to its clock.
+    /// Durations above about 73 years are capped: the driver adds this to its clock.
     ///
     /// C: `aeron_driver_context_set_name_resolver_threshold_ns`, environment variable `AERON_DRIVER_NAME_RESOLVER_THRESHOLD`.
-    pub fn name_resolver_threshold_ns(self, value: u64) -> Self {
+    pub fn name_resolver_threshold(self, value: std::time::Duration) -> Self {
         self.apply(|w| {
-            ffi::driver_set_name_resolver_threshold_ns(w, value.min(crate::MAX_TIMEOUT_NS as u64))
+            ffi::driver_set_name_resolver_threshold_ns(w, crate::timeout_nanos(value) as u64)
         })
     }
 
@@ -1498,9 +1464,9 @@ impl MediaDriver {
         (range[0], range[1])
     }
 
-    /// The driver's `client_liveness_timeout_ns` setting (`aeron_driver_context_get_client_liveness_timeout_ns`).
-    pub fn client_liveness_timeout_ns(&self) -> u64 {
-        ffi::driver_get_client_liveness_timeout_ns(&self.inner)
+    /// The driver's `client_liveness_timeout` setting (`aeron_driver_context_get_client_liveness_timeout_ns`).
+    pub fn client_liveness_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_client_liveness_timeout_ns(&self.inner))
     }
 
     /// The driver's `conductor_cpu_affinity` setting (`aeron_driver_context_get_conductor_cpu_affinity`).
@@ -1508,9 +1474,9 @@ impl MediaDriver {
         ffi::driver_get_conductor_cpu_affinity(&self.inner)
     }
 
-    /// The driver's `conductor_cycle_threshold_ns` setting (`aeron_driver_context_get_conductor_cycle_threshold_ns`).
-    pub fn conductor_cycle_threshold_ns(&self) -> u64 {
-        ffi::driver_get_conductor_cycle_threshold_ns(&self.inner)
+    /// The driver's `conductor_cycle_threshold` setting (`aeron_driver_context_get_conductor_cycle_threshold_ns`).
+    pub fn conductor_cycle_threshold(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_conductor_cycle_threshold_ns(&self.inner))
     }
 
     /// The driver's `conductor_idle_strategy` setting (`aeron_driver_context_get_conductor_idle_strategy`).
@@ -1536,9 +1502,11 @@ impl MediaDriver {
         ffi::driver_get_counters_buffer_length(&self.inner)
     }
 
-    /// The driver's `counters_free_to_reuse_timeout_ns` setting (`aeron_driver_context_get_counters_free_to_reuse_timeout_ns`).
-    pub fn counters_free_to_reuse_timeout_ns(&self) -> u64 {
-        ffi::driver_get_counters_free_to_reuse_timeout_ns(&self.inner)
+    /// The driver's `counters_free_to_reuse_timeout` setting (`aeron_driver_context_get_counters_free_to_reuse_timeout_ns`).
+    pub fn counters_free_to_reuse_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_counters_free_to_reuse_timeout_ns(
+            &self.inner,
+        ))
     }
 
     /// The driver's `cpuset_affinity` setting (`aeron_driver_context_get_cpuset_affinity`).
@@ -1571,9 +1539,9 @@ impl MediaDriver {
         ffi::driver_get_dir_warn_if_exists(&self.inner)
     }
 
-    /// The driver's `driver_timeout_ms` setting (`aeron_driver_context_get_driver_timeout_ms`).
-    pub fn driver_timeout_ms(&self) -> u64 {
-        ffi::driver_get_driver_timeout_ms(&self.inner)
+    /// The driver's `driver_timeout` setting (`aeron_driver_context_get_driver_timeout_ms`).
+    pub fn driver_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(ffi::driver_get_driver_timeout_ms(&self.inner))
     }
 
     /// The driver's `enable_experimental_features` setting (`aeron_driver_context_get_enable_experimental_features`).
@@ -1601,14 +1569,16 @@ impl MediaDriver {
         ffi::driver_get_flow_control_group_tag(&self.inner)
     }
 
-    /// The driver's `flow_control_receiver_timeout_ns` setting (`aeron_driver_context_get_flow_control_receiver_timeout_ns`).
-    pub fn flow_control_receiver_timeout_ns(&self) -> u64 {
-        ffi::driver_get_flow_control_receiver_timeout_ns(&self.inner)
+    /// The driver's `flow_control_receiver_timeout` setting (`aeron_driver_context_get_flow_control_receiver_timeout_ns`).
+    pub fn flow_control_receiver_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_flow_control_receiver_timeout_ns(
+            &self.inner,
+        ))
     }
 
-    /// The driver's `image_liveness_timeout_ns` setting (`aeron_driver_context_get_image_liveness_timeout_ns`).
-    pub fn image_liveness_timeout_ns(&self) -> u64 {
-        ffi::driver_get_image_liveness_timeout_ns(&self.inner)
+    /// The driver's `image_liveness_timeout` setting (`aeron_driver_context_get_image_liveness_timeout_ns`).
+    pub fn image_liveness_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_image_liveness_timeout_ns(&self.inner))
     }
 
     /// The driver's `ipc_mtu_length` setting (`aeron_driver_context_get_ipc_mtu_length`).
@@ -1651,14 +1621,14 @@ impl MediaDriver {
         ffi::driver_get_nak_multicast_group_size(&self.inner)
     }
 
-    /// The driver's `nak_multicast_max_backoff_ns` setting (`aeron_driver_context_get_nak_multicast_max_backoff_ns`).
-    pub fn nak_multicast_max_backoff_ns(&self) -> u64 {
-        ffi::driver_get_nak_multicast_max_backoff_ns(&self.inner)
+    /// The driver's `nak_multicast_max_backoff` setting (`aeron_driver_context_get_nak_multicast_max_backoff_ns`).
+    pub fn nak_multicast_max_backoff(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_nak_multicast_max_backoff_ns(&self.inner))
     }
 
-    /// The driver's `nak_unicast_delay_ns` setting (`aeron_driver_context_get_nak_unicast_delay_ns`).
-    pub fn nak_unicast_delay_ns(&self) -> u64 {
-        ffi::driver_get_nak_unicast_delay_ns(&self.inner)
+    /// The driver's `nak_unicast_delay` setting (`aeron_driver_context_get_nak_unicast_delay_ns`).
+    pub fn nak_unicast_delay(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_nak_unicast_delay_ns(&self.inner))
     }
 
     /// The driver's `nak_unicast_retry_delay_ratio` setting (`aeron_driver_context_get_nak_unicast_retry_delay_ratio`).
@@ -1671,9 +1641,9 @@ impl MediaDriver {
         ffi::driver_get_name_resolver_init_args(&self.inner)
     }
 
-    /// The driver's `name_resolver_threshold_ns` setting (`aeron_driver_context_get_name_resolver_threshold_ns`).
-    pub fn name_resolver_threshold_ns(&self) -> u64 {
-        ffi::driver_get_name_resolver_threshold_ns(&self.inner)
+    /// The driver's `name_resolver_threshold` setting (`aeron_driver_context_get_name_resolver_threshold_ns`).
+    pub fn name_resolver_threshold(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_name_resolver_threshold_ns(&self.inner))
     }
 
     /// The driver's `native_resource_agent_cpu_affinity` setting (`aeron_driver_context_get_native_resource_agent_cpu_affinity`).
@@ -1709,14 +1679,16 @@ impl MediaDriver {
         ffi::driver_get_print_configuration(&self.inner)
     }
 
-    /// The driver's `publication_connection_timeout_ns` setting (`aeron_driver_context_get_publication_connection_timeout_ns`).
-    pub fn publication_connection_timeout_ns(&self) -> u64 {
-        ffi::driver_get_publication_connection_timeout_ns(&self.inner)
+    /// The driver's `publication_connection_timeout` setting (`aeron_driver_context_get_publication_connection_timeout_ns`).
+    pub fn publication_connection_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_publication_connection_timeout_ns(
+            &self.inner,
+        ))
     }
 
-    /// The driver's `publication_linger_timeout_ns` setting (`aeron_driver_context_get_publication_linger_timeout_ns`).
-    pub fn publication_linger_timeout_ns(&self) -> u64 {
-        ffi::driver_get_publication_linger_timeout_ns(&self.inner)
+    /// The driver's `publication_linger_timeout` setting (`aeron_driver_context_get_publication_linger_timeout_ns`).
+    pub fn publication_linger_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_publication_linger_timeout_ns(&self.inner))
     }
 
     /// The driver's `publication_reserved_session_id_high` setting (`aeron_driver_context_get_publication_reserved_session_id_high`).
@@ -1734,9 +1706,9 @@ impl MediaDriver {
         ffi::driver_get_publication_term_window_length(&self.inner)
     }
 
-    /// The driver's `publication_unblock_timeout_ns` setting (`aeron_driver_context_get_publication_unblock_timeout_ns`).
-    pub fn publication_unblock_timeout_ns(&self) -> u64 {
-        ffi::driver_get_publication_unblock_timeout_ns(&self.inner)
+    /// The driver's `publication_unblock_timeout` setting (`aeron_driver_context_get_publication_unblock_timeout_ns`).
+    pub fn publication_unblock_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_publication_unblock_timeout_ns(&self.inner))
     }
 
     /// The driver's `rcv_initial_window_length` setting (`aeron_driver_context_get_rcv_initial_window_length`).
@@ -1744,14 +1716,16 @@ impl MediaDriver {
         ffi::driver_get_rcv_initial_window_length(&self.inner)
     }
 
-    /// The driver's `rcv_status_message_timeout_ns` setting (`aeron_driver_context_get_rcv_status_message_timeout_ns`).
-    pub fn rcv_status_message_timeout_ns(&self) -> u64 {
-        ffi::driver_get_rcv_status_message_timeout_ns(&self.inner)
+    /// The driver's `rcv_status_message_timeout` setting (`aeron_driver_context_get_rcv_status_message_timeout_ns`).
+    pub fn rcv_status_message_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_rcv_status_message_timeout_ns(&self.inner))
     }
 
-    /// The driver's `re_resolution_check_interval_ns` setting (`aeron_driver_context_get_re_resolution_check_interval_ns`).
-    pub fn re_resolution_check_interval_ns(&self) -> u64 {
-        ffi::driver_get_re_resolution_check_interval_ns(&self.inner)
+    /// The driver's `re_resolution_check_interval` setting (`aeron_driver_context_get_re_resolution_check_interval_ns`).
+    pub fn re_resolution_check_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_re_resolution_check_interval_ns(
+            &self.inner,
+        ))
     }
 
     /// The driver's `receiver_cpu_affinity` setting (`aeron_driver_context_get_receiver_cpu_affinity`).
@@ -1759,9 +1733,9 @@ impl MediaDriver {
         ffi::driver_get_receiver_cpu_affinity(&self.inner)
     }
 
-    /// The driver's `receiver_cycle_threshold_ns` setting (`aeron_driver_context_get_receiver_cycle_threshold_ns`).
-    pub fn receiver_cycle_threshold_ns(&self) -> u64 {
-        ffi::driver_get_receiver_cycle_threshold_ns(&self.inner)
+    /// The driver's `receiver_cycle_threshold` setting (`aeron_driver_context_get_receiver_cycle_threshold_ns`).
+    pub fn receiver_cycle_threshold(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_receiver_cycle_threshold_ns(&self.inner))
     }
 
     /// The driver's `receiver_group_consideration` setting (`aeron_driver_context_get_receiver_group_consideration`).
@@ -1802,9 +1776,11 @@ impl MediaDriver {
         ffi::driver_get_resolver_bootstrap_neighbor(&self.inner)
     }
 
-    /// The driver's `resolver_bootstrap_neighbor_resolution_interval_ns` setting (`aeron_driver_context_get_resolver_bootstrap_resolution_interval_ns`).
-    pub fn resolver_bootstrap_neighbor_resolution_interval_ns(&self) -> u64 {
-        ffi::driver_get_resolver_bootstrap_resolution_interval_ns(&self.inner)
+    /// The driver's `resolver_bootstrap_neighbor_resolution_interval` setting (`aeron_driver_context_get_resolver_bootstrap_resolution_interval_ns`).
+    pub fn resolver_bootstrap_neighbor_resolution_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_resolver_bootstrap_resolution_interval_ns(
+            &self.inner,
+        ))
     }
 
     /// The driver's `resolver_interface` setting (`aeron_driver_context_get_resolver_interface`).
@@ -1817,14 +1793,16 @@ impl MediaDriver {
         ffi::driver_get_resolver_name(&self.inner)
     }
 
-    /// The driver's `resolver_neighbor_resolution_interval_ns` setting (`aeron_driver_context_get_resolver_neighbor_resolution_interval_ns`).
-    pub fn resolver_neighbor_resolution_interval_ns(&self) -> u64 {
-        ffi::driver_get_resolver_neighbor_resolution_interval_ns(&self.inner)
+    /// The driver's `resolver_neighbor_resolution_interval` setting (`aeron_driver_context_get_resolver_neighbor_resolution_interval_ns`).
+    pub fn resolver_neighbor_resolution_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_resolver_neighbor_resolution_interval_ns(
+            &self.inner,
+        ))
     }
 
-    /// The driver's `resolver_neighbor_timeout_ns` setting (`aeron_driver_context_get_resolver_neighbor_timeout_ns`).
-    pub fn resolver_neighbor_timeout_ns(&self) -> u64 {
-        ffi::driver_get_resolver_neighbor_timeout_ns(&self.inner)
+    /// The driver's `resolver_neighbor_timeout` setting (`aeron_driver_context_get_resolver_neighbor_timeout_ns`).
+    pub fn resolver_neighbor_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_resolver_neighbor_timeout_ns(&self.inner))
     }
 
     /// The driver's `resource_free_limit` setting (`aeron_driver_context_get_resource_free_limit`).
@@ -1832,19 +1810,19 @@ impl MediaDriver {
         ffi::driver_get_resource_free_limit(&self.inner)
     }
 
-    /// The driver's `retransmit_unicast_delay_ns` setting (`aeron_driver_context_get_retransmit_unicast_delay_ns`).
-    pub fn retransmit_unicast_delay_ns(&self) -> u64 {
-        ffi::driver_get_retransmit_unicast_delay_ns(&self.inner)
+    /// The driver's `retransmit_unicast_delay` setting (`aeron_driver_context_get_retransmit_unicast_delay_ns`).
+    pub fn retransmit_unicast_delay(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_retransmit_unicast_delay_ns(&self.inner))
     }
 
-    /// The driver's `retransmit_unicast_linger_ns` setting (`aeron_driver_context_get_retransmit_unicast_linger_ns`).
-    pub fn retransmit_unicast_linger_ns(&self) -> u64 {
-        ffi::driver_get_retransmit_unicast_linger_ns(&self.inner)
+    /// The driver's `retransmit_unicast_linger` setting (`aeron_driver_context_get_retransmit_unicast_linger_ns`).
+    pub fn retransmit_unicast_linger(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_retransmit_unicast_linger_ns(&self.inner))
     }
 
-    /// The driver's `self_resolution_interval_ns` setting (`aeron_driver_context_get_self_resolution_interval_ns`).
-    pub fn self_resolution_interval_ns(&self) -> u64 {
-        ffi::driver_get_self_resolution_interval_ns(&self.inner)
+    /// The driver's `self_resolution_interval` setting (`aeron_driver_context_get_self_resolution_interval_ns`).
+    pub fn self_resolution_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_self_resolution_interval_ns(&self.inner))
     }
 
     /// The driver's `send_to_status_poll_ratio` setting (`aeron_driver_context_get_send_to_status_poll_ratio`).
@@ -1857,9 +1835,9 @@ impl MediaDriver {
         ffi::driver_get_sender_cpu_affinity(&self.inner)
     }
 
-    /// The driver's `sender_cycle_threshold_ns` setting (`aeron_driver_context_get_sender_cycle_threshold_ns`).
-    pub fn sender_cycle_threshold_ns(&self) -> u64 {
-        ffi::driver_get_sender_cycle_threshold_ns(&self.inner)
+    /// The driver's `sender_cycle_threshold` setting (`aeron_driver_context_get_sender_cycle_threshold_ns`).
+    pub fn sender_cycle_threshold(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_sender_cycle_threshold_ns(&self.inner))
     }
 
     /// The driver's `sender_idle_strategy` setting (`aeron_driver_context_get_sender_idle_strategy`).
@@ -1956,9 +1934,9 @@ impl MediaDriver {
         ThreadingMode::from_c(ffi::driver_get_threading_mode(&self.inner))
     }
 
-    /// The driver's `timer_interval_ns` setting (`aeron_driver_context_get_timer_interval_ns`).
-    pub fn timer_interval_ns(&self) -> u64 {
-        ffi::driver_get_timer_interval_ns(&self.inner)
+    /// The driver's `timer_interval` setting (`aeron_driver_context_get_timer_interval_ns`).
+    pub fn timer_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_timer_interval_ns(&self.inner))
     }
 
     /// The driver's `to_clients_buffer_length` setting (`aeron_driver_context_get_to_clients_buffer_length`).
@@ -1971,19 +1949,24 @@ impl MediaDriver {
         ffi::driver_get_to_conductor_buffer_length(&self.inner)
     }
 
-    /// The driver's `untethered_linger_timeout_ns` setting (`aeron_driver_context_get_untethered_linger_timeout_ns`).
-    pub fn untethered_linger_timeout_ns(&self) -> u64 {
-        ffi::driver_get_untethered_linger_timeout_ns(&self.inner)
+    /// The driver's `untethered_linger_timeout` setting (`aeron_driver_context_get_untethered_linger_timeout_ns`).
+    pub fn untethered_linger_timeout(&self) -> Option<std::time::Duration> {
+        {
+            let value = ffi::driver_get_untethered_linger_timeout_ns(&self.inner);
+            (value != u64::MAX).then(|| std::time::Duration::from_nanos(value))
+        }
     }
 
-    /// The driver's `untethered_resting_timeout_ns` setting (`aeron_driver_context_get_untethered_resting_timeout_ns`).
-    pub fn untethered_resting_timeout_ns(&self) -> u64 {
-        ffi::driver_get_untethered_resting_timeout_ns(&self.inner)
+    /// The driver's `untethered_resting_timeout` setting (`aeron_driver_context_get_untethered_resting_timeout_ns`).
+    pub fn untethered_resting_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_untethered_resting_timeout_ns(&self.inner))
     }
 
-    /// The driver's `untethered_window_limit_timeout_ns` setting (`aeron_driver_context_get_untethered_window_limit_timeout_ns`).
-    pub fn untethered_window_limit_timeout_ns(&self) -> u64 {
-        ffi::driver_get_untethered_window_limit_timeout_ns(&self.inner)
+    /// The driver's `untethered_window_limit_timeout` setting (`aeron_driver_context_get_untethered_window_limit_timeout_ns`).
+    pub fn untethered_window_limit_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(ffi::driver_get_untethered_window_limit_timeout_ns(
+            &self.inner,
+        ))
     }
 
     /// The driver's `receiver_group_tag` setting, `None` if unset

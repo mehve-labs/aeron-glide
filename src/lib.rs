@@ -176,7 +176,6 @@ pub(crate) fn timeout_millis(timeout: std::time::Duration) -> i64 {
 }
 
 /// `timeout` in nanoseconds, at most [`MAX_TIMEOUT_NS`].
-#[cfg(feature = "archive")]
 pub(crate) fn timeout_nanos(timeout: std::time::Duration) -> i64 {
     timeout.as_nanos().min(MAX_TIMEOUT_NS as u128) as i64
 }
