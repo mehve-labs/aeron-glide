@@ -66,6 +66,49 @@ pub enum DriverIdleStrategy {
     Noop,
 }
 
+/// Parses `dedicated`, `shared_network`, `shared` or `invoker` (any case, `-`
+/// or `_`), as in `AERON_THREADING_MODE`.
+impl std::str::FromStr for ThreadingMode {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s.to_ascii_lowercase().replace('-', "_").as_str() {
+            "dedicated" => Ok(Self::Dedicated),
+            "shared_network" => Ok(Self::SharedNetwork),
+            "shared" => Ok(Self::Shared),
+            "invoker" => Ok(Self::Invoker),
+            _ => Err(Error::new(
+                ErrorKind::IllegalArgument,
+                format!(
+                    "unknown threading mode {s:?}: expected dedicated, shared_network, shared or invoker"
+                ),
+            )),
+        }
+    }
+}
+
+/// Parses Aeron's names (any case): `backoff`, `spin`, `yield`, `sleeping`,
+/// `noop`, as returned by [`DriverIdleStrategy::as_str`].
+impl std::str::FromStr for DriverIdleStrategy {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "backoff" => Ok(Self::Backoff),
+            "spin" => Ok(Self::Spin),
+            "yield" => Ok(Self::Yield),
+            "sleeping" => Ok(Self::Sleeping),
+            "noop" => Ok(Self::Noop),
+            _ => Err(Error::new(
+                ErrorKind::IllegalArgument,
+                format!(
+                    "unknown idle strategy {s:?}: expected backoff, spin, yield, sleeping or noop"
+                ),
+            )),
+        }
+    }
+}
+
 impl ThreadingMode {
     pub(crate) fn from_c(value: i32) -> Self {
         match value {

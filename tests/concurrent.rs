@@ -347,3 +347,53 @@ fn agents_refuse_clients_and_drivers_not_in_invoker_mode() {
         AgentRunner::start("a\0b", Counting::default(), NoOpIdleStrategy, |_| {}).expect_err("NUL");
     assert_eq!(err.kind(), ErrorKind::IllegalArgument);
 }
+
+/// Counts `on_close` calls in a shared counter.
+struct Closing<F: FnMut() -> Result<usize> + Send> {
+    work: F,
+    closed: Arc<AtomicUsize>,
+}
+
+impl<F: FnMut() -> Result<usize> + Send> Agent for Closing<F> {
+    fn do_work(&mut self) -> Result<usize> {
+        (self.work)()
+    }
+    fn on_close(&mut self) -> Result<()> {
+        self.closed.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+#[test]
+fn a_panicking_agent_is_still_closed() {
+    let closed = Arc::new(AtomicUsize::new(0));
+    let agent = Closing {
+        work: || panic!("agent panic"),
+        closed: closed.clone(),
+    };
+    let runner = AgentRunner::start("panicking", agent, NoOpIdleStrategy, |_| {}).unwrap();
+    wait_until("the panic", || !runner.is_running());
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(runner.close())))
+        .expect_err("the panic is resumed");
+    assert_eq!(panic.downcast_ref::<&str>(), Some(&"agent panic"));
+    assert_eq!(closed.load(Ordering::SeqCst), 1, "on_close ran");
+}
+
+#[test]
+fn an_agent_may_drop_its_own_runner() {
+    type Runner = AgentRunner<Closing<Box<dyn FnMut() -> Result<usize> + Send>>>;
+    let closed = Arc::new(AtomicUsize::new(0));
+    let slot: Arc<Mutex<Option<Runner>>> = Arc::new(Mutex::new(None));
+    let held = slot.clone();
+    let agent = Closing {
+        work: Box::new(move || {
+            // Drop the runner from its own thread: it stops instead of panicking.
+            drop(held.lock().unwrap().take());
+            Ok(0usize)
+        }) as Box<dyn FnMut() -> Result<usize> + Send>,
+        closed: closed.clone(),
+    };
+    let runner = AgentRunner::start("self-dropping", agent, NoOpIdleStrategy, |_| {}).unwrap();
+    *slot.lock().unwrap() = Some(runner);
+    wait_until("the agent to close", || closed.load(Ordering::SeqCst) == 1);
+}

@@ -30,33 +30,6 @@ struct Config {
     termination_token: Option<String>,
 }
 
-fn parse_threading_mode(s: &str) -> Result<ThreadingMode, String> {
-    match s {
-        "dedicated" => Ok(ThreadingMode::Dedicated),
-        "shared_network" => Ok(ThreadingMode::SharedNetwork),
-        "shared" => Ok(ThreadingMode::Shared),
-        "invoker" => Ok(ThreadingMode::Invoker),
-        _ => Err(format!(
-            "Unknown threading mode: '{}'. Expected: dedicated, shared_network, shared, invoker",
-            s
-        )),
-    }
-}
-
-fn parse_idle_strategy(s: &str) -> Result<DriverIdleStrategy, String> {
-    match s {
-        "backoff" => Ok(DriverIdleStrategy::Backoff),
-        "spin" => Ok(DriverIdleStrategy::Spin),
-        "yield" => Ok(DriverIdleStrategy::Yield),
-        "sleeping" => Ok(DriverIdleStrategy::Sleeping),
-        "noop" => Ok(DriverIdleStrategy::Noop),
-        _ => Err(format!(
-            "Unknown idle strategy: '{}'. Expected: backoff, spin, yield, sleeping, noop",
-            s
-        )),
-    }
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config_path = std::env::args().nth(1);
 
@@ -87,16 +60,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         builder = builder.dir_delete_on_shutdown(v);
     }
     if let Some(ref mode) = config.threading_mode {
-        builder = builder.threading_mode(parse_threading_mode(mode)?);
+        builder = builder.threading_mode(mode.parse::<ThreadingMode>()?);
     }
     if let Some(ref s) = config.conductor_idle_strategy {
-        builder = builder.conductor_idle_strategy(parse_idle_strategy(s)?);
+        builder = builder.conductor_idle_strategy(s.parse::<DriverIdleStrategy>()?);
     }
     if let Some(ref s) = config.sender_idle_strategy {
-        builder = builder.sender_idle_strategy(parse_idle_strategy(s)?);
+        builder = builder.sender_idle_strategy(s.parse::<DriverIdleStrategy>()?);
     }
     if let Some(ref s) = config.receiver_idle_strategy {
-        builder = builder.receiver_idle_strategy(parse_idle_strategy(s)?);
+        builder = builder.receiver_idle_strategy(s.parse::<DriverIdleStrategy>()?);
     }
     if let Some(v) = config.term_buffer_length {
         builder = builder.term_buffer_length(v);

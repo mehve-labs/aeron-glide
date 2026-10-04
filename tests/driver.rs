@@ -455,3 +455,32 @@ fn driver_settings_are_range_checked() {
     }
     start(|b| b.nak_multicast_group_size(1)).unwrap();
 }
+
+#[test]
+fn modes_and_strategies_parse() {
+    use aeron_glide::DriverIdleStrategy;
+    assert_eq!(
+        "SHARED_NETWORK".parse::<ThreadingMode>().unwrap(),
+        ThreadingMode::SharedNetwork
+    );
+    assert_eq!(
+        "invoker".parse::<ThreadingMode>().unwrap(),
+        ThreadingMode::Invoker
+    );
+    for strategy in [
+        DriverIdleStrategy::Backoff,
+        DriverIdleStrategy::Spin,
+        DriverIdleStrategy::Yield,
+        DriverIdleStrategy::Sleeping,
+        DriverIdleStrategy::Noop,
+    ] {
+        assert_eq!(
+            strategy.as_str().parse::<DriverIdleStrategy>().unwrap(),
+            strategy
+        );
+    }
+    assert_eq!(
+        "busy".parse::<DriverIdleStrategy>().unwrap_err().kind(),
+        ErrorKind::IllegalArgument
+    );
+}

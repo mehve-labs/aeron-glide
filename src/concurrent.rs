@@ -244,12 +244,17 @@ impl<A: Agent + ?Sized> Agent for Box<A> {
 /// [`AeronClient::invoke`]. Starting it fails unless the client uses an agent
 /// invoker ([`Context::use_conductor_agent_invoker`](crate::Context::use_conductor_agent_invoker)).
 #[derive(Debug, Clone)]
-pub struct ClientAgent(pub Arc<AeronClient>);
+pub struct ClientAgent(Arc<AeronClient>);
 
 impl ClientAgent {
     /// Run `client`'s conductor as an agent.
     pub fn new(client: Arc<AeronClient>) -> Self {
         Self(client)
+    }
+
+    /// The client whose conductor this agent runs.
+    pub fn client(&self) -> &Arc<AeronClient> {
+        &self.0
     }
 }
 
@@ -275,13 +280,18 @@ impl Agent for ClientAgent {
 #[cfg(feature = "driver")]
 #[cfg_attr(docsrs, doc(cfg(feature = "driver")))]
 #[derive(Debug, Clone)]
-pub struct MediaDriverAgent(pub Arc<crate::MediaDriver>);
+pub struct MediaDriverAgent(Arc<crate::MediaDriver>);
 
 #[cfg(feature = "driver")]
 impl MediaDriverAgent {
     /// Run `driver`'s duty cycle as an agent.
     pub fn new(driver: Arc<crate::MediaDriver>) -> Self {
         Self(driver)
+    }
+
+    /// The driver whose duty cycle this agent runs.
+    pub fn driver(&self) -> &Arc<crate::MediaDriver> {
+        &self.0
     }
 }
 
@@ -450,24 +460,32 @@ impl<A: Agent + Send + 'static> AgentRunner<A> {
             .name(name.to_string())
             .spawn(move || {
                 let mut agent = agent;
-                if let Err(e) = agent.on_start() {
-                    flag.store(false, Ordering::Release);
-                    report(&e, &mut error_handler);
-                }
-                while flag.load(Ordering::Acquire) {
-                    match agent.do_work() {
-                        Ok(work) => idle_strategy.idle(work),
-                        Err(e) if e.kind() == ErrorKind::AgentTermination => {
-                            flag.store(false, Ordering::Release);
-                        }
-                        Err(e) => {
-                            error_handler(&e);
-                            idle_strategy.idle(0);
+                // A panic in the agent still closes it; the panic is resumed
+                // afterwards (and by `close`).
+                let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    if let Err(e) = agent.on_start() {
+                        flag.store(false, Ordering::Release);
+                        report(&e, &mut error_handler);
+                    }
+                    while flag.load(Ordering::Acquire) {
+                        match agent.do_work() {
+                            Ok(work) => idle_strategy.idle(work),
+                            Err(e) if e.kind() == ErrorKind::AgentTermination => {
+                                flag.store(false, Ordering::Release);
+                            }
+                            Err(e) => {
+                                error_handler(&e);
+                                idle_strategy.idle(0);
+                            }
                         }
                     }
-                }
+                }));
+                flag.store(false, Ordering::Release);
                 if let Err(e) = agent.on_close() {
                     report(&e, &mut error_handler);
+                }
+                if let Err(panic) = run {
+                    std::panic::resume_unwind(panic);
                 }
                 agent
             })
@@ -493,12 +511,27 @@ impl<A> AgentRunner<A> {
     }
 
     /// Stop the agent and wait for its thread; returns the agent. If the agent
-    /// panicked, the panic is resumed here.
+    /// panicked, the panic is resumed here (after [`Agent::on_close`] ran).
+    ///
+    /// # Panics
+    ///
+    /// Called from the agent's own thread (it would wait for itself). Dropping
+    /// the runner there instead stops the agent without waiting.
     pub fn close(mut self) -> A {
+        assert!(
+            !self.on_own_thread(),
+            "an AgentRunner cannot be closed from its own agent: drop it instead"
+        );
         match self.join() {
             Ok(agent) => agent,
             Err(panic) => std::panic::resume_unwind(panic),
         }
+    }
+
+    fn on_own_thread(&self) -> bool {
+        self.thread
+            .as_ref()
+            .is_some_and(|t| t.thread().id() == std::thread::current().id())
     }
 
     fn join(&mut self) -> std::thread::Result<A> {
@@ -512,6 +545,12 @@ impl<A> AgentRunner<A> {
 
 impl<A> Drop for AgentRunner<A> {
     fn drop(&mut self) {
+        if self.on_own_thread() {
+            // Dropped by its own agent: stop it; the thread ends by itself.
+            self.running.store(false, Ordering::Release);
+            self.thread = None;
+            return;
+        }
         if self.thread.is_some()
             && let Err(panic) = self.join()
             && !std::thread::panicking()

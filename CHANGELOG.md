@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** `ClientAgent` and `MediaDriverAgent` keep their fields
+  private; use `client()` / `driver()`.
 - **Breaking:** the media driver's time settings take and return a
   `Duration`, named without their unit (`client_liveness_timeout`,
   `publication_linger_timeout`, `timer_interval`, `driver_timeout`, ...; were
@@ -146,6 +148,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A panicking agent's `on_close` now runs before `AgentRunner::close`
+  resumes the panic, and an agent dropping its own `AgentRunner` stops it
+  instead of panicking (it can't wait for its own thread).
 - `PendingAdd::wait` (and the synchronous adds built on it) backs off between
   polls instead of spinning a core until the driver answers.
 - Asynchronous adds on a closed client fail with `IllegalState`, like the
@@ -312,6 +317,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `MIGRATION.md`: upgrading from 0.3, and moving from rusteron.
+- `FromStr` for `ThreadingMode` and `DriverIdleStrategy` (Aeron's names, any
+  case).
 - `PublicationErrorFrame` carries the receiver's `error_code` and
   `error_message` (e.g. the reason given to `Image::reject`), the
   `receiver_id` and the `destination_registration_id`, which Aeron's C++
