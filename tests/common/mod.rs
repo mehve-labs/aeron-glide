@@ -77,6 +77,31 @@ impl Drop for TestDriver {
     }
 }
 
+/// Run the test `name` in a child process with the environment variables
+/// `vars` set, and check it passes. Returns `true` in the child, which then
+/// runs the test's body. Setting variables in this process would race with the
+/// C code reading the environment in tests running in parallel.
+#[allow(dead_code)]
+pub fn in_child_process(name: &str, vars: &[(&str, &str)]) -> bool {
+    const CHILD: &str = "AERON_GLIDE_TEST_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        return true;
+    }
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([name, "--exact", "--nocapture", "--test-threads=1"])
+        .env(CHILD, "1")
+        .envs(vars.iter().copied())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{name} failed in a child process:\n{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    false
+}
+
 /// Wait until `condition` holds, panicking with `what` after [`TIMEOUT`].
 pub fn wait_until(what: &str, mut condition: impl FnMut() -> bool) {
     let deadline = Instant::now() + TIMEOUT;

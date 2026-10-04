@@ -43,6 +43,13 @@ void MediaDriverWrapper::start(bool manual_main_loop) {
     if (driver_ != nullptr) {
         throw aeron::util::IllegalStateException("media driver already started", SOURCEINFO, EPERM);
     }
+    // Aeron checks this product only for values from environment variables.
+    const uint64_t nak_delay = aeron_driver_context_get_nak_unicast_delay_ns(context_);
+    const uint64_t nak_ratio = aeron_driver_context_get_nak_unicast_retry_delay_ratio(context_);
+    if (nak_ratio != 0 && nak_delay > static_cast<uint64_t>(INT64_MAX) / nak_ratio) {
+        throw aeron::util::IllegalArgumentException(
+            "nak_unicast_delay_ns * nak_unicast_retry_delay_ratio exceeds INT64_MAX", SOURCEINFO, EINVAL);
+    }
     // As aeronmd does: the cpuset and per-thread CPU affinity settings are only
     // applied by these two steps (the affinity by each agent thread on start;
     // in invoker mode the conductor's runs on the thread calling start).

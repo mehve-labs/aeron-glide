@@ -185,17 +185,19 @@ fn mediadriver_binary_runs_invoker_mode_and_terminates_on_request() {
 
 #[test]
 fn invoker_mode_from_the_environment() {
-    // SAFETY: the variable is only read by this test's driver start below
-    // (other tests set the mode explicitly, which overrides it).
-    unsafe { std::env::set_var("AERON_THREADING_MODE", "INVOKER") };
+    if !common::in_child_process(
+        "invoker_mode_from_the_environment",
+        &[("AERON_THREADING_MODE", "INVOKER")],
+    ) {
+        return;
+    }
     let dir = temp_dir("env-invoker");
     let driver = MediaDriver::builder()
         .dir(&dir)
         .dir_delete_on_start(true)
         .dir_delete_on_shutdown(true)
-        .start();
-    unsafe { std::env::remove_var("AERON_THREADING_MODE") };
-    let driver = driver.unwrap();
+        .start()
+        .unwrap();
     assert_eq!(driver.threading_mode(), ThreadingMode::Invoker);
     driver.do_work().unwrap();
 }
@@ -382,4 +384,71 @@ fn mediadriver_binary_stops_on_requests_the_environment_accepts() {
     };
     let _ = std::fs::remove_file(&config);
     assert!(status.success(), "{status}");
+}
+
+/// Init args reload the idle strategy in effect, including one chosen by its
+/// environment variable (they used to reload Aeron's recorded "backoff",
+/// failing here: backoff rejects these args, noop ignores them).
+#[test]
+fn idle_strategy_init_args_keep_the_strategy_from_the_environment() {
+    if !common::in_child_process(
+        "idle_strategy_init_args_keep_the_strategy_from_the_environment",
+        &[("AERON_SENDER_IDLE_STRATEGY", "noop")],
+    ) {
+        return;
+    }
+    let dir = temp_dir("env-idle");
+    MediaDriver::builder()
+        .dir(&dir)
+        .dir_delete_on_start(true)
+        .dir_delete_on_shutdown(true)
+        .sender_idle_strategy_init_args("not-backoff-args")
+        .start()
+        .unwrap();
+    // A strategy set through the builder still takes precedence.
+    let dir = temp_dir("builder-idle");
+    let err = MediaDriver::builder()
+        .dir(&dir)
+        .dir_delete_on_start(true)
+        .dir_delete_on_shutdown(true)
+        .sender_idle_strategy(aeron_glide::DriverIdleStrategy::Backoff)
+        .sender_idle_strategy_init_args("not-backoff-args")
+        .start();
+    assert!(err.is_err(), "backoff rejects these args");
+}
+
+/// Settings Aeron range-checks when they come from environment variables are
+/// checked when set through the builder too (they used to reach the driver:
+/// a group size of 0 feeds `log(0)`).
+#[test]
+fn driver_settings_are_range_checked() {
+    type Builder = aeron_glide::MediaDriverBuilder;
+    fn start(configure: fn(Builder) -> Builder) -> aeron_glide::Result<()> {
+        let dir = temp_dir("ranges");
+        configure(
+            MediaDriver::builder()
+                .dir(&dir)
+                .dir_delete_on_start(true)
+                .dir_delete_on_shutdown(true),
+        )
+        .start()
+        .map(drop)
+    }
+    let invalid: [fn(Builder) -> Builder; 4] = [
+        |b| b.nak_multicast_group_size(0),
+        |b| b.nak_unicast_retry_delay_ratio(0),
+        |b| b.client_liveness_timeout_ns(999),
+        // Each in range, but their product overflows.
+        |b| {
+            b.nak_unicast_delay_ns(1 << 40)
+                .nak_unicast_retry_delay_ratio(1 << 40)
+        },
+    ];
+    for configure in invalid {
+        assert_eq!(
+            start(configure).unwrap_err().kind(),
+            ErrorKind::IllegalArgument
+        );
+    }
+    start(|b| b.nak_multicast_group_size(1)).unwrap();
 }

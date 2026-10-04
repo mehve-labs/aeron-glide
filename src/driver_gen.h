@@ -70,6 +70,10 @@ inline void driver_set_counters_buffer_length(MediaDriverWrapper &driver, size_t
 
 inline void driver_set_error_buffer_length(MediaDriverWrapper &driver, size_t value) {
     driver.ensureNotStarted();
+    if (static_cast<uint64_t>(value) > static_cast<uint64_t>(INT32_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "error_buffer_length must be in [-, INT32_MAX] (as for AERON_ERROR_BUFFER_LENGTH), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_error_buffer_length(driver.context(), value) < 0) {
         throwDriverError("Failed to set error_buffer_length");
     }
@@ -77,6 +81,10 @@ inline void driver_set_error_buffer_length(MediaDriverWrapper &driver, size_t va
 
 inline void driver_set_client_liveness_timeout_ns(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<uint64_t>(1000) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "client_liveness_timeout_ns must be in [1000, INT64_MAX] (as for AERON_CLIENT_LIVENESS_TIMEOUT), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_client_liveness_timeout_ns(driver.context(), value) < 0) {
         throwDriverError("Failed to set client_liveness_timeout_ns");
     }
@@ -84,6 +92,10 @@ inline void driver_set_client_liveness_timeout_ns(MediaDriverWrapper &driver, ui
 
 inline void driver_set_term_buffer_length(MediaDriverWrapper &driver, size_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<size_t>(1024) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT32_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "term_buffer_length must be in [1024, INT32_MAX] (as for AERON_TERM_BUFFER_LENGTH), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_term_buffer_length(driver.context(), value) < 0) {
         throwDriverError("Failed to set term_buffer_length");
     }
@@ -91,6 +103,10 @@ inline void driver_set_term_buffer_length(MediaDriverWrapper &driver, size_t val
 
 inline void driver_set_ipc_term_buffer_length(MediaDriverWrapper &driver, size_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<size_t>(1024) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT32_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "ipc_term_buffer_length must be in [1024, INT32_MAX] (as for AERON_IPC_TERM_BUFFER_LENGTH), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_ipc_term_buffer_length(driver.context(), value) < 0) {
         throwDriverError("Failed to set ipc_term_buffer_length");
     }
@@ -112,6 +128,10 @@ inline void driver_set_perform_storage_checks(MediaDriverWrapper &driver, bool v
 
 inline void driver_set_low_file_store_warning_threshold(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "low_file_store_warning_threshold must be in [0, INT64_MAX] (as for AERON_LOW_FILE_STORE_WARNING_THRESHOLD), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_low_file_store_warning_threshold(driver.context(), value) < 0) {
         throwDriverError("Failed to set low_file_store_warning_threshold");
     }
@@ -126,6 +146,10 @@ inline void driver_set_spies_simulate_connection(MediaDriverWrapper &driver, boo
 
 inline void driver_set_file_page_size(MediaDriverWrapper &driver, size_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<size_t>(4 * 1024) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT32_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "file_page_size must be in [4 * 1024, INT32_MAX] (as for AERON_FILE_PAGE_SIZE), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_file_page_size(driver.context(), value) < 0) {
         throwDriverError("Failed to set file_page_size");
     }
@@ -161,6 +185,10 @@ inline void driver_set_publication_term_window_length(MediaDriverWrapper &driver
 
 inline void driver_set_publication_linger_timeout_ns(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<uint64_t>(1000) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "publication_linger_timeout_ns must be in [1000, INT64_MAX] (as for AERON_PUBLICATION_LINGER_TIMEOUT), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_publication_linger_timeout_ns(driver.context(), value) < 0) {
         throwDriverError("Failed to set publication_linger_timeout_ns");
     }
@@ -168,6 +196,10 @@ inline void driver_set_publication_linger_timeout_ns(MediaDriverWrapper &driver,
 
 inline void driver_set_socket_so_rcvbuf(MediaDriverWrapper &driver, size_t value) {
     driver.ensureNotStarted();
+    if (static_cast<uint64_t>(value) > static_cast<uint64_t>(INT32_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "socket_so_rcvbuf must be in [0, INT32_MAX] (as for AERON_SOCKET_SO_RCVBUF), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_socket_so_rcvbuf(driver.context(), value) < 0) {
         throwDriverError("Failed to set socket_so_rcvbuf");
     }
@@ -175,6 +207,10 @@ inline void driver_set_socket_so_rcvbuf(MediaDriverWrapper &driver, size_t value
 
 inline void driver_set_socket_so_sndbuf(MediaDriverWrapper &driver, size_t value) {
     driver.ensureNotStarted();
+    if (static_cast<uint64_t>(value) > static_cast<uint64_t>(INT32_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "socket_so_sndbuf must be in [0, INT32_MAX] (as for AERON_SOCKET_SO_SNDBUF), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_socket_so_sndbuf(driver.context(), value) < 0) {
         throwDriverError("Failed to set socket_so_sndbuf");
     }
@@ -182,6 +218,10 @@ inline void driver_set_socket_so_sndbuf(MediaDriverWrapper &driver, size_t value
 
 inline void driver_set_socket_multicast_ttl(MediaDriverWrapper &driver, uint8_t value) {
     driver.ensureNotStarted();
+    if (static_cast<uint64_t>(value) > static_cast<uint64_t>(255)) {
+        throw aeron::util::IllegalArgumentException(
+            "socket_multicast_ttl must be in [0, 255] (as for AERON_SOCKET_MULTICAST_TTL), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_socket_multicast_ttl(driver.context(), value) < 0) {
         throwDriverError("Failed to set socket_multicast_ttl");
     }
@@ -189,6 +229,10 @@ inline void driver_set_socket_multicast_ttl(MediaDriverWrapper &driver, uint8_t 
 
 inline void driver_set_send_to_status_poll_ratio(MediaDriverWrapper &driver, size_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<size_t>(1) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT32_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "send_to_status_poll_ratio must be in [1, INT32_MAX] (as for AERON_SEND_TO_STATUS_POLL_RATIO), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_send_to_status_poll_ratio(driver.context(), value) < 0) {
         throwDriverError("Failed to set send_to_status_poll_ratio");
     }
@@ -196,6 +240,10 @@ inline void driver_set_send_to_status_poll_ratio(MediaDriverWrapper &driver, siz
 
 inline void driver_set_rcv_status_message_timeout_ns(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<uint64_t>(1000) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "rcv_status_message_timeout_ns must be in [1000, INT64_MAX] (as for AERON_RCV_STATUS_MESSAGE_TIMEOUT), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_rcv_status_message_timeout_ns(driver.context(), value) < 0) {
         throwDriverError("Failed to set rcv_status_message_timeout_ns");
     }
@@ -203,6 +251,10 @@ inline void driver_set_rcv_status_message_timeout_ns(MediaDriverWrapper &driver,
 
 inline void driver_set_image_liveness_timeout_ns(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<uint64_t>(1000) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "image_liveness_timeout_ns must be in [1000, INT64_MAX] (as for AERON_IMAGE_LIVENESS_TIMEOUT), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_image_liveness_timeout_ns(driver.context(), value) < 0) {
         throwDriverError("Failed to set image_liveness_timeout_ns");
     }
@@ -210,6 +262,10 @@ inline void driver_set_image_liveness_timeout_ns(MediaDriverWrapper &driver, uin
 
 inline void driver_set_rcv_initial_window_length(MediaDriverWrapper &driver, size_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<size_t>(256) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT32_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "rcv_initial_window_length must be in [256, INT32_MAX] (as for AERON_RCV_INITIAL_WINDOW_LENGTH), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_rcv_initial_window_length(driver.context(), value) < 0) {
         throwDriverError("Failed to set rcv_initial_window_length");
     }
@@ -217,6 +273,10 @@ inline void driver_set_rcv_initial_window_length(MediaDriverWrapper &driver, siz
 
 inline void driver_set_loss_report_buffer_length(MediaDriverWrapper &driver, size_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<size_t>(1024) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT32_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "loss_report_buffer_length must be in [1024, INT32_MAX] (as for AERON_LOSS_REPORT_BUFFER_LENGTH), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_loss_report_buffer_length(driver.context(), value) < 0) {
         throwDriverError("Failed to set loss_report_buffer_length");
     }
@@ -224,6 +284,10 @@ inline void driver_set_loss_report_buffer_length(MediaDriverWrapper &driver, siz
 
 inline void driver_set_publication_unblock_timeout_ns(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<uint64_t>(1000) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "publication_unblock_timeout_ns must be in [1000, INT64_MAX] (as for AERON_PUBLICATION_UNBLOCK_TIMEOUT), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_publication_unblock_timeout_ns(driver.context(), value) < 0) {
         throwDriverError("Failed to set publication_unblock_timeout_ns");
     }
@@ -231,6 +295,10 @@ inline void driver_set_publication_unblock_timeout_ns(MediaDriverWrapper &driver
 
 inline void driver_set_publication_connection_timeout_ns(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<uint64_t>(1000) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "publication_connection_timeout_ns must be in [1000, INT64_MAX] (as for AERON_PUBLICATION_CONNECTION_TIMEOUT), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_publication_connection_timeout_ns(driver.context(), value) < 0) {
         throwDriverError("Failed to set publication_connection_timeout_ns");
     }
@@ -238,6 +306,10 @@ inline void driver_set_publication_connection_timeout_ns(MediaDriverWrapper &dri
 
 inline void driver_set_timer_interval_ns(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<uint64_t>(1000) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "timer_interval_ns must be in [1000, INT64_MAX] (as for AERON_TIMER_INTERVAL), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_timer_interval_ns(driver.context(), value) < 0) {
         throwDriverError("Failed to set timer_interval_ns");
     }
@@ -248,6 +320,7 @@ inline void driver_set_sender_idle_strategy(MediaDriverWrapper &driver, rust::St
     if (aeron_driver_context_set_sender_idle_strategy(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set sender_idle_strategy");
     }
+    driver.chooseStrategy("sender_idle_strategy", std::string(value));
 }
 
 inline void driver_set_conductor_idle_strategy(MediaDriverWrapper &driver, rust::Str value) {
@@ -255,6 +328,7 @@ inline void driver_set_conductor_idle_strategy(MediaDriverWrapper &driver, rust:
     if (aeron_driver_context_set_conductor_idle_strategy(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set conductor_idle_strategy");
     }
+    driver.chooseStrategy("conductor_idle_strategy", std::string(value));
 }
 
 inline void driver_set_receiver_idle_strategy(MediaDriverWrapper &driver, rust::Str value) {
@@ -262,6 +336,7 @@ inline void driver_set_receiver_idle_strategy(MediaDriverWrapper &driver, rust::
     if (aeron_driver_context_set_receiver_idle_strategy(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set receiver_idle_strategy");
     }
+    driver.chooseStrategy("receiver_idle_strategy", std::string(value));
 }
 
 inline void driver_set_sharednetwork_idle_strategy(MediaDriverWrapper &driver, rust::Str value) {
@@ -269,6 +344,7 @@ inline void driver_set_sharednetwork_idle_strategy(MediaDriverWrapper &driver, r
     if (aeron_driver_context_set_sharednetwork_idle_strategy(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set sharednetwork_idle_strategy");
     }
+    driver.chooseStrategy("sharednetwork_idle_strategy", std::string(value));
 }
 
 inline void driver_set_shared_idle_strategy(MediaDriverWrapper &driver, rust::Str value) {
@@ -276,6 +352,7 @@ inline void driver_set_shared_idle_strategy(MediaDriverWrapper &driver, rust::St
     if (aeron_driver_context_set_shared_idle_strategy(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set shared_idle_strategy");
     }
+    driver.chooseStrategy("shared_idle_strategy", std::string(value));
 }
 
 inline void driver_set_sender_idle_strategy_init_args(MediaDriverWrapper &driver, rust::Str value) {
@@ -283,11 +360,10 @@ inline void driver_set_sender_idle_strategy_init_args(MediaDriverWrapper &driver
     if (aeron_driver_context_set_sender_idle_strategy_init_args(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set sender_idle_strategy_init_args");
     }
-    if (const char *current = aeron_driver_context_get_sender_idle_strategy(driver.context())) {
-        std::string strategy(current);
-        if (aeron_driver_context_set_sender_idle_strategy(driver.context(), strategy.c_str()) < 0) {
-            throwDriverError("Failed to reload sender_idle_strategy");
-        }
+    std::string strategy = driver.effectiveStrategy("sender_idle_strategy", "AERON_SENDER_IDLE_STRATEGY",
+        aeron_driver_context_get_sender_idle_strategy(driver.context()));
+    if (!strategy.empty() && aeron_driver_context_set_sender_idle_strategy(driver.context(), driver.keep(strategy)) < 0) {
+        throwDriverError("Failed to reload sender_idle_strategy");
     }
 }
 
@@ -296,11 +372,10 @@ inline void driver_set_conductor_idle_strategy_init_args(MediaDriverWrapper &dri
     if (aeron_driver_context_set_conductor_idle_strategy_init_args(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set conductor_idle_strategy_init_args");
     }
-    if (const char *current = aeron_driver_context_get_conductor_idle_strategy(driver.context())) {
-        std::string strategy(current);
-        if (aeron_driver_context_set_conductor_idle_strategy(driver.context(), strategy.c_str()) < 0) {
-            throwDriverError("Failed to reload conductor_idle_strategy");
-        }
+    std::string strategy = driver.effectiveStrategy("conductor_idle_strategy", "AERON_CONDUCTOR_IDLE_STRATEGY",
+        aeron_driver_context_get_conductor_idle_strategy(driver.context()));
+    if (!strategy.empty() && aeron_driver_context_set_conductor_idle_strategy(driver.context(), driver.keep(strategy)) < 0) {
+        throwDriverError("Failed to reload conductor_idle_strategy");
     }
 }
 
@@ -309,11 +384,10 @@ inline void driver_set_receiver_idle_strategy_init_args(MediaDriverWrapper &driv
     if (aeron_driver_context_set_receiver_idle_strategy_init_args(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set receiver_idle_strategy_init_args");
     }
-    if (const char *current = aeron_driver_context_get_receiver_idle_strategy(driver.context())) {
-        std::string strategy(current);
-        if (aeron_driver_context_set_receiver_idle_strategy(driver.context(), strategy.c_str()) < 0) {
-            throwDriverError("Failed to reload receiver_idle_strategy");
-        }
+    std::string strategy = driver.effectiveStrategy("receiver_idle_strategy", "AERON_RECEIVER_IDLE_STRATEGY",
+        aeron_driver_context_get_receiver_idle_strategy(driver.context()));
+    if (!strategy.empty() && aeron_driver_context_set_receiver_idle_strategy(driver.context(), driver.keep(strategy)) < 0) {
+        throwDriverError("Failed to reload receiver_idle_strategy");
     }
 }
 
@@ -322,11 +396,10 @@ inline void driver_set_sharednetwork_idle_strategy_init_args(MediaDriverWrapper 
     if (aeron_driver_context_set_sharednetwork_idle_strategy_init_args(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set sharednetwork_idle_strategy_init_args");
     }
-    if (const char *current = aeron_driver_context_get_sharednetwork_idle_strategy(driver.context())) {
-        std::string strategy(current);
-        if (aeron_driver_context_set_sharednetwork_idle_strategy(driver.context(), strategy.c_str()) < 0) {
-            throwDriverError("Failed to reload sharednetwork_idle_strategy");
-        }
+    std::string strategy = driver.effectiveStrategy("sharednetwork_idle_strategy", "AERON_SHAREDNETWORK_IDLE_STRATEGY",
+        aeron_driver_context_get_sharednetwork_idle_strategy(driver.context()));
+    if (!strategy.empty() && aeron_driver_context_set_sharednetwork_idle_strategy(driver.context(), driver.keep(strategy)) < 0) {
+        throwDriverError("Failed to reload sharednetwork_idle_strategy");
     }
 }
 
@@ -335,11 +408,10 @@ inline void driver_set_shared_idle_strategy_init_args(MediaDriverWrapper &driver
     if (aeron_driver_context_set_shared_idle_strategy_init_args(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set shared_idle_strategy_init_args");
     }
-    if (const char *current = aeron_driver_context_get_shared_idle_strategy(driver.context())) {
-        std::string strategy(current);
-        if (aeron_driver_context_set_shared_idle_strategy(driver.context(), strategy.c_str()) < 0) {
-            throwDriverError("Failed to reload shared_idle_strategy");
-        }
+    std::string strategy = driver.effectiveStrategy("shared_idle_strategy", "AERON_SHARED_IDLE_STRATEGY",
+        aeron_driver_context_get_shared_idle_strategy(driver.context()));
+    if (!strategy.empty() && aeron_driver_context_set_shared_idle_strategy(driver.context(), driver.keep(strategy)) < 0) {
+        throwDriverError("Failed to reload shared_idle_strategy");
     }
 }
 
@@ -348,6 +420,7 @@ inline void driver_set_native_resource_agent_idle_strategy(MediaDriverWrapper &d
     if (aeron_driver_context_set_native_resource_agent_idle_strategy(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set native_resource_agent_idle_strategy");
     }
+    driver.chooseStrategy("native_resource_agent_idle_strategy", std::string(value));
 }
 
 inline void driver_set_native_resource_agent_idle_strategy_init_args(MediaDriverWrapper &driver, rust::Str value) {
@@ -355,16 +428,19 @@ inline void driver_set_native_resource_agent_idle_strategy_init_args(MediaDriver
     if (aeron_driver_context_set_native_resource_agent_idle_strategy_init_args(driver.context(), driver.keep(value)) < 0) {
         throwDriverError("Failed to set native_resource_agent_idle_strategy_init_args");
     }
-    if (const char *current = aeron_driver_context_get_native_resource_agent_idle_strategy(driver.context())) {
-        std::string strategy(current);
-        if (aeron_driver_context_set_native_resource_agent_idle_strategy(driver.context(), strategy.c_str()) < 0) {
-            throwDriverError("Failed to reload native_resource_agent_idle_strategy");
-        }
+    std::string strategy = driver.effectiveStrategy("native_resource_agent_idle_strategy", "AERON_DRIVER_NATIVE_RESOURCE_AGENT_IDLE_STRATEGY",
+        aeron_driver_context_get_native_resource_agent_idle_strategy(driver.context()));
+    if (!strategy.empty() && aeron_driver_context_set_native_resource_agent_idle_strategy(driver.context(), driver.keep(strategy)) < 0) {
+        throwDriverError("Failed to reload native_resource_agent_idle_strategy");
     }
 }
 
 inline void driver_set_counters_free_to_reuse_timeout_ns(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "counters_free_to_reuse_timeout_ns must be in [0, INT64_MAX] (as for AERON_COUNTERS_FREE_TO_REUSE_TIMEOUT), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_counters_free_to_reuse_timeout_ns(driver.context(), value) < 0) {
         throwDriverError("Failed to set counters_free_to_reuse_timeout_ns");
     }
@@ -421,6 +497,10 @@ inline void driver_set_tether_subscriptions(MediaDriverWrapper &driver, bool val
 
 inline void driver_set_untethered_window_limit_timeout_ns(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "untethered_window_limit_timeout_ns must be in [0, INT64_MAX] (as for AERON_UNTETHERED_WINDOW_LIMIT_TIMEOUT), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_untethered_window_limit_timeout_ns(driver.context(), value) < 0) {
         throwDriverError("Failed to set untethered_window_limit_timeout_ns");
     }
@@ -435,6 +515,10 @@ inline void driver_set_untethered_linger_timeout_ns(MediaDriverWrapper &driver, 
 
 inline void driver_set_untethered_resting_timeout_ns(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "untethered_resting_timeout_ns must be in [0, INT64_MAX] (as for AERON_UNTETHERED_RESTING_TIMEOUT), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_untethered_resting_timeout_ns(driver.context(), value) < 0) {
         throwDriverError("Failed to set untethered_resting_timeout_ns");
     }
@@ -442,6 +526,10 @@ inline void driver_set_untethered_resting_timeout_ns(MediaDriverWrapper &driver,
 
 inline void driver_set_driver_timeout_ms(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "driver_timeout_ms must be in [0, INT64_MAX] (as for AERON_DRIVER_TIMEOUT), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_driver_timeout_ms(driver.context(), value) < 0) {
         throwDriverError("Failed to set driver_timeout_ms");
     }
@@ -449,6 +537,10 @@ inline void driver_set_driver_timeout_ms(MediaDriverWrapper &driver, uint64_t va
 
 inline void driver_set_nak_multicast_group_size(MediaDriverWrapper &driver, size_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<size_t>(1) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT32_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "nak_multicast_group_size must be in [1, INT32_MAX] (as for AERON_NAK_MULTICAST_GROUP_SIZE), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_nak_multicast_group_size(driver.context(), value) < 0) {
         throwDriverError("Failed to set nak_multicast_group_size");
     }
@@ -456,6 +548,10 @@ inline void driver_set_nak_multicast_group_size(MediaDriverWrapper &driver, size
 
 inline void driver_set_nak_multicast_max_backoff_ns(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<uint64_t>(1000) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "nak_multicast_max_backoff_ns must be in [1000, INT64_MAX] (as for AERON_NAK_MULTICAST_MAX_BACKOFF), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_nak_multicast_max_backoff_ns(driver.context(), value) < 0) {
         throwDriverError("Failed to set nak_multicast_max_backoff_ns");
     }
@@ -463,6 +559,10 @@ inline void driver_set_nak_multicast_max_backoff_ns(MediaDriverWrapper &driver, 
 
 inline void driver_set_nak_unicast_delay_ns(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "nak_unicast_delay_ns must be in [-, INT64_MAX] (as for AERON_NAK_UNICAST_DELAY), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_nak_unicast_delay_ns(driver.context(), value) < 0) {
         throwDriverError("Failed to set nak_unicast_delay_ns");
     }
@@ -470,6 +570,10 @@ inline void driver_set_nak_unicast_delay_ns(MediaDriverWrapper &driver, uint64_t
 
 inline void driver_set_nak_unicast_retry_delay_ratio(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<uint64_t>(1) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "nak_unicast_retry_delay_ratio must be in [1, INT64_MAX] (as for AERON_NAK_UNICAST_RETRY_DELAY_RATIO), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_nak_unicast_retry_delay_ratio(driver.context(), value) < 0) {
         throwDriverError("Failed to set nak_unicast_retry_delay_ratio");
     }
@@ -477,6 +581,10 @@ inline void driver_set_nak_unicast_retry_delay_ratio(MediaDriverWrapper &driver,
 
 inline void driver_set_max_resend(MediaDriverWrapper &driver, uint32_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<uint32_t>(1)) {
+        throw aeron::util::IllegalArgumentException(
+            "max_resend must be in [1, -] (as for AERON_MAX_RESEND), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_max_resend(driver.context(), value) < 0) {
         throwDriverError("Failed to set max_resend");
     }
@@ -484,6 +592,10 @@ inline void driver_set_max_resend(MediaDriverWrapper &driver, uint32_t value) {
 
 inline void driver_set_retransmit_unicast_delay_ns(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "retransmit_unicast_delay_ns must be in [0, INT64_MAX] (as for AERON_RETRANSMIT_UNICAST_DELAY), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_retransmit_unicast_delay_ns(driver.context(), value) < 0) {
         throwDriverError("Failed to set retransmit_unicast_delay_ns");
     }
@@ -491,6 +603,10 @@ inline void driver_set_retransmit_unicast_delay_ns(MediaDriverWrapper &driver, u
 
 inline void driver_set_retransmit_unicast_linger_ns(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<uint64_t>(1000) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "retransmit_unicast_linger_ns must be in [1000, INT64_MAX] (as for AERON_RETRANSMIT_UNICAST_LINGER), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_retransmit_unicast_linger_ns(driver.context(), value) < 0) {
         throwDriverError("Failed to set retransmit_unicast_linger_ns");
     }
@@ -519,6 +635,10 @@ inline void driver_set_connect_enabled(MediaDriverWrapper &driver, bool value) {
 
 inline void driver_set_publication_reserved_session_id_low(MediaDriverWrapper &driver, int32_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<int32_t>(INT32_MIN)) {
+        throw aeron::util::IllegalArgumentException(
+            "publication_reserved_session_id_low must be in [INT32_MIN, INT32_MAX] (as for AERON_PUBLICATION_RESERVED_SESSION_ID_LOW), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_publication_reserved_session_id_low(driver.context(), value) < 0) {
         throwDriverError("Failed to set publication_reserved_session_id_low");
     }
@@ -526,6 +646,10 @@ inline void driver_set_publication_reserved_session_id_low(MediaDriverWrapper &d
 
 inline void driver_set_publication_reserved_session_id_high(MediaDriverWrapper &driver, int32_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<int32_t>(INT32_MIN)) {
+        throw aeron::util::IllegalArgumentException(
+            "publication_reserved_session_id_high must be in [INT32_MIN, INT32_MAX] (as for AERON_PUBLICATION_RESERVED_SESSION_ID_HIGH), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_publication_reserved_session_id_high(driver.context(), value) < 0) {
         throwDriverError("Failed to set publication_reserved_session_id_high");
     }
@@ -561,6 +685,10 @@ inline void driver_set_name_resolver_init_args(MediaDriverWrapper &driver, rust:
 
 inline void driver_set_resolver_neighbor_timeout_ns(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<uint64_t>(1000 * 1000) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "resolver_neighbor_timeout_ns must be in [1000 * 1000, INT64_MAX] (as for AERON_DRIVER_RESOLVER_NEIGHBOR_TIMEOUT), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_resolver_neighbor_timeout_ns(driver.context(), value) < 0) {
         throwDriverError("Failed to set resolver_neighbor_timeout_ns");
     }
@@ -568,6 +696,10 @@ inline void driver_set_resolver_neighbor_timeout_ns(MediaDriverWrapper &driver, 
 
 inline void driver_set_self_resolution_interval_ns(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<uint64_t>(1000 * 1000) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "self_resolution_interval_ns must be in [1000 * 1000, INT64_MAX] (as for AERON_DRIVER_RESOLVER_SELF_RESOLUTION_INTERVAL), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_self_resolution_interval_ns(driver.context(), value) < 0) {
         throwDriverError("Failed to set self_resolution_interval_ns");
     }
@@ -575,6 +707,10 @@ inline void driver_set_self_resolution_interval_ns(MediaDriverWrapper &driver, u
 
 inline void driver_set_resolver_neighbor_resolution_interval_ns(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<uint64_t>(1000 * 1000) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "resolver_neighbor_resolution_interval_ns must be in [1000 * 1000, INT64_MAX] (as for AERON_DRIVER_RESOLVER_NEIGHBOR_RESOLUTION_INTERVAL), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_resolver_neighbor_resolution_interval_ns(driver.context(), value) < 0) {
         throwDriverError("Failed to set resolver_neighbor_resolution_interval_ns");
     }
@@ -582,6 +718,10 @@ inline void driver_set_resolver_neighbor_resolution_interval_ns(MediaDriverWrapp
 
 inline void driver_set_resolver_bootstrap_neighbor_resolution_interval_ns(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<uint64_t>(1000 * 1000) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "resolver_bootstrap_neighbor_resolution_interval_ns must be in [1000 * 1000, INT64_MAX] (as for AERON_DRIVER_RESOLVER_BOOTSTRAP_NEIGHBOR_RESOLUTION_INTERVAL), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_resolver_bootstrap_neighbor_resolution_interval_ns(driver.context(), value) < 0) {
         throwDriverError("Failed to set resolver_bootstrap_neighbor_resolution_interval_ns");
     }
@@ -589,6 +729,10 @@ inline void driver_set_resolver_bootstrap_neighbor_resolution_interval_ns(MediaD
 
 inline void driver_set_re_resolution_check_interval_ns(MediaDriverWrapper &driver, uint64_t value) {
     driver.ensureNotStarted();
+    if (static_cast<uint64_t>(value) > static_cast<uint64_t>(INT64_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "re_resolution_check_interval_ns must be in [0, INT64_MAX] (as for AERON_DRIVER_RERESOLUTION_CHECK_INTERVAL), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_re_resolution_check_interval_ns(driver.context(), value) < 0) {
         throwDriverError("Failed to set re_resolution_check_interval_ns");
     }
@@ -638,6 +782,10 @@ inline void driver_set_name_resolver_threshold_ns(MediaDriverWrapper &driver, ui
 
 inline void driver_set_receiver_io_vector_capacity(MediaDriverWrapper &driver, uint32_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<uint32_t>(1)) {
+        throw aeron::util::IllegalArgumentException(
+            "receiver_io_vector_capacity must be in [1, -] (as for AERON_RECEIVER_IO_VECTOR_CAPACITY), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_receiver_io_vector_capacity(driver.context(), value) < 0) {
         throwDriverError("Failed to set receiver_io_vector_capacity");
     }
@@ -645,6 +793,10 @@ inline void driver_set_receiver_io_vector_capacity(MediaDriverWrapper &driver, u
 
 inline void driver_set_sender_io_vector_capacity(MediaDriverWrapper &driver, uint32_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<uint32_t>(1)) {
+        throw aeron::util::IllegalArgumentException(
+            "sender_io_vector_capacity must be in [1, -] (as for AERON_SENDER_IO_VECTOR_CAPACITY), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_sender_io_vector_capacity(driver.context(), value) < 0) {
         throwDriverError("Failed to set sender_io_vector_capacity");
     }
@@ -652,6 +804,10 @@ inline void driver_set_sender_io_vector_capacity(MediaDriverWrapper &driver, uin
 
 inline void driver_set_network_publication_max_messages_per_send(MediaDriverWrapper &driver, uint32_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<uint32_t>(1)) {
+        throw aeron::util::IllegalArgumentException(
+            "network_publication_max_messages_per_send must be in [1, -] (as for AERON_NETWORK_PUBLICATION_MAX_MESSAGES_PER_SEND), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_network_publication_max_messages_per_send(driver.context(), value) < 0) {
         throwDriverError("Failed to set network_publication_max_messages_per_send");
     }
@@ -659,6 +815,10 @@ inline void driver_set_network_publication_max_messages_per_send(MediaDriverWrap
 
 inline void driver_set_resource_free_limit(MediaDriverWrapper &driver, uint32_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<uint32_t>(1) || static_cast<uint64_t>(value) > static_cast<uint64_t>(INT32_MAX)) {
+        throw aeron::util::IllegalArgumentException(
+            "resource_free_limit must be in [1, INT32_MAX] (as for AERON_DRIVER_RESOURCE_FREE_LIMIT), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_resource_free_limit(driver.context(), value) < 0) {
         throwDriverError("Failed to set resource_free_limit");
     }
@@ -666,6 +826,10 @@ inline void driver_set_resource_free_limit(MediaDriverWrapper &driver, uint32_t 
 
 inline void driver_set_conductor_cpu_affinity(MediaDriverWrapper &driver, int32_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<int32_t>(-1) || value > 255) {
+        throw aeron::util::IllegalArgumentException(
+            "conductor_cpu_affinity must be in [-1, 255] (as for AERON_CONDUCTOR_CPU_AFFINITY), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_conductor_cpu_affinity(driver.context(), value) < 0) {
         throwDriverError("Failed to set conductor_cpu_affinity");
     }
@@ -673,6 +837,10 @@ inline void driver_set_conductor_cpu_affinity(MediaDriverWrapper &driver, int32_
 
 inline void driver_set_receiver_cpu_affinity(MediaDriverWrapper &driver, int32_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<int32_t>(-1) || value > 255) {
+        throw aeron::util::IllegalArgumentException(
+            "receiver_cpu_affinity must be in [-1, 255] (as for AERON_RECEIVER_CPU_AFFINITY), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_receiver_cpu_affinity(driver.context(), value) < 0) {
         throwDriverError("Failed to set receiver_cpu_affinity");
     }
@@ -680,6 +848,10 @@ inline void driver_set_receiver_cpu_affinity(MediaDriverWrapper &driver, int32_t
 
 inline void driver_set_sender_cpu_affinity(MediaDriverWrapper &driver, int32_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<int32_t>(-1) || value > 255) {
+        throw aeron::util::IllegalArgumentException(
+            "sender_cpu_affinity must be in [-1, 255] (as for AERON_SENDER_CPU_AFFINITY), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_sender_cpu_affinity(driver.context(), value) < 0) {
         throwDriverError("Failed to set sender_cpu_affinity");
     }
@@ -687,6 +859,10 @@ inline void driver_set_sender_cpu_affinity(MediaDriverWrapper &driver, int32_t v
 
 inline void driver_set_native_resource_agent_cpu_affinity(MediaDriverWrapper &driver, int32_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<int32_t>(-1) || value > 255) {
+        throw aeron::util::IllegalArgumentException(
+            "native_resource_agent_cpu_affinity must be in [-1, 255] (as for AERON_DRIVER_NATIVE_RESOURCE_AGENT_CPU_AFFINITY), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_native_resource_agent_cpu_affinity(driver.context(), value) < 0) {
         throwDriverError("Failed to set native_resource_agent_cpu_affinity");
     }
@@ -715,6 +891,10 @@ inline void driver_set_enable_experimental_features(MediaDriverWrapper &driver, 
 
 inline void driver_set_stream_session_limit(MediaDriverWrapper &driver, int32_t value) {
     driver.ensureNotStarted();
+    if (value < static_cast<int32_t>(1)) {
+        throw aeron::util::IllegalArgumentException(
+            "stream_session_limit must be in [1, INT32_MAX] (as for AERON_DRIVER_STREAM_SESSION_LIMIT), got " + std::to_string(value), SOURCEINFO, EINVAL);
+    }
     if (aeron_driver_context_set_stream_session_limit(driver.context(), value) < 0) {
         throwDriverError("Failed to set stream_session_limit");
     }

@@ -626,6 +626,8 @@ impl MediaDriverBuilder {
 
     /// Length (in bytes) of the buffer for the distinct error log.
     ///
+    /// Must be within the range Aeron accepts from `AERON_ERROR_BUFFER_LENGTH`: from any to INT32_MAX; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_error_buffer_length`, environment variable `AERON_ERROR_BUFFER_LENGTH`.
     pub fn error_buffer_length(self, value: usize) -> Self {
         self.apply(|w| ffi::driver_set_error_buffer_length(w, value))
@@ -634,6 +636,8 @@ impl MediaDriverBuilder {
     /// Client liveness timeout in nanoseconds
     ///
     /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
+    /// Must be within the range Aeron accepts from `AERON_CLIENT_LIVENESS_TIMEOUT`: from 1000 to INT64_MAX; checked by `start`.
     ///
     /// C: `aeron_driver_context_set_client_liveness_timeout_ns`, environment variable `AERON_CLIENT_LIVENESS_TIMEOUT`.
     pub fn client_liveness_timeout_ns(self, value: u64) -> Self {
@@ -644,12 +648,16 @@ impl MediaDriverBuilder {
 
     /// Length (in bytes) of the log buffers for publication terms.
     ///
+    /// Must be within the range Aeron accepts from `AERON_TERM_BUFFER_LENGTH`: from 1024 to INT32_MAX; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_term_buffer_length`, environment variable `AERON_TERM_BUFFER_LENGTH`.
     pub fn term_buffer_length(self, value: usize) -> Self {
         self.apply(|w| ffi::driver_set_term_buffer_length(w, value))
     }
 
     /// Length (in bytes) of the log buffers for IPC publication terms.
+    ///
+    /// Must be within the range Aeron accepts from `AERON_IPC_TERM_BUFFER_LENGTH`: from 1024 to INT32_MAX; checked by `start`.
     ///
     /// C: `aeron_driver_context_set_ipc_term_buffer_length`, environment variable `AERON_IPC_TERM_BUFFER_LENGTH`.
     pub fn ipc_term_buffer_length(self, value: usize) -> Self {
@@ -672,6 +680,8 @@ impl MediaDriverBuilder {
 
     /// Specify the interval which checks for re-resolutions of names occurs.
     ///
+    /// Must be within the range Aeron accepts from `AERON_LOW_FILE_STORE_WARNING_THRESHOLD`: from 0 to INT64_MAX; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_low_file_store_warning_threshold`, environment variable `AERON_LOW_FILE_STORE_WARNING_THRESHOLD`.
     pub fn low_file_store_warning_threshold(self, value: u64) -> Self {
         self.apply(|w| ffi::driver_set_low_file_store_warning_threshold(w, value))
@@ -685,6 +695,8 @@ impl MediaDriverBuilder {
     }
 
     /// Page size for alignment of all files.
+    ///
+    /// Must be within the range Aeron accepts from `AERON_FILE_PAGE_SIZE`: from 4 * 1024 to INT32_MAX; checked by `start`.
     ///
     /// C: `aeron_driver_context_set_file_page_size`, environment variable `AERON_FILE_PAGE_SIZE`.
     pub fn file_page_size(self, value: usize) -> Self {
@@ -723,6 +735,8 @@ impl MediaDriverBuilder {
     ///
     /// Values above about 73 years are capped: the driver adds this to its clock.
     ///
+    /// Must be within the range Aeron accepts from `AERON_PUBLICATION_LINGER_TIMEOUT`: from 1000 to INT64_MAX; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_publication_linger_timeout_ns`, environment variable `AERON_PUBLICATION_LINGER_TIMEOUT`.
     pub fn publication_linger_timeout_ns(self, value: u64) -> Self {
         self.apply(|w| {
@@ -735,12 +749,16 @@ impl MediaDriverBuilder {
 
     /// SO_RCVBUF setting on UDP sockets which must be sufficient for Bandwidth Delay Product (BDP).
     ///
+    /// Must be within the range Aeron accepts from `AERON_SOCKET_SO_RCVBUF`: from 0 to INT32_MAX; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_socket_so_rcvbuf`, environment variable `AERON_SOCKET_SO_RCVBUF`.
     pub fn socket_so_rcvbuf(self, value: usize) -> Self {
         self.apply(|w| ffi::driver_set_socket_so_rcvbuf(w, value))
     }
 
     /// SO_SNDBUF setting on UDP sockets which must be sufficient for Bandwidth Delay Product (BDP).
+    ///
+    /// Must be within the range Aeron accepts from `AERON_SOCKET_SO_SNDBUF`: from 0 to INT32_MAX; checked by `start`.
     ///
     /// C: `aeron_driver_context_set_socket_so_sndbuf`, environment variable `AERON_SOCKET_SO_SNDBUF`.
     pub fn socket_so_sndbuf(self, value: usize) -> Self {
@@ -749,12 +767,16 @@ impl MediaDriverBuilder {
 
     /// IP_MULTICAST_TTL setting on outgoing UDP sockets.
     ///
+    /// Must be within the range Aeron accepts from `AERON_SOCKET_MULTICAST_TTL`: from 0 to 255; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_socket_multicast_ttl`, environment variable `AERON_SOCKET_MULTICAST_TTL`.
     pub fn socket_multicast_ttl(self, value: u8) -> Self {
         self.apply(|w| ffi::driver_set_socket_multicast_ttl(w, value))
     }
 
     /// Ratio of sending data to polling status messages in the Sender.
+    ///
+    /// Must be within the range Aeron accepts from `AERON_SEND_TO_STATUS_POLL_RATIO`: from 1 to INT32_MAX; checked by `start`.
     ///
     /// C: `aeron_driver_context_set_send_to_status_poll_ratio`, environment variable `AERON_SEND_TO_STATUS_POLL_RATIO`.
     pub fn send_to_status_poll_ratio(self, value: usize) -> Self {
@@ -764,6 +786,8 @@ impl MediaDriverBuilder {
     /// Status Message timeout in nanoseconds.
     ///
     /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
+    /// Must be within the range Aeron accepts from `AERON_RCV_STATUS_MESSAGE_TIMEOUT`: from 1000 to INT64_MAX; checked by `start`.
     ///
     /// C: `aeron_driver_context_set_rcv_status_message_timeout_ns`, environment variable `AERON_RCV_STATUS_MESSAGE_TIMEOUT`.
     pub fn rcv_status_message_timeout_ns(self, value: u64) -> Self {
@@ -779,6 +803,8 @@ impl MediaDriverBuilder {
     ///
     /// Values above about 73 years are capped: the driver adds this to its clock.
     ///
+    /// Must be within the range Aeron accepts from `AERON_IMAGE_LIVENESS_TIMEOUT`: from 1000 to INT64_MAX; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_image_liveness_timeout_ns`, environment variable `AERON_IMAGE_LIVENESS_TIMEOUT`.
     pub fn image_liveness_timeout_ns(self, value: u64) -> Self {
         self.apply(|w| {
@@ -788,12 +814,16 @@ impl MediaDriverBuilder {
 
     /// Length of the initial window which must be sufficient for Bandwidth Delay Product (BDP).
     ///
+    /// Must be within the range Aeron accepts from `AERON_RCV_INITIAL_WINDOW_LENGTH`: from 256 to INT32_MAX; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_rcv_initial_window_length`, environment variable `AERON_RCV_INITIAL_WINDOW_LENGTH`.
     pub fn rcv_initial_window_length(self, value: usize) -> Self {
         self.apply(|w| ffi::driver_set_rcv_initial_window_length(w, value))
     }
 
     /// Length (in bytes) of the buffer for the loss report log.
+    ///
+    /// Must be within the range Aeron accepts from `AERON_LOSS_REPORT_BUFFER_LENGTH`: from 1024 to INT32_MAX; checked by `start`.
     ///
     /// C: `aeron_driver_context_set_loss_report_buffer_length`, environment variable `AERON_LOSS_REPORT_BUFFER_LENGTH`.
     pub fn loss_report_buffer_length(self, value: usize) -> Self {
@@ -803,6 +833,8 @@ impl MediaDriverBuilder {
     /// Timeout for publication unblock in nanoseconds.
     ///
     /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
+    /// Must be within the range Aeron accepts from `AERON_PUBLICATION_UNBLOCK_TIMEOUT`: from 1000 to INT64_MAX; checked by `start`.
     ///
     /// C: `aeron_driver_context_set_publication_unblock_timeout_ns`, environment variable `AERON_PUBLICATION_UNBLOCK_TIMEOUT`.
     pub fn publication_unblock_timeout_ns(self, value: u64) -> Self {
@@ -818,6 +850,8 @@ impl MediaDriverBuilder {
     ///
     /// Values above about 73 years are capped: the driver adds this to its clock.
     ///
+    /// Must be within the range Aeron accepts from `AERON_PUBLICATION_CONNECTION_TIMEOUT`: from 1000 to INT64_MAX; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_publication_connection_timeout_ns`, environment variable `AERON_PUBLICATION_CONNECTION_TIMEOUT`.
     pub fn publication_connection_timeout_ns(self, value: u64) -> Self {
         self.apply(|w| {
@@ -831,6 +865,8 @@ impl MediaDriverBuilder {
     /// Interval (in nanoseconds) between checks for timers and timeouts.
     ///
     /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
+    /// Must be within the range Aeron accepts from `AERON_TIMER_INTERVAL`: from 1000 to INT64_MAX; checked by `start`.
     ///
     /// C: `aeron_driver_context_set_timer_interval_ns`, environment variable `AERON_TIMER_INTERVAL`.
     pub fn timer_interval_ns(self, value: u64) -> Self {
@@ -939,6 +975,8 @@ impl MediaDriverBuilder {
     ///
     /// Values above about 73 years are capped: the driver adds this to its clock.
     ///
+    /// Must be within the range Aeron accepts from `AERON_COUNTERS_FREE_TO_REUSE_TIMEOUT`: from 0 to INT64_MAX; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_counters_free_to_reuse_timeout_ns`, environment variable `AERON_COUNTERS_FREE_TO_REUSE_TIMEOUT`.
     pub fn counters_free_to_reuse_timeout_ns(self, value: u64) -> Self {
         self.apply(|w| {
@@ -1009,6 +1047,8 @@ impl MediaDriverBuilder {
     ///
     /// Values above about 73 years are capped: the driver adds this to its clock.
     ///
+    /// Must be within the range Aeron accepts from `AERON_UNTETHERED_WINDOW_LIMIT_TIMEOUT`: from 0 to INT64_MAX; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_untethered_window_limit_timeout_ns`, environment variable `AERON_UNTETHERED_WINDOW_LIMIT_TIMEOUT`.
     pub fn untethered_window_limit_timeout_ns(self, value: u64) -> Self {
         self.apply(|w| {
@@ -1041,6 +1081,8 @@ impl MediaDriverBuilder {
     ///
     /// Values above about 73 years are capped: the driver adds this to its clock.
     ///
+    /// Must be within the range Aeron accepts from `AERON_UNTETHERED_RESTING_TIMEOUT`: from 0 to INT64_MAX; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_untethered_resting_timeout_ns`, environment variable `AERON_UNTETHERED_RESTING_TIMEOUT`.
     pub fn untethered_resting_timeout_ns(self, value: u64) -> Self {
         self.apply(|w| {
@@ -1055,6 +1097,8 @@ impl MediaDriverBuilder {
     ///
     /// Values above about 73 years are capped: the driver adds this to its clock.
     ///
+    /// Must be within the range Aeron accepts from `AERON_DRIVER_TIMEOUT`: from 0 to INT64_MAX; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_driver_timeout_ms`, environment variable `AERON_DRIVER_TIMEOUT`.
     pub fn driver_timeout_ms(self, value: u64) -> Self {
         self.apply(|w| {
@@ -1067,6 +1111,8 @@ impl MediaDriverBuilder {
 
     /// Expected size of multicast receiver groups property name.
     ///
+    /// Must be within the range Aeron accepts from `AERON_NAK_MULTICAST_GROUP_SIZE`: from 1 to INT32_MAX; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_nak_multicast_group_size`, environment variable `AERON_NAK_MULTICAST_GROUP_SIZE`.
     pub fn nak_multicast_group_size(self, value: usize) -> Self {
         self.apply(|w| ffi::driver_set_nak_multicast_group_size(w, value))
@@ -1075,6 +1121,8 @@ impl MediaDriverBuilder {
     /// Max backoff time for multicast NAK delay randomisation in nanoseconds.
     ///
     /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
+    /// Must be within the range Aeron accepts from `AERON_NAK_MULTICAST_MAX_BACKOFF`: from 1000 to INT64_MAX; checked by `start`.
     ///
     /// C: `aeron_driver_context_set_nak_multicast_max_backoff_ns`, environment variable `AERON_NAK_MULTICAST_MAX_BACKOFF`.
     pub fn nak_multicast_max_backoff_ns(self, value: u64) -> Self {
@@ -1087,6 +1135,8 @@ impl MediaDriverBuilder {
     ///
     /// Values above about 73 years are capped: the driver adds this to its clock.
     ///
+    /// Must be within the range Aeron accepts from `AERON_NAK_UNICAST_DELAY`: from any to INT64_MAX; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_nak_unicast_delay_ns`, environment variable `AERON_NAK_UNICAST_DELAY`.
     pub fn nak_unicast_delay_ns(self, value: u64) -> Self {
         self.apply(|w| {
@@ -1096,12 +1146,16 @@ impl MediaDriverBuilder {
 
     /// A ratio to apply to the nak unicast delay to calculate the resend delay. Used as a multipler.
     ///
+    /// Must be within the range Aeron accepts from `AERON_NAK_UNICAST_RETRY_DELAY_RATIO`: from 1 to INT64_MAX; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_nak_unicast_retry_delay_ratio`, environment variable `AERON_NAK_UNICAST_RETRY_DELAY_RATIO`.
     pub fn nak_unicast_retry_delay_ratio(self, value: u64) -> Self {
         self.apply(|w| ffi::driver_set_nak_unicast_retry_delay_ratio(w, value))
     }
 
     /// Max number of active retransmissions tracked for udp streams with group semantics.
+    ///
+    /// Must be within the range Aeron accepts from `AERON_MAX_RESEND`: from 1 to any; checked by `start`.
     ///
     /// C: `aeron_driver_context_set_max_resend`, environment variable `AERON_MAX_RESEND`.
     pub fn max_resend(self, value: u32) -> Self {
@@ -1111,6 +1165,8 @@ impl MediaDriverBuilder {
     /// How long to delay before sending a retransmit following a NAK.
     ///
     /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
+    /// Must be within the range Aeron accepts from `AERON_RETRANSMIT_UNICAST_DELAY`: from 0 to INT64_MAX; checked by `start`.
     ///
     /// C: `aeron_driver_context_set_retransmit_unicast_delay_ns`, environment variable `AERON_RETRANSMIT_UNICAST_DELAY`.
     pub fn retransmit_unicast_delay_ns(self, value: u64) -> Self {
@@ -1122,6 +1178,8 @@ impl MediaDriverBuilder {
     /// How long to linger after delay on a NAK.
     ///
     /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
+    /// Must be within the range Aeron accepts from `AERON_RETRANSMIT_UNICAST_LINGER`: from 1000 to INT64_MAX; checked by `start`.
     ///
     /// C: `aeron_driver_context_set_retransmit_unicast_linger_ns`, environment variable `AERON_RETRANSMIT_UNICAST_LINGER`.
     pub fn retransmit_unicast_linger_ns(self, value: u64) -> Self {
@@ -1153,12 +1211,16 @@ impl MediaDriverBuilder {
 
     /// Sets `publication_reserved_session_id_low`.
     ///
+    /// Must be within the range Aeron accepts from `AERON_PUBLICATION_RESERVED_SESSION_ID_LOW`: from INT32_MIN to INT32_MAX; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_publication_reserved_session_id_low`, environment variable `AERON_PUBLICATION_RESERVED_SESSION_ID_LOW`.
     pub fn publication_reserved_session_id_low(self, value: i32) -> Self {
         self.apply(|w| ffi::driver_set_publication_reserved_session_id_low(w, value))
     }
 
     /// Sets `publication_reserved_session_id_high`.
+    ///
+    /// Must be within the range Aeron accepts from `AERON_PUBLICATION_RESERVED_SESSION_ID_HIGH`: from INT32_MIN to INT32_MAX; checked by `start`.
     ///
     /// C: `aeron_driver_context_set_publication_reserved_session_id_high`, environment variable `AERON_PUBLICATION_RESERVED_SESSION_ID_HIGH`.
     pub fn publication_reserved_session_id_high(self, value: i32) -> Self {
@@ -1200,6 +1262,8 @@ impl MediaDriverBuilder {
     ///
     /// Values above about 73 years are capped: the driver adds this to its clock.
     ///
+    /// Must be within the range Aeron accepts from `AERON_DRIVER_RESOLVER_NEIGHBOR_TIMEOUT`: from 1000 * 1000 to INT64_MAX; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_resolver_neighbor_timeout_ns`, environment variable `AERON_DRIVER_RESOLVER_NEIGHBOR_TIMEOUT`.
     pub fn resolver_neighbor_timeout_ns(self, value: u64) -> Self {
         self.apply(|w| {
@@ -1211,6 +1275,8 @@ impl MediaDriverBuilder {
     ///
     /// Values above about 73 years are capped: the driver adds this to its clock.
     ///
+    /// Must be within the range Aeron accepts from `AERON_DRIVER_RESOLVER_SELF_RESOLUTION_INTERVAL`: from 1000 * 1000 to INT64_MAX; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_self_resolution_interval_ns`, environment variable `AERON_DRIVER_RESOLVER_SELF_RESOLUTION_INTERVAL`.
     pub fn self_resolution_interval_ns(self, value: u64) -> Self {
         self.apply(|w| {
@@ -1221,6 +1287,8 @@ impl MediaDriverBuilder {
     /// Property name for the interval between sending name to address messages for all known neighbors.
     ///
     /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
+    /// Must be within the range Aeron accepts from `AERON_DRIVER_RESOLVER_NEIGHBOR_RESOLUTION_INTERVAL`: from 1000 * 1000 to INT64_MAX; checked by `start`.
     ///
     /// C: `aeron_driver_context_set_resolver_neighbor_resolution_interval_ns`, environment variable `AERON_DRIVER_RESOLVER_NEIGHBOR_RESOLUTION_INTERVAL`.
     pub fn resolver_neighbor_resolution_interval_ns(self, value: u64) -> Self {
@@ -1236,6 +1304,8 @@ impl MediaDriverBuilder {
     ///
     /// Values above about 73 years are capped: the driver adds this to its clock.
     ///
+    /// Must be within the range Aeron accepts from `AERON_DRIVER_RESOLVER_BOOTSTRAP_NEIGHBOR_RESOLUTION_INTERVAL`: from 1000 * 1000 to INT64_MAX; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_resolver_bootstrap_neighbor_resolution_interval_ns`, environment variable `AERON_DRIVER_RESOLVER_BOOTSTRAP_NEIGHBOR_RESOLUTION_INTERVAL`.
     pub fn resolver_bootstrap_neighbor_resolution_interval_ns(self, value: u64) -> Self {
         self.apply(|w| {
@@ -1249,6 +1319,8 @@ impl MediaDriverBuilder {
     /// Specify the interval which checks for re-resolutions of names occurs.
     ///
     /// Values above about 73 years are capped: the driver adds this to its clock.
+    ///
+    /// Must be within the range Aeron accepts from `AERON_DRIVER_RERESOLUTION_CHECK_INTERVAL`: from 0 to INT64_MAX; checked by `start`.
     ///
     /// C: `aeron_driver_context_set_re_resolution_check_interval_ns`, environment variable `AERON_DRIVER_RERESOLUTION_CHECK_INTERVAL`.
     pub fn re_resolution_check_interval_ns(self, value: u64) -> Self {
@@ -1320,12 +1392,16 @@ impl MediaDriverBuilder {
 
     /// Sets `receiver_io_vector_capacity`.
     ///
+    /// Must be within the range Aeron accepts from `AERON_RECEIVER_IO_VECTOR_CAPACITY`: from 1 to any; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_receiver_io_vector_capacity`, environment variable `AERON_RECEIVER_IO_VECTOR_CAPACITY`.
     pub fn receiver_io_vector_capacity(self, value: u32) -> Self {
         self.apply(|w| ffi::driver_set_receiver_io_vector_capacity(w, value))
     }
 
     /// Sets `sender_io_vector_capacity`.
+    ///
+    /// Must be within the range Aeron accepts from `AERON_SENDER_IO_VECTOR_CAPACITY`: from 1 to any; checked by `start`.
     ///
     /// C: `aeron_driver_context_set_sender_io_vector_capacity`, environment variable `AERON_SENDER_IO_VECTOR_CAPACITY`.
     pub fn sender_io_vector_capacity(self, value: u32) -> Self {
@@ -1334,12 +1410,16 @@ impl MediaDriverBuilder {
 
     /// Sets `network_publication_max_messages_per_send`.
     ///
+    /// Must be within the range Aeron accepts from `AERON_NETWORK_PUBLICATION_MAX_MESSAGES_PER_SEND`: from 1 to any; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_network_publication_max_messages_per_send`, environment variable `AERON_NETWORK_PUBLICATION_MAX_MESSAGES_PER_SEND`.
     pub fn network_publication_max_messages_per_send(self, value: u32) -> Self {
         self.apply(|w| ffi::driver_set_network_publication_max_messages_per_send(w, value))
     }
 
     /// Sets `resource_free_limit`.
+    ///
+    /// Must be within the range Aeron accepts from `AERON_DRIVER_RESOURCE_FREE_LIMIT`: from 1 to INT32_MAX; checked by `start`.
     ///
     /// C: `aeron_driver_context_set_resource_free_limit`, environment variable `AERON_DRIVER_RESOURCE_FREE_LIMIT`.
     pub fn resource_free_limit(self, value: u32) -> Self {
@@ -1348,12 +1428,16 @@ impl MediaDriverBuilder {
 
     /// Sets `conductor_cpu_affinity`.
     ///
+    /// Must be within the range Aeron accepts from `AERON_CONDUCTOR_CPU_AFFINITY`: from -1 to 255; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_conductor_cpu_affinity`, environment variable `AERON_CONDUCTOR_CPU_AFFINITY`.
     pub fn conductor_cpu_affinity(self, value: i32) -> Self {
         self.apply(|w| ffi::driver_set_conductor_cpu_affinity(w, value))
     }
 
     /// Sets `receiver_cpu_affinity`.
+    ///
+    /// Must be within the range Aeron accepts from `AERON_RECEIVER_CPU_AFFINITY`: from -1 to 255; checked by `start`.
     ///
     /// C: `aeron_driver_context_set_receiver_cpu_affinity`, environment variable `AERON_RECEIVER_CPU_AFFINITY`.
     pub fn receiver_cpu_affinity(self, value: i32) -> Self {
@@ -1362,12 +1446,16 @@ impl MediaDriverBuilder {
 
     /// Sets `sender_cpu_affinity`.
     ///
+    /// Must be within the range Aeron accepts from `AERON_SENDER_CPU_AFFINITY`: from -1 to 255; checked by `start`.
+    ///
     /// C: `aeron_driver_context_set_sender_cpu_affinity`, environment variable `AERON_SENDER_CPU_AFFINITY`.
     pub fn sender_cpu_affinity(self, value: i32) -> Self {
         self.apply(|w| ffi::driver_set_sender_cpu_affinity(w, value))
     }
 
     /// Sets `native_resource_agent_cpu_affinity`.
+    ///
+    /// Must be within the range Aeron accepts from `AERON_DRIVER_NATIVE_RESOURCE_AGENT_CPU_AFFINITY`: from -1 to 255; checked by `start`.
     ///
     /// C: `aeron_driver_context_set_native_resource_agent_cpu_affinity`, environment variable `AERON_DRIVER_NATIVE_RESOURCE_AGENT_CPU_AFFINITY`.
     pub fn native_resource_agent_cpu_affinity(self, value: i32) -> Self {
@@ -1396,6 +1484,8 @@ impl MediaDriverBuilder {
     }
 
     /// Limit the number of sessions for a given stream that the driver will support
+    ///
+    /// Must be within the range Aeron accepts from `AERON_DRIVER_STREAM_SESSION_LIMIT`: from 1 to INT32_MAX; checked by `start`.
     ///
     /// C: `aeron_driver_context_set_stream_session_limit`, environment variable `AERON_DRIVER_STREAM_SESSION_LIMIT`.
     pub fn stream_session_limit(self, value: i32) -> Self {
@@ -1432,6 +1522,9 @@ impl MediaDriver {
     }
 
     /// The driver's `conductor_idle_strategy` setting (`aeron_driver_context_get_conductor_idle_strategy`).
+    ///
+    /// Aeron's recorded name: a strategy chosen through its environment
+    /// variable still reads as the default here.
     pub fn conductor_idle_strategy(&self) -> String {
         ffi::driver_get_conductor_idle_strategy(&self.inner)
     }
@@ -1597,6 +1690,9 @@ impl MediaDriver {
     }
 
     /// The driver's `native_resource_agent_idle_strategy` setting (`aeron_driver_context_get_native_resource_agent_idle_strategy`).
+    ///
+    /// Aeron's recorded name: a strategy chosen through its environment
+    /// variable still reads as the default here.
     pub fn native_resource_agent_idle_strategy(&self) -> String {
         ffi::driver_get_native_resource_agent_idle_strategy(&self.inner)
     }
@@ -1682,6 +1778,9 @@ impl MediaDriver {
     }
 
     /// The driver's `receiver_idle_strategy` setting (`aeron_driver_context_get_receiver_idle_strategy`).
+    ///
+    /// Aeron's recorded name: a strategy chosen through its environment
+    /// variable still reads as the default here.
     pub fn receiver_idle_strategy(&self) -> String {
         ffi::driver_get_receiver_idle_strategy(&self.inner)
     }
@@ -1772,6 +1871,9 @@ impl MediaDriver {
     }
 
     /// The driver's `sender_idle_strategy` setting (`aeron_driver_context_get_sender_idle_strategy`).
+    ///
+    /// Aeron's recorded name: a strategy chosen through its environment
+    /// variable still reads as the default here.
     pub fn sender_idle_strategy(&self) -> String {
         ffi::driver_get_sender_idle_strategy(&self.inner)
     }
@@ -1787,6 +1889,9 @@ impl MediaDriver {
     }
 
     /// The driver's `shared_idle_strategy` setting (`aeron_driver_context_get_shared_idle_strategy`).
+    ///
+    /// Aeron's recorded name: a strategy chosen through its environment
+    /// variable still reads as the default here.
     pub fn shared_idle_strategy(&self) -> String {
         ffi::driver_get_shared_idle_strategy(&self.inner)
     }
@@ -1797,6 +1902,9 @@ impl MediaDriver {
     }
 
     /// The driver's `sharednetwork_idle_strategy` setting (`aeron_driver_context_get_sharednetwork_idle_strategy`).
+    ///
+    /// Aeron's recorded name: a strategy chosen through its environment
+    /// variable still reads as the default here.
     pub fn sharednetwork_idle_strategy(&self) -> String {
         ffi::driver_get_sharednetwork_idle_strategy(&self.inner)
     }

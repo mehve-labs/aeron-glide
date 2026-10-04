@@ -117,6 +117,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Setting a driver idle strategy's init args reloaded Aeron's recorded name
+  ("backoff"), replacing a strategy chosen by `AERON_*_IDLE_STRATEGY`; it
+  reloads the strategy in effect.
+- Driver settings are range-checked as Aeron checks the same environment
+  variables (e.g. `nak_multicast_group_size >= 1`, `client_liveness_timeout_ns
+  >= 1000`, NAK delay times ratio within `i64`); invalid ones fail `start`
+  with `IllegalArgument` instead of reaching the driver.
 - The driver's CPU affinity and cpuset settings (`conductor_cpu_affinity`,
   `cpuset_affinity`, ...) were accepted but never applied: the driver now
   installs Aeron's affinity start function and applies the cpuset, as

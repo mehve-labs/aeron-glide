@@ -1,7 +1,9 @@
 // Embedded media driver shim (the `driver` feature): the C media driver
 // (aeronmd.h), bridged in src/driver.rs and src/driver_gen.rs.
 #pragma once
+#include <cstdlib>
 #include <deque>
+#include <map>
 #include "shim.h"
 
 // Forward declarations for C driver types (defined in aeronmd.h)
@@ -47,8 +49,29 @@ public:
         strings_.push_back(detail::cString(value));
         return strings_.back().c_str();
     }
+    const char *keep(const std::string &value) {
+        strings_.push_back(value);
+        return strings_.back().c_str();
+    }
 
     void setThreadingMode(int32_t mode);
+
+    // The idle strategy chosen for `base` (e.g. "sender_idle_strategy") through
+    // the builder, to reload it with new init args: Aeron records "backoff" as
+    // the name even when the strategy came from its environment variable.
+    void chooseStrategy(const char *base, const std::string &strategy) { strategies_[base] = strategy; }
+    // The strategy in effect for `base`: chosen here, else from `env_var`, else
+    // Aeron's recorded name (empty if none).
+    std::string effectiveStrategy(const char *base, const char *env_var, const char *recorded) const {
+        auto chosen = strategies_.find(base);
+        if (chosen != strategies_.end()) {
+            return chosen->second;
+        }
+        if (const char *from_env = std::getenv(env_var)) {
+            return from_env;
+        }
+        return recorded ? recorded : "";
+    }
 
     struct TerminationValidator {
         TerminationValidatorFn validator;
@@ -67,6 +90,7 @@ private:
     aeron_driver_t* driver_;
     bool manual_ = false;
     std::deque<std::string> strings_; // destroyed after the driver and context are closed
+    std::map<std::string, std::string> strategies_;
 };
 
 std::unique_ptr<MediaDriverWrapper> create_media_driver();

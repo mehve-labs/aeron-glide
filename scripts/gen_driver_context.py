@@ -75,6 +75,23 @@ NULL_VALUE_DEFAULT = {
 }
 
 
+def env_ranges(context_c):
+    """Ranges Aeron applies when it parses a setting from its environment
+    variable (aeron_driver_context_init), keyed by variable name. Its setters
+    don't check them. Only numeric bounds: others are internal macros."""
+    pattern = re.compile(
+        r"aeron_config_parse_\w+\(\s*(\w+)_ENV_VAR,\s*getenv\(\w+\),\s*(?:\([\w ]+\)\s*)?_context->\w+,"
+        r"\s*([^,]+?),\s*([^)]+?)\);",
+        re.S,
+    )
+    numeric = re.compile(r"^-?[\d\s*]+$|^INT(32|64)_(MAX|MIN)$")
+    ranges = {}
+    for env, low, high in pattern.findall(context_c):
+        low, high = " ".join(low.split()), " ".join(high.split())
+        ranges[env] = (low if numeric.match(low) else None, high if numeric.match(high) else None)
+    return ranges
+
+
 def find_header():
     if len(sys.argv) > 1:
         return Path(sys.argv[1])
@@ -139,6 +156,8 @@ def generate(header):
     setters, getters, skipped = parse(header)
     h, bridge, builder, driver, not_generated = [], [], [], [], []
     setter_types = {n: p[0][0] for n, p, _, _ in setters if len(p) == 1}
+    setter_envs = {n: e for n, _, _, e in setters}
+    ranges = env_ranges((header.parent / "aeron_driver_context.c").read_text())
     for name, params, doc, env in setters:
         if name in EXCLUDE:
             continue
@@ -151,15 +170,16 @@ def generate(header):
             base = name[: -len("_init_args")]
             lines[-2:-2] = ["", f"Aeron loads the idle strategy when `{base}` is set, so `{base}` is reloaded here with these arguments; the order of the two settings does not matter."]
             after = (
-                f"    if (const char *current = aeron_driver_context_get_{base}(driver.context())) {{\n"
-                f"        std::string strategy(current);\n"
-                f"        if (aeron_driver_context_set_{base}(driver.context(), strategy.c_str()) < 0) {{\n"
-                f'            throwDriverError("Failed to reload {base}");\n'
-                f"        }}\n    }}\n"
+                f"    std::string strategy = driver.effectiveStrategy(\"{base}\", \"{setter_envs[base]}\",\n"
+                f"        aeron_driver_context_get_{base}(driver.context()));\n"
+                f"    if (!strategy.empty() && aeron_driver_context_set_{base}(driver.context(), driver.keep(strategy)) < 0) {{\n"
+                f'        throwDriverError("Failed to reload {base}");\n'
+                f"    }}\n"
             )
         if name.endswith("_idle_strategy") and types == ["const char *"]:
             rparams, bparams, cparams = "strategy: DriverIdleStrategy", "value: &str", "rust::Str value"
             cargs, rcall = SCALARS["const char *"][3].format(v="value"), "strategy.as_str()"
+            after = f"    driver.chooseStrategy(\"{name}\", std::string(value));\n"
         elif types == ["uint16_t", "uint16_t"]:
             rparams, bparams, cparams = "low: u16, high: u16", "low: u16, high: u16", "uint16_t low, uint16_t high"
             cargs, rcall = "low, high", "low, high"
@@ -185,9 +205,29 @@ def generate(header):
         else:
             not_generated.append(f"aeron_driver_context_set_{name}({', '.join(types)})")
             continue
+        check = ""
+        if env in ranges and len(types) == 1 and types[0] in SCALARS and types[0] not in ("bool", "const char *"):
+            low, high = ranges[env]
+            unsigned = types[0].startswith("uint") or types[0] == "size_t"
+            conditions = []
+            if low is not None and not (unsigned and low.lstrip().startswith(("0", "-"))):
+                conditions.append(f"value < static_cast<{types[0]}>({low})")
+            if high is not None and not (high == "INT64_MAX" and types[0] == "int64_t") and not (
+                high == "INT32_MAX" and types[0] == "int32_t"
+            ):
+                conditions.append(f"static_cast<uint64_t>(value) > static_cast<uint64_t>({high})"
+                                  if unsigned else f"value > {high}")
+            if conditions:
+                check = (
+                    f"    if ({' || '.join(conditions)}) {{\n"
+                    f'        throw aeron::util::IllegalArgumentException(\n'
+                    f'            "{name} must be in [{low or "-"}, {high or "-"}] (as for {env}), got " + std::to_string(value), SOURCEINFO, EINVAL);\n'
+                    f"    }}\n"
+                )
+                lines[-2:-2] = ["", f"Must be within the range Aeron accepts from `{env}`: from {low or 'any'} to {high or 'any'}; checked by `start`."]
         h.append(
             f"inline void {cfn}(MediaDriverWrapper &driver, {cparams}) {{\n"
-            f"    driver.ensureNotStarted();\n"
+            f"    driver.ensureNotStarted();\n{check}"
             f"    if (aeron_driver_context_set_{name}(driver.context(), {cargs}) < 0) {{\n"
             f'        throwDriverError("Failed to set {name}");\n'
             f"    }}\n{after}}}\n"
@@ -234,8 +274,13 @@ def generate(header):
         bridge.append(f"        fn {cfn}(driver: &MediaDriverWrapper) -> {bt};\n")
         if name in COMBINED_GETTERS:
             continue  # bridged, but exposed through the combined getter below
+        note = (
+            "    ///\n    /// Aeron's recorded name: a strategy chosen through its environment\n"
+            "    /// variable still reads as the default here.\n"
+            if name.endswith("_idle_strategy") else ""
+        )
         driver.append(
-            f"    /// The driver's `{rust_name}` setting (`aeron_driver_context_get_{name}`).\n"
+            f"    /// The driver's `{rust_name}` setting (`aeron_driver_context_get_{name}`).\n" + note +
             f"    pub fn {rust_name}(&self) -> {rt} {{\n"
             f"        {rconv.format(e=f'ffi::{cfn}(&self.inner)')}\n    }}\n"
         )
