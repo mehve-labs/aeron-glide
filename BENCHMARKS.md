@@ -1,9 +1,10 @@
 # Benchmarks
 
 How aeron-glide performs, compared with [rusteron](https://github.com/gsrxyz/rusteron),
-and how the numbers were measured. In short:
-aeron-glide and rusteron perform the same, since both spend their time in the
-same Aeron C code. aeron-glide's latency tail was slightly lower in these runs.
+and how the numbers were measured. In short: aeron-glide and rusteron perform
+the same. Both run against the same media driver, and on the hot path both call
+Aeron's C client functions (rusteron's bundled Aeron 1.52.2, aeron-glide's
+1.53.3); the differences below are within the run-to-run noise.
 
 ## Method
 
@@ -56,17 +57,21 @@ scheduler decides.
 
 The same benchmarks in a Debian 12 container (arm64) under Docker Desktop on
 the same Mac, with 12 virtual CPUs and `--shm-size=2g`. With `taskset`, the
-driver runs on CPU 1, and each benchmark process (publisher and subscriber, or
-ping and pong) runs on CPUs 2 and 3, the same for every contender. These are
-the virtual machine's CPUs, which macOS still schedules onto physical cores.
-That is why both libraries show the same 4 ms p99.99: the virtual machine
-pausing, not either library.
+driver (its conductor, sender and receiver threads) runs on CPUs 1, 4 and 5,
+and each benchmark process (publisher and subscriber, or ping and pong) on
+CPUs 2 and 3, the same for every contender. These are the virtual machine's
+CPUs, which macOS still schedules onto physical cores. That is why both
+libraries show the same 4 ms p99.99: the virtual machine pausing, not either
+library.
 
 | | Throughput | p50 | p99 | p99.9 | p99.99 |
 |---|---|---|---|---|---|
-| aeron-glide 0.4.0 | 41.5M msgs/sec | 22.4 µs | 33.2 µs | 62.8 µs | 4.0 ms |
-| aeron-glide 0.4.0, one client | 41.4M msgs/sec | | | | |
-| rusteron 0.2.10 | 41.8M msgs/sec | 22.4 µs | 33.2 µs | 83.1 µs | 4.0 ms |
+| aeron-glide 0.4.0 | 42.3M msgs/sec | 2.8 µs | 5.4 µs | 11.5 µs | 4.0 ms |
+| aeron-glide 0.4.0, one client | 42.1M msgs/sec | | | | |
+| rusteron 0.2.10 | 42.7M msgs/sec | 2.8 µs | 5.5 µs | 11.6 µs | 4.0 ms |
+
+Pinning matters: with all three driver threads on one CPU, the round trip
+was 22.4 µs at p50, for both libraries.
 
 On a Linux host, pin to isolated physical cores (e.g. `isolcpus`) for numbers
 that hold for production.
@@ -95,7 +100,8 @@ python3 scripts/benchmark.py --glide target/release \
     --rusteron ../rusteron/target/release/examples
 ```
 
-On Linux, add `--driver-cpus 1 --bench-cpus 2,3` to pin with `taskset`. In a
+On Linux, add `--driver-cpus 1,4,5 --bench-cpus 2,3` to pin with `taskset`
+(give the driver a CPU per thread: it runs three in its default mode). In a
 container, give it a larger `/dev/shm` (`docker run --shm-size=2g`): Aeron's
 log buffers do not fit in the default 64 MB. rusteron's build needs libclang
 (`libclang-dev`).

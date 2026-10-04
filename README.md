@@ -60,8 +60,8 @@ is upfront that the API "operates in an `unsafe` context": misuse, such as
 using a publication after its client is closed, is undefined behaviour.
 
 aeron-glide takes the opposite approach: a hand-written API where that misuse
-cannot be expressed in safe code. Performance is the same (both spend their
-time in the same Aeron C code; see [Benchmarks](#benchmarks)), so the
+cannot be expressed in safe code. Performance is the same (on the hot path
+both call Aeron's C client functions; see [Benchmarks](#benchmarks)), so the
 difference is in what the API guarantees.
 
 **Where aeron-glide is stronger**
@@ -264,8 +264,8 @@ jar).
 
 ## Benchmarks
 
-aeron-glide performs the same as rusteron: both spend their time in the same
-Aeron C code. On an Apple M4 Pro, against one shared media driver (Aeron
+aeron-glide performs the same as rusteron: on the hot path both call Aeron's C
+client functions. On an Apple M4 Pro, against one shared media driver (Aeron
 1.53.3), median of three alternating rounds:
 
 | | IPC throughput | UDP round trip p50 | p99 | p99.9 |
