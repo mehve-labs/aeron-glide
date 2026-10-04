@@ -61,7 +61,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so builds no longer need OpenSSL; it verifies the tarball's SHA-256
   (`AERON_SHA256` overrides it), extracts atomically (an interrupted build no
   longer leaves a broken source tree), and can build offline from
-  `AERON_SOURCE_DIR`.
+  `AERON_SOURCE_DIR`. The tarball is downloaded once per target directory
+  (under `target/aeron-glide/`) rather than once per build configuration, and
+  only the static Aeron libraries are built, not Aeron's shared libraries,
+  `aeronmd` or install step.
 - **Breaking:** the archive client follows the C++ API. Connect with
   `archive::Context` (`.aeron(&client)` shares a client; channels, stream ids,
   `message_timeout`, `message_retry_attempts`, `idle_strategy`,

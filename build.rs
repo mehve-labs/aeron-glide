@@ -84,7 +84,21 @@ fn main() {
         config.profile("Debug");
     }
 
-    let cmake_output = config.build();
+    // Only the static libraries linked below: not Aeron's shared libraries,
+    // executables (aeronmd) or install step. The archive client's dependencies
+    // also build the Aeron jar (its codecs are generated from it), which the
+    // archive tests run.
+    let mut targets = vec!["aeron_static"];
+    if driver_enabled {
+        targets.push("aeron_driver_static");
+    }
+    if archive_enabled {
+        targets.push("aeron_archive_c_client_static");
+    }
+    let mut cmake_output = PathBuf::new();
+    for target in targets {
+        cmake_output = config.build_target(target).build();
+    }
     let base_lib_dir = cmake_output.join("build");
 
     // Add search paths for linker
@@ -229,9 +243,9 @@ const AERON_SHA256: &[(&str, &str)] = &[(
 )];
 
 /// The Aeron source tree: `AERON_SOURCE_DIR` if set (offline builds), otherwise
-/// the release tarball, downloaded once into `OUT_DIR` and checked against its
-/// SHA-256 (`AERON_SHA256` overrides the expected hash, e.g. for another
-/// `AERON_VERSION`).
+/// the release tarball, downloaded once per target directory, checked against
+/// its SHA-256 (`AERON_SHA256` overrides the expected hash, e.g. for another
+/// `AERON_VERSION`) and extracted into `OUT_DIR`.
 fn aeron_source(version: &str, out_dir: &Path) -> PathBuf {
     println!("cargo:rerun-if-env-changed=AERON_SOURCE_DIR");
     println!("cargo:rerun-if-env-changed=AERON_SHA256");
@@ -258,27 +272,57 @@ fn aeron_source(version: &str, out_dir: &Path) -> PathBuf {
         return aeron_dir;
     }
 
-    let url = format!("https://github.com/real-logic/aeron/archive/refs/tags/{version}.tar.gz");
-    println!("cargo:warning=Downloading Aeron source from {url}");
-    let tarball = download(&url);
-
     let expected = env::var("AERON_SHA256").ok().or_else(|| {
         AERON_SHA256
             .iter()
             .find(|(v, _)| *v == version)
             .map(|(_, sha)| sha.to_string())
     });
-    let actual = sha256_hex(&tarball);
-    match expected {
-        Some(expected) => assert!(
-            actual.eq_ignore_ascii_case(expected.trim()),
-            "the Aeron {version} tarball from {url} has SHA-256 {actual}, expected {expected}; \
-             set AERON_SHA256 to accept it, or AERON_SOURCE_DIR to build from a local source tree"
-        ),
-        None => println!(
-            "cargo:warning=No known SHA-256 for Aeron {version} (downloaded {actual}); set AERON_SHA256 to verify it"
-        ),
-    }
+    let matches = |sha: &str| {
+        expected
+            .as_deref()
+            .is_some_and(|expected| sha.eq_ignore_ascii_case(expected.trim()))
+    };
+
+    // Each build configuration (profile, features, target) has its own OUT_DIR:
+    // share the tarball between them, in the target directory. Only a tarball
+    // with the expected hash is reused.
+    let cached = tarball_cache(out_dir).map(|dir| dir.join(format!("aeron-{version}.tar.gz")));
+    let reused = cached
+        .as_ref()
+        .and_then(|path| std::fs::read(path).ok())
+        .map(|bytes| (sha256_hex(&bytes), bytes))
+        .filter(|(sha, _)| matches(sha));
+    let (actual, tarball) = match reused {
+        Some(reused) => reused,
+        None => {
+            let url =
+                format!("https://github.com/real-logic/aeron/archive/refs/tags/{version}.tar.gz");
+            println!("cargo:warning=Downloading Aeron source from {url}");
+            let tarball = download(&url);
+            let actual = sha256_hex(&tarball);
+            match &expected {
+                Some(expected) => assert!(
+                    matches(&actual),
+                    "the Aeron {version} tarball from {url} has SHA-256 {actual}, expected {expected}; \
+                     set AERON_SHA256 to accept it, or AERON_SOURCE_DIR to build from a local source tree"
+                ),
+                None => println!(
+                    "cargo:warning=No known SHA-256 for Aeron {version} (downloaded {actual}); set AERON_SHA256 to verify it"
+                ),
+            }
+            if let Some(path) = &cached {
+                // Best effort, and written whole: concurrent builds may share it.
+                let partial = path.with_extension(format!("{}.partial", std::process::id()));
+                if std::fs::write(&partial, &tarball).is_err()
+                    || std::fs::rename(&partial, path).is_err()
+                {
+                    let _ = std::fs::remove_file(&partial);
+                }
+            }
+            (actual, tarball)
+        }
+    };
 
     // Extract next to the final directory, then move it into place.
     let staging = out_dir.join(format!("aeron-{version}.extracting"));
@@ -293,6 +337,17 @@ fn aeron_source(version: &str, out_dir: &Path) -> PathBuf {
     let _ = std::fs::remove_dir_all(&staging);
     std::fs::write(&complete, &actual).expect("Failed to mark the Aeron source as complete");
     aeron_dir
+}
+
+/// `aeron-glide/` in the Cargo target directory holding `out_dir` (the
+/// nearest ancestor with Cargo's `CACHEDIR.TAG`), created if needed.
+fn tarball_cache(out_dir: &Path) -> Option<PathBuf> {
+    let target_dir = out_dir
+        .ancestors()
+        .find(|dir| dir.join("CACHEDIR.TAG").is_file())?;
+    let dir = target_dir.join("aeron-glide");
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir)
 }
 
 fn download(url: &str) -> Vec<u8> {
