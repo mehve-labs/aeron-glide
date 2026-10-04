@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** `Subscription::for_each_image` passes `&mut Image`, so the
+  closure can poll each image.
 - **Breaking:** registrations the media driver rejects (adds and
   destinations: invalid channel, unknown host, ...) are
   `ErrorKind::Registration` (were `Aeron`). The kinds Aeron's C++ wrapper never

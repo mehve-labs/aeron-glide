@@ -112,8 +112,8 @@ fn block_poll_delivers_frames() {
 fn images_snapshot_and_for_each() {
     let driver = TestDriver::start();
     let client = driver.client();
-    let first = client.add_exclusive_publication("aeron:ipc", 9).unwrap();
-    let second = client.add_exclusive_publication("aeron:ipc", 9).unwrap();
+    let mut first = client.add_exclusive_publication("aeron:ipc", 9).unwrap();
+    let mut second = client.add_exclusive_publication("aeron:ipc", 9).unwrap();
     let sub = client.add_subscription("aeron:ipc", 9).unwrap();
     wait_until("two images", || sub.image_count() == 2);
 
@@ -127,4 +127,16 @@ fn images_snapshot_and_for_each() {
     assert_eq!(sub.for_each_image(|i| visited.push(i.session_id())), 2);
     visited.sort();
     assert_eq!(visited, expected);
+
+    // Each image can be polled from the closure.
+    for publication in [&mut first, &mut second] {
+        while publication.offer(b"hello").is_err() {}
+    }
+    let mut received = 0;
+    wait_until("a message from each image", || {
+        sub.for_each_image(|image| {
+            received += image.poll(10, |_, _| {}).unwrap();
+        });
+        received == 2
+    });
 }

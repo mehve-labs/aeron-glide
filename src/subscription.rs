@@ -232,14 +232,14 @@ impl Subscription {
             .collect()
     }
 
-    /// Call `f` for each of the subscription's current images (C++ `forEachImage`).
-    /// Returns the number of images visited.
+    /// Call `f` for each of the subscription's current images (C++ `forEachImage`),
+    /// e.g. to poll each one. Returns the number of images visited.
     pub fn for_each_image<F>(&self, mut f: F) -> usize
     where
-        F: FnMut(&Image<'_>),
+        F: FnMut(&mut Image<'_>),
     {
-        let images = self.images();
-        images.iter().for_each(&mut f);
+        let mut images = self.images();
+        images.iter_mut().for_each(&mut f);
         images.len()
     }
 
