@@ -37,20 +37,24 @@ fn idle_strategies() {
         "no sleep after work"
     );
 
-    // Backoff: 10 spins and 20 yields are quick, then sleeps double up to the max.
-    let mut backoff =
-        BackoffIdleStrategy::new(10, 20, Duration::from_millis(1), Duration::from_millis(4));
-    assert!(
-        time(&mut backoff, 0, 32) < Duration::from_millis(50),
-        "spins and yields don't sleep"
+    // Backoff: 10 spins and 20 yields (32 calls with the state changes) don't
+    // park, then parks double up to the max. Long parks keep the two apart even
+    // on a loaded machine, where yields can take a while: parking from the
+    // start would take over 3 s.
+    let mut backoff = BackoffIdleStrategy::new(
+        10,
+        20,
+        Duration::from_millis(50),
+        Duration::from_millis(100),
     );
-    let parked = time(&mut backoff, 0, 4); // 1 + 2 + 4 + 4 ms
-    assert!(parked >= Duration::from_millis(11), "{parked:?}");
+    let not_parked = Duration::from_secs(1);
+    let spun = time(&mut backoff, 0, 32);
+    assert!(spun < not_parked, "spins and yields don't park: {spun:?}");
+    let parked = time(&mut backoff, 0, 4); // 50 + 100 + 100 + 100 ms
+    assert!(parked >= Duration::from_millis(350), "{parked:?}");
     backoff.idle(1); // work resets it
-    assert!(
-        time(&mut backoff, 0, 32) < Duration::from_millis(50),
-        "spins and yields don't sleep"
-    );
+    let spun = time(&mut backoff, 0, 32);
+    assert!(spun < not_parked, "spins and yields don't park: {spun:?}");
     backoff.reset();
     let mut boxed: Box<dyn IdleStrategy> = Box::new(BackoffIdleStrategy::default());
     boxed.idle(0);
