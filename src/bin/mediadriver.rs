@@ -130,29 +130,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let running = Arc::new(AtomicBool::new(true));
+    // Stop on SIGINT, SIGTERM or SIGHUP (e.g. systemd, Kubernetes), from before
+    // the driver starts, so the driver is always closed (and its directory
+    // deleted if configured).
+    let r = running.clone();
+    ctrlc::set_handler(move || {
+        println!("\nShutting down Media Driver...");
+        r.store(false, Ordering::SeqCst);
+    })
+    .expect("Error setting the signal handler");
+
+    // Stop on an accepted termination request: one carrying the configured
+    // token, or whatever AERON_DRIVER_TERMINATION_VALIDATOR accepts.
     if let Some(token) = config.termination_token.clone() {
-        let r = running.clone();
-        builder = builder
-            .termination_validator(move |request| request == token.as_bytes())
-            .termination_hook(move || {
-                println!("\nTermination requested, shutting down Media Driver...");
-                r.store(false, Ordering::SeqCst);
-            });
+        builder = builder.termination_validator(move |request| request == token.as_bytes());
     }
+    let r = running.clone();
+    builder = builder.termination_hook(move || {
+        println!("\nTermination requested, shutting down Media Driver...");
+        r.store(false, Ordering::SeqCst);
+    });
 
     let driver = builder.start()?;
     let invoker = driver.threading_mode() == ThreadingMode::Invoker;
     println!("Media Driver started in {}", driver.dir());
     println!("Media Driver started successfully.");
     println!("Press Ctrl+C to shut down...");
-
-    let r = running.clone();
-
-    ctrlc::set_handler(move || {
-        println!("\nShutting down Media Driver...");
-        r.store(false, Ordering::SeqCst);
-    })
-    .expect("Error setting Ctrl-C handler");
 
     while running.load(Ordering::SeqCst) {
         if invoker {

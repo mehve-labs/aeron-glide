@@ -28,7 +28,7 @@ bin = ["driver", "dep:ctrlc", "dep:serde", "dep:serde_norway"]
 
 [dependencies]
 cxx = "1.0"
-ctrlc = { version = "3.5", optional = true }
+ctrlc = { version = "3.5", optional = true, features = ["termination"] }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_norway = { version = "0.9", optional = true }
 

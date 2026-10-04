@@ -267,3 +267,119 @@ fn huge_driver_timeouts_are_capped() {
     }
     common::poll_n(&mut sub, 3, |_| {});
 }
+
+/// CPU affinity settings are applied by the driver's threads as they start
+/// (they used to be accepted and ignored).
+#[cfg(target_os = "linux")]
+#[test]
+fn conductor_cpu_affinity_is_applied() {
+    let dir = temp_dir("affinity");
+    let _driver = MediaDriver::builder()
+        .dir(&dir)
+        .dir_delete_on_start(true)
+        .dir_delete_on_shutdown(true)
+        .threading_mode(ThreadingMode::Dedicated)
+        .conductor_cpu_affinity(0)
+        .start()
+        .unwrap();
+    // The conductor thread's allowed CPUs, from /proc.
+    let conductor_cpus = || {
+        std::fs::read_dir("/proc/self/task")
+            .ok()?
+            .flatten()
+            .find_map(|task| {
+                let name = std::fs::read_to_string(task.path().join("comm")).ok()?;
+                // The driver's conductor (not this test's thread, also "conductor_...").
+                if name.trim() != "conductor" {
+                    return None;
+                }
+                let status = std::fs::read_to_string(task.path().join("status")).ok()?;
+                status
+                    .lines()
+                    .find_map(|line| line.strip_prefix("Cpus_allowed_list:"))
+                    .map(|cpus| cpus.trim().to_string())
+            })
+    };
+    // The thread is named before it applies its affinity: wait for both.
+    common::wait_until("the conductor thread on CPU 0", || {
+        conductor_cpus().as_deref() == Some("0")
+    });
+}
+
+/// SIGTERM (systemd, Kubernetes) stops the binary cleanly: the driver closes and
+/// deletes its directory. It used to kill the process with the driver open.
+#[cfg(unix)]
+#[test]
+fn mediadriver_binary_stops_cleanly_on_sigterm() {
+    let dir = temp_dir("sigterm");
+    let config = format!("{dir}.yaml");
+    std::fs::write(
+        &config,
+        format!("dir: {dir}\ndir_delete_on_start: true\ndir_delete_on_shutdown: true\n"),
+    )
+    .unwrap();
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_mediadriver"))
+        .arg(&config)
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let cnc = format!("{dir}/cnc.dat");
+    common::wait_until("the driver to start", || {
+        std::path::Path::new(&cnc).exists()
+    });
+    let killed = std::process::Command::new("kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(killed.success());
+    let deadline = Instant::now() + common::TIMEOUT;
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "the driver did not stop");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let _ = std::fs::remove_file(&config);
+    assert!(status.success(), "{status}");
+    assert!(
+        !std::path::Path::new(&dir).exists(),
+        "the directory is deleted on shutdown"
+    );
+}
+
+/// A termination request accepted by AERON_DRIVER_TERMINATION_VALIDATOR stops
+/// the binary even without a configured token (it used to be accepted and
+/// ignored).
+#[test]
+fn mediadriver_binary_stops_on_requests_the_environment_accepts() {
+    let dir = temp_dir("env-validator");
+    let config = format!("{dir}.yaml");
+    std::fs::write(
+        &config,
+        format!("dir: {dir}\ndir_delete_on_start: true\ndir_delete_on_shutdown: true\n"),
+    )
+    .unwrap();
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_mediadriver"))
+        .arg(&config)
+        .env("AERON_DRIVER_TERMINATION_VALIDATOR", "allow")
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let cnc = format!("{dir}/cnc.dat");
+    common::wait_until("the driver to start", || {
+        std::path::Path::new(&cnc).exists()
+    });
+    let deadline = Instant::now() + common::TIMEOUT;
+    let status = loop {
+        // Retried: the driver must be ready to read the request.
+        let _ = Context::request_driver_termination(&dir, b"");
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "the driver did not stop");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let _ = std::fs::remove_file(&config);
+    assert!(status.success(), "{status}");
+}

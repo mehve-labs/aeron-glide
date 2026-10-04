@@ -36,9 +36,22 @@ MediaDriverWrapper::~MediaDriverWrapper() {
     if (context_) { aeron_driver_context_close(context_); context_ = nullptr; }
 }
 
+// aeron_driver.h, not in the public aeronmd.h.
+extern "C" int aeron_driver_apply_cpuset_affinity(aeron_driver_context_t *context);
+
 void MediaDriverWrapper::start(bool manual_main_loop) {
     if (driver_ != nullptr) {
         throw aeron::util::IllegalStateException("media driver already started", SOURCEINFO, EPERM);
+    }
+    // As aeronmd does: the cpuset and per-thread CPU affinity settings are only
+    // applied by these two steps (the affinity by each agent thread on start;
+    // in invoker mode the conductor's runs on the thread calling start).
+    if (aeron_driver_apply_cpuset_affinity(context_) < 0) {
+        throwDriverError("Failed to apply the cpuset affinity");
+    }
+    if (aeron_driver_context_get_agent_on_start_function(context_) == nullptr &&
+        aeron_driver_context_set_agent_on_start_function(context_, aeron_set_thread_affinity_on_start, context_) < 0) {
+        throwDriverError("Failed to set the thread affinity start function");
     }
     if (aeron_driver_init(&driver_, context_) < 0) {
         throwDriverError("Failed to init driver");

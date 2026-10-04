@@ -117,6 +117,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The driver's CPU affinity and cpuset settings (`conductor_cpu_affinity`,
+  `cpuset_affinity`, ...) were accepted but never applied: the driver now
+  installs Aeron's affinity start function and applies the cpuset, as
+  `aeronmd` does.
+- The `mediadriver` binary stops cleanly on SIGTERM and SIGHUP, not only
+  SIGINT, closing the driver (and deleting its directory if configured). It
+  also stops on termination requests accepted by
+  `AERON_DRIVER_TERMINATION_VALIDATOR` when no `termination_token` is set.
 - A `ReplayMerge` dropped inside an archive listing consumer was closed on
   another thread after its borrows ended, racing with later use of its archive
   client. It now closes before the drop returns (inside an Aeron handler it is
