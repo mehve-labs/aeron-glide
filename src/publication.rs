@@ -294,6 +294,10 @@ impl Publication {
     ///
     /// `length` must not exceed [`max_payload_length`](Self::max_payload_length):
     /// a claim is a single fragment.
+    ///
+    /// Commit or abort well within the driver's publication unblock timeout:
+    /// on a concurrent publication, a claim held much longer can end up
+    /// overwriting other messages (see [`BufferClaim`]).
     pub fn try_claim(&self, length: usize) -> std::result::Result<BufferClaim<'_>, OfferError> {
         let length = claim_length(length)?;
         let mut frame = ffi::ClaimFrame { ptr: 0, len: 0 };
@@ -490,6 +494,16 @@ impl ExclusivePublication {
 /// aborts it, so subscribers skip it. Commit or abort promptly: later messages on
 /// the publication wait behind an open claim, and the media driver pads over a
 /// claim left open longer than its `publication_unblock_timeout`.
+///
+/// # Holding a claim too long
+///
+/// On a concurrent [`Publication`], other offers go on after the driver has
+/// padded over a stalled claim, and once the stream has moved on by the log
+/// buffer's length the claimed bytes hold other messages. Writing to, or
+/// committing, a claim held that long overwrites them: subscribers in every
+/// process see corrupted data. Aeron's Java and C++ clients have the same rule;
+/// nothing can check it for you. An [`ExclusivePublication`]'s claim borrows
+/// the publication mutably, so nothing else writes past it.
 #[must_use = "a claim is aborted when dropped; call `commit` to publish it"]
 pub struct BufferClaim<'a> {
     frame: ffi::ClaimFrame,
