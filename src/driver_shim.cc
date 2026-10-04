@@ -123,6 +123,13 @@ void MediaDriverWrapper::setTerminationHook(CloseClientFn hook, ReleaseFn releas
     hook_ = std::move(owned);
 }
 
+void MediaDriverWrapper::setDir(rust::Str dir) {
+    ensureNotStarted();
+    if (aeron_driver_context_set_dir(context_, keep(dir)) < 0) {
+        throwDriverError("Failed to set dir");
+    }
+}
+
 void MediaDriverWrapper::setThreadingMode(int32_t mode) {
     ensureNotStarted();
     if (aeron_driver_context_set_threading_mode(context_, static_cast<aeron_threading_mode_t>(mode)) < 0) {

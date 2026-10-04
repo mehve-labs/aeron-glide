@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert!(args.length >= 8, "messages carry an 8-byte timestamp");
     let dir = std::env::temp_dir().join(format!("aeron-glide-pingpong-{}", std::process::id()));
     let driver = MediaDriver::builder()
-        .dir(&dir.to_string_lossy())
+        .dir(&dir)
         .dir_delete_on_start(true)
         .dir_delete_on_shutdown(true)
         .threading_mode(ThreadingMode::Dedicated)

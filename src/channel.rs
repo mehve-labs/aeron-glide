@@ -149,6 +149,15 @@ pub const NAK_DELAY_PARAM_NAME: &str = "nak-delay";
 pub const UNTETHERED_WINDOW_LIMIT_TIMEOUT_PARAM_NAME: &str = "untethered-window-limit-timeout";
 /// `untethered-resting-timeout` (nanoseconds).
 pub const UNTETHERED_RESTING_TIMEOUT_PARAM_NAME: &str = "untethered-resting-timeout";
+/// `untethered-linger-timeout`: how long a dropped untethered subscriber
+/// lingers before it is removed.
+pub const UNTETHERED_LINGER_TIMEOUT_PARAM_NAME: &str = "untethered-linger-timeout";
+/// `pub-wnd`: the publication window length.
+pub const PUBLICATION_WINDOW_PARAM_NAME: &str = "pub-wnd";
+/// `stream-id`: a stream ID carried in the channel.
+pub const STREAM_ID_PARAM_NAME: &str = "stream-id";
+/// `ats`: Aeron Transport Security.
+pub const ATS_PARAM_NAME: &str = "ats";
 /// `max-resend`.
 pub const MAX_RESEND_PARAM_NAME: &str = "max-resend";
 
@@ -594,6 +603,28 @@ impl ChannelBuilder {
     /// (`untethered-resting-timeout`, written in nanoseconds).
     pub fn untethered_resting_timeout(self, timeout: Duration) -> Self {
         self.duration_param(UNTETHERED_RESTING_TIMEOUT_PARAM_NAME, timeout)
+    }
+
+    /// How long a dropped untethered subscriber lingers before it is removed
+    /// (`untethered-linger-timeout`, written in nanoseconds).
+    pub fn untethered_linger_timeout(self, timeout: Duration) -> Self {
+        self.duration_param(UNTETHERED_LINGER_TIMEOUT_PARAM_NAME, timeout)
+    }
+
+    /// How far a publication may run ahead of its slowest subscriber, in bytes
+    /// (`pub-wnd`).
+    pub fn publication_window_length(self, length: u32) -> Self {
+        self.param(PUBLICATION_WINDOW_PARAM_NAME, &length.to_string())
+    }
+
+    /// A stream ID carried in the channel (`stream-id`).
+    pub fn stream_id(self, stream_id: i32) -> Self {
+        self.param(STREAM_ID_PARAM_NAME, &stream_id.to_string())
+    }
+
+    /// Enable Aeron Transport Security (`ats`), if the driver supports it.
+    pub fn ats(self, enabled: bool) -> Self {
+        self.bool_param(ATS_PARAM_NAME, enabled)
     }
 
     /// The maximum number of NAK-driven retransmissions in flight

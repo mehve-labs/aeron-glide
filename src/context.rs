@@ -34,7 +34,7 @@ type Installer = Box<dyn FnOnce(Pin<&mut ffi::ContextWrapper>) + Send>;
 /// ```
 #[derive(Default)]
 pub struct Context {
-    aeron_dir: Option<String>,
+    aeron_dir: Option<std::path::PathBuf>,
     client_name: Option<String>,
     driver_timeout: Option<Duration>,
     resource_linger_timeout: Option<Duration>,
@@ -82,7 +82,11 @@ impl Context {
     ///
     /// Whether the driver actually terminates is up to its termination validator;
     /// Aeron's default rejects every request.
-    pub fn request_driver_termination(aeron_dir: &str, token: &[u8]) -> Result<bool> {
+    pub fn request_driver_termination(
+        aeron_dir: impl AsRef<std::path::Path>,
+        token: &[u8],
+    ) -> Result<bool> {
+        let aeron_dir = crate::error::path_str(aeron_dir.as_ref())?;
         Ok(ffi::requestDriverTermination(aeron_dir, token)?)
     }
 
@@ -90,8 +94,8 @@ impl Context {
     ///
     /// Defaults to the `AERON_DIR` environment variable if set, otherwise Aeron's
     /// platform default (e.g. `/dev/shm/aeron-<user>` on Linux).
-    pub fn aeron_dir(mut self, dir: impl Into<String>) -> Self {
-        self.aeron_dir = Some(dir.into());
+    pub fn aeron_dir(mut self, dir: impl AsRef<std::path::Path>) -> Self {
+        self.aeron_dir = Some(dir.as_ref().to_path_buf());
         self
     }
 
@@ -298,8 +302,11 @@ impl Context {
 
     pub(crate) fn connect(self) -> Result<AeronClient> {
         let mut ctx = ffi::create_context()?;
-        if let Some(dir) = self.aeron_dir.or_else(|| std::env::var("AERON_DIR").ok()) {
-            ctx.pin_mut().setAeronDir(&dir)?;
+        if let Some(dir) = self
+            .aeron_dir
+            .or_else(|| std::env::var_os("AERON_DIR").map(Into::into))
+        {
+            ctx.pin_mut().setAeronDir(crate::error::path_str(&dir)?)?;
         }
         if let Some(name) = &self.client_name {
             ctx.pin_mut().setClientName(name)?;

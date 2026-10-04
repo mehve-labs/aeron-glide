@@ -26,7 +26,7 @@ const CONTROL: &str = "localhost:20151";
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dir = std::env::temp_dir().join(format!("aeron-glide-mdc-{}", std::process::id()));
     let driver = MediaDriver::builder()
-        .dir(&dir.to_string_lossy())
+        .dir(&dir)
         .dir_delete_on_start(true)
         .dir_delete_on_shutdown(true)
         .start()?;

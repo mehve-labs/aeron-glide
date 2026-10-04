@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 # Setters hand-written in src/lib.rs (their getters are still generated).
-EXCLUDE = {"threading_mode"}
+EXCLUDE = {"threading_mode", "dir"}
 
 # C parameter type -> (Rust parameter type, cxx bridge type, C++ parameter type, expression passed to C).
 SCALARS = {

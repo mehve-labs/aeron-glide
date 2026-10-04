@@ -318,6 +318,16 @@ impl std::error::Error for OfferError {
     }
 }
 
+/// A path as the UTF-8 string Aeron's C API takes.
+pub(crate) fn path_str(path: &std::path::Path) -> Result<&str> {
+    path.to_str().ok_or_else(|| {
+        Error::new(
+            ErrorKind::IllegalArgument,
+            format!("{} is not valid UTF-8", path.display()),
+        )
+    })
+}
+
 /// A poll limit for Aeron, which takes an `i32`: larger limits are capped.
 pub(crate) fn ffi_limit(limit: usize) -> i32 {
     i32::try_from(limit).unwrap_or(i32::MAX)

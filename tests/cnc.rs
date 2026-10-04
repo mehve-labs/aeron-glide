@@ -368,3 +368,17 @@ fn counter_buffers_must_match_record_for_record() {
         ErrorKind::Io
     );
 }
+
+/// Directories are paths; Aeron's C API takes UTF-8, so other paths are an
+/// error rather than a lossy conversion.
+#[cfg(unix)]
+#[test]
+fn non_utf8_directories_are_rejected() {
+    use std::os::unix::ffi::OsStrExt;
+    let dir = std::path::Path::new(std::ffi::OsStr::from_bytes(b"/tmp/aeron-\xff"));
+    let err = CncFile::map_existing_with_timeout(dir, Duration::ZERO).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::IllegalArgument);
+    let err =
+        aeron_glide::AeronClient::connect(aeron_glide::Context::new().aeron_dir(dir)).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::IllegalArgument);
+}

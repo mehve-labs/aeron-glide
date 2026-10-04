@@ -12,13 +12,6 @@ inline rust::String lossyOrEmpty(const char *value) {
     return rust::String::lossy(value == nullptr ? "" : value);
 }
 
-inline void driver_set_dir(MediaDriverWrapper &driver, rust::Str value) {
-    driver.ensureNotStarted();
-    if (aeron_driver_context_set_dir(driver.context(), driver.keep(value)) < 0) {
-        throwDriverError("Failed to set dir");
-    }
-}
-
 inline void driver_set_dir_warn_if_exists(MediaDriverWrapper &driver, bool value) {
     driver.ensureNotStarted();
     if (aeron_driver_context_set_dir_warn_if_exists(driver.context(), value) < 0) {

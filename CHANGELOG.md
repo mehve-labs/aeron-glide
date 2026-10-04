@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** directories are `impl AsRef<Path>`: `Context::aeron_dir`,
+  `Context::request_driver_termination`, `CncFile::map_existing*`,
+  `MediaDriverBuilder::dir` and the archive contexts' `aeron_directory_name`.
+  A path that is not valid UTF-8 fails with `IllegalArgument`.
 - **Breaking:** counter record states are a `CounterState` enum
   (`Unused`, `Allocated`, `Reclaimed`), returned by
   `CountersReader::get_counter_state`, `Counter::state` and
@@ -290,6 +294,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `MIGRATION.md`: upgrading from 0.3, and moving from rusteron.
+- `ChannelBuilder::publication_window_length` (`pub-wnd`),
+  `untethered_linger_timeout`, `stream_id` and `ats`.
 - `frame` module: Aeron's data frame constants (`BEGIN_FLAG`, `END_FLAG`,
   `UNFRAGMENTED`, `EOS_FLAG`, `HDR_TYPE_DATA`, `HDR_TYPE_PAD`,
   `DATA_HEADER_LENGTH`, `FRAME_ALIGNMENT`), and

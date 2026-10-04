@@ -122,9 +122,9 @@ impl Context {
 
     /// The Aeron directory of the internal client (when [`aeron`](Self::aeron) is
     /// not set).
-    pub fn aeron_directory_name(self, dir: &str) -> Self {
-        let dir = dir.to_string();
-        self.set(move |ctx| Ok(ctx.setAeronDirectoryName(&dir)?))
+    pub fn aeron_directory_name(self, dir: impl AsRef<std::path::Path>) -> Self {
+        let dir = dir.as_ref().to_path_buf();
+        self.set(move |ctx| Ok(ctx.setAeronDirectoryName(crate::error::path_str(&dir)?)?))
     }
 
     /// The archive's control channel, e.g. `aeron:udp?endpoint=localhost:8010`.

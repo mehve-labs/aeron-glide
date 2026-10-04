@@ -166,8 +166,8 @@ impl PersistentSubscriptionBuilder {
     }
 
     /// The Aeron directory of the internal client.
-    pub fn aeron_directory_name(self, dir: &str) -> Self {
-        self.set(|ctx| Ok(ctx.setAeronDirectoryName(dir)?))
+    pub fn aeron_directory_name(self, dir: impl AsRef<std::path::Path>) -> Self {
+        self.set(|ctx| Ok(ctx.setAeronDirectoryName(crate::error::path_str(dir.as_ref())?)?))
     }
 
     /// The recording to replay.

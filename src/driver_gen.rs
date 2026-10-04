@@ -48,7 +48,6 @@ pub(crate) mod ffi {
 
         type MediaDriverWrapper = crate::driver::ffi::MediaDriverWrapper;
 
-        fn driver_set_dir(driver: Pin<&mut MediaDriverWrapper>, value: &str) -> Result<()>;
         fn driver_set_dir_warn_if_exists(
             driver: Pin<&mut MediaDriverWrapper>,
             value: bool,
@@ -568,13 +567,6 @@ impl InferableBoolean {
 }
 
 impl MediaDriverBuilder {
-    /// The top level Aeron directory used for communication between a Media Driver and client.
-    ///
-    /// C: `aeron_driver_context_set_dir`, environment variable `AERON_DIR`.
-    pub fn dir(self, value: &str) -> Self {
-        self.apply(|w| ffi::driver_set_dir(w, value))
-    }
-
     /// Warn if the top level Aeron directory exists when starting the driver.
     ///
     /// C: `aeron_driver_context_set_dir_warn_if_exists`, environment variable `AERON_DIR_WARN_IF_EXISTS`.

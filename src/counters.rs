@@ -449,13 +449,17 @@ impl CncFile {
     /// and be initialised by a media driver (C++ `CncFileReader::mapExisting`).
     /// Fails with [`ErrorKind::Io`] if it does not, or at once if the file's
     /// version is incompatible or its layout is invalid.
-    pub fn map_existing(aeron_dir: &str) -> Result<Self> {
+    pub fn map_existing(aeron_dir: impl AsRef<std::path::Path>) -> Result<Self> {
         Self::map_existing_with_timeout(aeron_dir, Duration::from_secs(10))
     }
 
     /// [`map_existing`](Self::map_existing), waiting up to `timeout` (zero: fail
     /// at once if the file is not ready).
-    pub fn map_existing_with_timeout(aeron_dir: &str, timeout: Duration) -> Result<Self> {
+    pub fn map_existing_with_timeout(
+        aeron_dir: impl AsRef<std::path::Path>,
+        timeout: Duration,
+    ) -> Result<Self> {
+        let aeron_dir = crate::error::path_str(aeron_dir.as_ref())?;
         // The C client adds it to the clock: clamp far below overflow.
         let timeout_ms = crate::timeout_millis(timeout);
         Ok(Self {

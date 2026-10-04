@@ -55,6 +55,7 @@ public:
     }
 
     void setThreadingMode(int32_t mode);
+    void setDir(rust::Str dir);
 
     // The idle strategy chosen for `base` (e.g. "sender_idle_strategy") through
     // the builder, to reload it with new init args: Aeron records "backoff" as

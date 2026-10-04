@@ -463,3 +463,20 @@ fn add_session_id_and_alias() {
     );
     assert!(ChannelUri::add_alias_if_absent("not a uri", "b").is_err());
 }
+
+#[test]
+fn window_linger_stream_and_ats_parameters() {
+    let uri = ChannelBuilder::udp()
+        .endpoint("localhost:20121")
+        .publication_window_length(65536)
+        .untethered_linger_timeout(Duration::from_millis(5))
+        .stream_id(7)
+        .ats(true)
+        .build()
+        .unwrap();
+    let parsed = ChannelUri::parse(&uri).unwrap();
+    assert_eq!(parsed.get("pub-wnd"), Some("65536"));
+    assert_eq!(parsed.get("untethered-linger-timeout"), Some("5000000"));
+    assert_eq!(parsed.get("stream-id"), Some("7"));
+    assert_eq!(parsed.get("ats"), Some("true"));
+}

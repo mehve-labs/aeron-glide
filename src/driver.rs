@@ -27,6 +27,7 @@ pub(crate) mod ffi {
         ) -> Result<()>;
 
         fn setThreadingMode(self: Pin<&mut MediaDriverWrapper>, mode: i32) -> Result<()>;
+        fn setDir(self: Pin<&mut MediaDriverWrapper>, dir: &str) -> Result<()>;
     }
 }
 
@@ -300,6 +301,21 @@ impl MediaDriverBuilder {
                 crate::handlers::into_ctx(hook),
             )
         })
+    }
+
+    /// The Aeron directory of the driver: clients connect through the CnC file
+    /// in it (C `aeron_driver_context_set_dir`, environment variable
+    /// `AERON_DIR`). Fails at [`start`](Self::start) if it is not valid UTF-8.
+    pub fn dir(mut self, dir: impl AsRef<std::path::Path>) -> Self {
+        match crate::error::path_str(dir.as_ref()) {
+            Ok(dir) => self.apply(|w| w.setDir(dir)),
+            Err(e) => {
+                if self.inner.is_ok() {
+                    self.inner = Err(e);
+                }
+                self
+            }
+        }
     }
 
     /// Threading model of the driver's conductor, sender and receiver.
