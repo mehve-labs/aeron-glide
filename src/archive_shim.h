@@ -1,6 +1,7 @@
 // Archive client shim (the `archive` feature): wrappers over the Aeron C++
 // archive client (aeron::archive::client), bridged in src/archive/mod.rs.
 #pragma once
+#include <array>
 #include "shim.h"
 #include <AeronCounters.h>
 #include <client/archive/PersistentSubscription.h>
@@ -285,11 +286,13 @@ public:
     bool hasClient = false;
     std::shared_ptr<aeron::Aeron> client;
     std::string aeronDir;
-    // The counters handed over: the C context closes them, so their C++
-    // handles must not close them again.
-    std::vector<std::shared_ptr<aeron::Counter>> counters;
+    // The counters handed over, one per slot (state, join difference, live
+    // left, live joined): the C context closes them, so their C++ handles must
+    // not close them again. Setting a slot again replaces its counter, which is
+    // then closed as usual.
+    std::array<std::shared_ptr<aeron::Counter>, 4> counters;
     // What the counters' handles keep alive (see CounterWrapper).
-    std::vector<std::shared_ptr<const void>> keepalive;
+    std::array<std::shared_ptr<const void>, 4> keepalive;
 };
 
 class PersistentSubscriptionWrapper {
@@ -303,6 +306,8 @@ public:
     bool isLive() const;
     bool isReplaying() const;
     bool hasFailed() const;
+    // Empty unless failed; then `code` is set.
+    rust::String failureReason(int32_t &code) const;
 
 private:
     std::shared_ptr<arc::PersistentSubscription> subscription_;

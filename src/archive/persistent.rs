@@ -45,8 +45,10 @@ impl PersistentSubscription {
     /// Start with the live stream (C++ `FROM_LIVE`, the default).
     pub const FROM_LIVE: i64 = -2;
 
-    /// Poll for fragments, replayed or live, driving the replay and the switch to
-    /// the live stream. Returns the number of fragments received.
+    /// Poll for messages, replayed or live, driving the replay and the switch to
+    /// the live stream. Returns the amount of work done: fragments read plus
+    /// other progress (e.g. replay requests), so it can be positive with no
+    /// message delivered; 0 when idle.
     ///
     /// # Panics
     ///
@@ -91,15 +93,27 @@ impl PersistentSubscription {
         self.inner.isReplaying()
     }
 
-    /// Returns `true` if it failed; the `on_error` callback was told why.
+    /// Returns `true` if it failed; [`failure_reason`](Self::failure_reason)
+    /// says why (and the `on_error` callback was told).
     pub fn has_failed(&self) -> bool {
         self.inner.hasFailed()
+    }
+
+    /// Why it failed (C `aeron_archive_persistent_subscription_failure_reason`),
+    /// or `None` while it hasn't: an [`ErrorKind::Archive`] error with Aeron's
+    /// error code.
+    pub fn failure_reason(&self) -> Option<Error> {
+        let mut code = 0;
+        let message = self.inner.failureReason(&mut code);
+        (!message.is_empty()).then(|| Error::new(ErrorKind::Archive, message).with_code(code))
     }
 }
 
 /// Configuration for a [`PersistentSubscription`] (C++
-/// `PersistentSubscription::Context`). The archive context, live and replay
-/// channels are required.
+/// `PersistentSubscription::Context`). Required: the archive context, the
+/// recording ID, and the live and replay channels and stream IDs. Of the
+/// archive context, only its connection settings are used (not its idle
+/// strategy, delegating invoker or recording signal consumer).
 ///
 /// Settings are applied as they are set; the first invalid one is reported by
 /// [`create`](Self::create).

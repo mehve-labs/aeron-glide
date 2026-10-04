@@ -148,6 +148,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Persistent-subscription counters leaked when creating failed early (no live
+  or replay channel), or when a counter slot was set twice: they are freed.
 - A panicking agent's `on_close` now runs before `AgentRunner::close`
   resumes the panic, and an agent dropping its own `AgentRunner` stops it
   instead of panicking (it can't wait for its own thread).
@@ -317,6 +319,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `MIGRATION.md`: upgrading from 0.3, and moving from rusteron.
+- `PersistentSubscription::failure_reason` (C
+  `aeron_archive_persistent_subscription_failure_reason`): why it failed.
 - `mediadriver` binary: `--help`, errors printed as messages (exit code 1),
   and `shared_idle_strategy` / `sharednetwork_idle_strategy` keys for the
   shared threading modes, whose idle strategy the other keys don't set.

@@ -38,7 +38,7 @@ pub struct RecordingDescriptor {
     pub recording_id: i64,
     /// When the recording started, in milliseconds since the epoch.
     pub start_timestamp: i64,
-    /// When the recording stopped ([`NULL_POSITION`] while active).
+    /// When the recording stopped (`NULL_TIMESTAMP`, -1, while active).
     pub stop_timestamp: i64,
     /// The stream position the recording starts at.
     pub start_position: i64,

@@ -19,7 +19,9 @@ pub const REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT: std::time::Duration =
 /// and live destinations to it. The merge mutably borrows the subscription and
 /// the archive client for its whole life: it polls the subscription, and uses
 /// the archive client's connection without its lock. In agent invoker mode the
-/// subscription must belong to the archive client's client.
+/// subscription must belong to the archive client's client, and the client's
+/// conductor must still be run ([`AeronClient::invoke`](crate::AeronClient::invoke))
+/// between polls of the merge.
 ///
 /// Dropping the merge closes it, removing its destinations and stopping its
 /// replay. Drop it outside Aeron handlers: dropped inside one, it is leaked and
@@ -77,8 +79,9 @@ impl std::fmt::Debug for ReplayMerge<'_> {
 impl<'a> ReplayMerge<'a> {
     /// Start merging, with the default progress timeout.
     ///
-    /// - `replay_channel`: the channel the archive replays to, e.g.
-    ///   `aeron:udp?endpoint=localhost:0`.
+    /// - `replay_channel`: the channel the archive replays to, carrying the
+    ///   live publication's `session-id` (e.g. `aeron:udp?session-id=5`); the
+    ///   merge sets its endpoint from `replay_destination`.
     /// - `replay_destination`: the destination added to `subscription` for the
     ///   replay: a UDP channel with an endpoint, e.g. `aeron:udp?endpoint=localhost:0`.
     /// - `live_destination`: the destination added for the live stream.

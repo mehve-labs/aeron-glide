@@ -1161,3 +1161,72 @@ fn huge_max_error_message_length_is_capped() {
         .unwrap();
     assert_eq!(archive.poll_for_error_response().unwrap(), None);
 }
+
+/// Counters given to a persistent subscription are freed whatever happens:
+/// creation failing before the C context takes them, or a slot set twice
+/// (only the last counter of a slot is handed over).
+#[test]
+fn persistent_subscription_counters_are_not_leaked() {
+    use aeron_glide::CounterState;
+    let driver = common::TestDriver::start();
+    let client = driver.client();
+    let reader = client.counters_reader();
+    let freed = |id: i32| reader.get_counter_state(id).unwrap() != CounterState::Allocated;
+
+    // Fails before the C context gets the counter (no replay channel).
+    let early = client.add_counter(1001, &[], "early").unwrap();
+    let early_id = early.id();
+    let err = PersistentSubscriptionBuilder::new()
+        .archive_context(archive::Context::new().aeron(&client))
+        .aeron(&client)
+        .state_counter(early)
+        .live_channel("aeron:ipc")
+        .create()
+        .map(drop)
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::IllegalArgument, "{err}");
+    wait_until("the early counter to be freed", || freed(early_id));
+
+    // The same slot twice: the first counter is replaced and freed too.
+    let first = client.add_counter(1001, &[], "first").unwrap();
+    let second = client.add_counter(1001, &[], "second").unwrap();
+    let (first_id, second_id) = (first.id(), second.id());
+    let result = PersistentSubscriptionBuilder::new()
+        .archive_context(archive::Context::new().aeron(&client))
+        .aeron(&client)
+        .state_counter(first)
+        .state_counter(second)
+        .live_channel("aeron:ipc")
+        .replay_channel("aeron:ipc")
+        .create();
+    assert!(result.is_err());
+    wait_until("both counters to be freed", || {
+        freed(first_id) && freed(second_id)
+    });
+}
+
+#[test]
+fn persistent_subscription_failure_reason() {
+    let driver = archive_or_skip!();
+    let client = driver.client();
+    let mut persistent = PersistentSubscriptionBuilder::new()
+        .archive_context(driver.context(&client))
+        .aeron(&client)
+        .recording_id(987_654) // no such recording
+        .live_channel("aeron:ipc")
+        .live_stream_id(31)
+        .replay_channel("aeron:udp?endpoint=localhost:0")
+        .replay_stream_id(32)
+        .on_error(|_| {})
+        .create()
+        .unwrap();
+    assert!(persistent.failure_reason().is_none());
+    wait_until("the subscription to fail", || {
+        persistent.poll(10, |_, _| {}).ok();
+        persistent.has_failed()
+    });
+    let reason = persistent.failure_reason().expect("a reason");
+    assert_eq!(reason.kind(), ErrorKind::Archive, "{reason}");
+    assert!(!reason.message().is_empty());
+    eprintln!("failure reason: {reason}");
+}

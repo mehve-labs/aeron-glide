@@ -559,9 +559,8 @@ fn check_count(count: i32) -> Result<bool> {
 
 /// An archive connection in progress, from
 /// [`Context::connect_async`](super::Context::connect_async) (C++
-/// `AeronArchive::AsyncConnect`). Dropping it abandons the connection; the
-/// archive client in Aeron 1.53.3 cannot release an abandoned connection, whose
-/// publication and subscription then stay open until the client closes.
+/// `AeronArchive::AsyncConnect`). Dropping it abandons the connection and
+/// releases its publication and subscription.
 ///
 /// After [`poll`](Self::poll) fails, the connection is over: polling again
 /// returns an error (upstream would use freed memory). With an agent invoker

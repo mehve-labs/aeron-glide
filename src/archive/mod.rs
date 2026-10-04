@@ -487,5 +487,6 @@ pub(crate) mod ffi {
         fn isLive(self: &PersistentSubscriptionWrapper) -> bool;
         fn isReplaying(self: &PersistentSubscriptionWrapper) -> bool;
         fn hasFailed(self: &PersistentSubscriptionWrapper) -> bool;
+        fn failureReason(self: &PersistentSubscriptionWrapper, code: &mut i32) -> String;
     }
 }

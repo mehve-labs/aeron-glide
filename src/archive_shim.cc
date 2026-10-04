@@ -830,14 +830,15 @@ void PersistentSubscriptionContextWrapper::setCounter(int32_t which, const Count
         throw aeron::util::IllegalArgumentException(
             "a counter handle from a CountersReader cannot be used, only an added counter", SOURCEINFO, EINVAL);
     }
-    counters.push_back(counter.sharedCounter());
-    switch (which) {
+    const std::size_t slot = which >= 0 && which < 3 ? static_cast<std::size_t>(which) : 3;
+    counters[slot] = counter.sharedCounter();
+    keepalive[slot] = counter.keepalive();
+    switch (slot) {
         case 0: ctx.stateCounter(counter.sharedCounter()); break;
         case 1: ctx.joinDifferenceCounter(counter.sharedCounter()); break;
         case 2: ctx.liveLeftCounter(counter.sharedCounter()); break;
         default: ctx.liveJoinedCounter(counter.sharedCounter()); break;
     }
-    keepalive.push_back(counter.keepalive());
 }
 
 void PersistentSubscriptionContextWrapper::setOnLiveJoined(InvokerFn callback, ReleaseFn release, size_t context) {
@@ -866,6 +867,14 @@ std::unique_ptr<PersistentSubscriptionWrapper> create_persistent_subscription(
     if (!context->archive) {
         throw aeron::util::IllegalArgumentException("archive context must be set", SOURCEINFO, EINVAL);
     }
+    // Checked here too: C++ create throws these before the C context takes
+    // the counters, which our handover would then leak.
+    if (context->ctx.liveChannel().empty()) {
+        throw aeron::util::IllegalArgumentException("live channel must be set", SOURCEINFO, EINVAL);
+    }
+    if (context->ctx.replayChannel().empty()) {
+        throw aeron::util::IllegalArgumentException("replay channel must be set", SOURCEINFO, EINVAL);
+    }
     if (!context->hasClient) {
         if (context->archive->ctx->aeron()) {
             context->ctx.aeron(context->archive->ctx->aeron());
@@ -889,7 +898,7 @@ std::unique_ptr<PersistentSubscriptionWrapper> create_persistent_subscription(
     // The C context closes the counters with their client's conductor, under this
     // client's lock: they must belong to it.
     for (std::size_t i = 0; i < context->counters.size(); i++) {
-        if (context->keepalive[i].get() != context->client.get()) {
+        if (context->counters[i] && context->keepalive[i].get() != context->client.get()) {
             throw aeron::util::IllegalArgumentException(
                 "the counters must belong to the persistent subscription's client", SOURCEINFO, EINVAL);
         }
@@ -899,7 +908,9 @@ std::unique_ptr<PersistentSubscriptionWrapper> create_persistent_subscription(
     // also if creating fails): stop their C++ handles from closing them again.
     auto handOver = [&] {
         for (auto &counter : context->counters) {
-            (*counter).*member(CCounterTag()) = nullptr;
+            if (counter) {
+                (*counter).*member(CCounterTag()) = nullptr;
+            }
         }
     };
     std::shared_ptr<arc::PersistentSubscription> subscription;
@@ -952,5 +963,25 @@ int PersistentSubscriptionWrapper::controlledPoll(int fragment_limit, Controlled
 bool PersistentSubscriptionWrapper::isLive() const { return subscription_->isLive(); }
 bool PersistentSubscriptionWrapper::isReplaying() const { return subscription_->isReplaying(); }
 bool PersistentSubscriptionWrapper::hasFailed() const { return subscription_->hasFailed(); }
+
+namespace {
+struct CPersistentTag {
+    using type = aeron_archive_persistent_subscription_t *arc::PersistentSubscription::*;
+    friend type member(CPersistentTag);
+};
+template struct PrivateMember<CPersistentTag, &arc::PersistentSubscription::m_persistent_subscription_t>;
+} // namespace
+
+// C aeron_archive_persistent_subscription_failure_reason (not in the C++ API).
+rust::String PersistentSubscriptionWrapper::failureReason(int32_t &code) const {
+    int errcode = 0;
+    const char *message = nullptr;
+    if (!aeron_archive_persistent_subscription_failure_reason(
+            (*subscription_).*member(CPersistentTag()), &errcode, &message)) {
+        return rust::String();
+    }
+    code = errcode;
+    return rust::String::lossy(message != nullptr && message[0] != '\0' ? message : "failed");
+}
 
 } // namespace aeron_rs
