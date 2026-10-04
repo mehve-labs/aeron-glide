@@ -133,6 +133,7 @@ fn termination_requests() {
     assert!(!client.is_closed());
 }
 
+#[cfg(feature = "bin")]
 #[test]
 fn mediadriver_binary_runs_invoker_mode_and_terminates_on_request() {
     let dir = temp_dir("binary");
@@ -313,7 +314,7 @@ fn conductor_cpu_affinity_is_applied() {
 
 /// SIGTERM (systemd, Kubernetes) stops the binary cleanly: the driver closes and
 /// deletes its directory. It used to kill the process with the driver open.
-#[cfg(unix)]
+#[cfg(all(unix, feature = "bin"))]
 #[test]
 fn mediadriver_binary_stops_cleanly_on_sigterm() {
     let dir = temp_dir("sigterm");
@@ -356,6 +357,7 @@ fn mediadriver_binary_stops_cleanly_on_sigterm() {
 /// A termination request accepted by AERON_DRIVER_TERMINATION_VALIDATOR stops
 /// the binary even without a configured token (it used to be accepted and
 /// ignored).
+#[cfg(feature = "bin")]
 #[test]
 fn mediadriver_binary_stops_on_requests_the_environment_accepts() {
     let dir = temp_dir("env-validator");
