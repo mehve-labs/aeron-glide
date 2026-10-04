@@ -154,7 +154,9 @@ fn resources_format_with_debug() {
     assert!(output.contains("stream_id: 4"), "{output}");
     assert!(output.contains("Image"), "{output}");
     assert!(output.contains("PendingAdd"), "{output}");
-    assert!(format!("{:?}", driver.driver()).contains(&driver.dir));
+    // As Debug escapes it (backslashes on Windows).
+    let dir = format!("{:?}", driver.dir);
+    assert!(format!("{:?}", driver.driver()).contains(&dir));
 }
 
 #[test]

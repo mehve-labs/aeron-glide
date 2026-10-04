@@ -80,6 +80,10 @@ fn main() {
 
     if env::var("PROFILE").unwrap() == "release" {
         config.profile("Release");
+    } else if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        // Aeron's Debug configuration compiles against MSVC's debug C runtime
+        // (/MDd), but Rust links the release one (/MD) even in debug builds.
+        config.profile("RelWithDebInfo");
     } else {
         config.profile("Debug");
     }
@@ -113,6 +117,10 @@ fn main() {
     println!(
         "cargo:rustc-link-search=native={}",
         base_lib_dir.join("lib/Release").display()
+    );
+    println!(
+        "cargo:rustc-link-search=native={}",
+        base_lib_dir.join("lib/RelWithDebInfo").display()
     );
 
     let include_path = aeron_dir.join("aeron-client/src/main/cpp_wrapper");

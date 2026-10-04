@@ -154,6 +154,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Windows (MSVC) debug builds compiled Aeron against the debug C runtime
+  (`/MDd`) while Rust links the release one (`LNK4098`); Aeron's
+  `RelWithDebInfo` configuration is built instead.
 - Aeron's client environment variables are applied, as in its C and Java
   clients: `AERON_CLIENT_NAME`, `AERON_DRIVER_TIMEOUT`,
   `AERON_CLIENT_RESOURCE_LINGER_DURATION`, `AERON_CLIENT_IDLE_SLEEP_DURATION`
