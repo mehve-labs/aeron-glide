@@ -48,7 +48,7 @@ macro_rules! list {
             let cb = unsafe { Callback::<F>::from_ctx(ctx) };
             // Inside the archive's response poll: archive requests from the
             // consumer would poll the same responses again.
-            let _scope = callback::ConductorCallbackScope::enter();
+            let _scope = callback::ArchiveResponseScope::enter();
             cb.call((), |f| f(<$out>::from_ffi(info)));
         }
     };
@@ -78,6 +78,7 @@ impl AeronArchive {
     /// conductor, so they cannot run inside a client (or archive) handler.
     fn request(&self) -> Result<&ffi::ArchiveWrapper> {
         callback::ensure_not_in_conductor_callback("an archive request")?;
+        callback::ensure_not_in_archive_response("an archive request")?;
         Ok(&self.inner)
     }
 

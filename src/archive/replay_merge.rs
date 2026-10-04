@@ -21,6 +21,10 @@ pub const REPLAY_MERGE_PROGRESS_TIMEOUT_DEFAULT: std::time::Duration =
 /// the archive client's connection without its lock. In agent invoker mode the
 /// subscription must belong to the archive client's client.
 ///
+/// Dropping the merge closes it, removing its destinations and stopping its
+/// replay. Drop it outside Aeron handlers: dropped inside one, it is leaked and
+/// its replay runs until the archive client closes.
+///
 /// ```compile_fail,E0505
 /// # use aeron_glide::{AeronClient, archive::{AeronArchive, ReplayMerge}};
 /// # let client = AeronClient::new().unwrap();
@@ -47,7 +51,13 @@ pub struct ReplayMerge<'a> {
 
 impl Drop for ReplayMerge<'_> {
     fn drop(&mut self) {
-        callback::drop_outside_conductor(&mut self.inner);
+        // Closing must finish before the borrows end, so it is never moved to
+        // another thread. Inside an Aeron handler (possibly on the conductor
+        // thread that closing would wait for), the merge is leaked instead: its
+        // replay keeps running until the archive client closes.
+        if callback::in_conductor_callback() {
+            std::mem::forget(std::mem::replace(&mut self.inner, cxx::UniquePtr::null()));
+        }
     }
 }
 

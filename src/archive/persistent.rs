@@ -109,6 +109,15 @@ pub struct PersistentSubscriptionBuilder {
 // `Send + Sync`.
 unsafe impl Send for PersistentSubscriptionBuilder {}
 
+impl Drop for PersistentSubscriptionBuilder {
+    fn drop(&mut self) {
+        // Its archive context may hold the last reference to a client.
+        if let Ok(inner) = &mut self.inner {
+            callback::drop_outside_conductor(inner);
+        }
+    }
+}
+
 impl Default for PersistentSubscriptionBuilder {
     fn default() -> Self {
         Self {
@@ -251,10 +260,11 @@ impl PersistentSubscriptionBuilder {
 
     /// Create the subscription. It starts replaying (or joins the live stream)
     /// as it is polled.
-    pub fn create(self) -> Result<PersistentSubscription> {
+    pub fn create(mut self) -> Result<PersistentSubscription> {
         callback::ensure_not_in_conductor_callback("creating a persistent subscription")?;
+        let inner = std::mem::replace(&mut self.inner, Err(super::context::used()))?;
         Ok(PersistentSubscription {
-            inner: ffi::create_persistent_subscription(self.inner?)?,
+            inner: ffi::create_persistent_subscription(inner)?,
         })
     }
 }

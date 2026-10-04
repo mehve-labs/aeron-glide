@@ -1086,8 +1086,65 @@ fn requests_from_list_consumers_are_reentrant() {
             kinds.push(archive.poll_for_recording_signals().unwrap_err().kind());
             kinds.push(archive.poll_for_error_response().unwrap_err().kind());
             kinds.push(archive.check_for_error_response().unwrap_err().kind());
+            // The consumer runs on this thread, not a conductor: client calls
+            // (including ones that wait for the conductor) work, and drops are
+            // not moved to another thread, e.g. a `ReplayMerge` borrowing
+            // another archive client closes before its borrows end.
+            let counter = client.add_counter(1001, b"", "in a consumer").unwrap();
+            drop(counter);
         })
         .unwrap();
     assert_eq!(kinds, [ErrorKind::Reentrant; 3]);
     archive.poll_for_recording_signals().unwrap();
+}
+
+/// An archive context can hold the last reference to its client: dropped inside
+/// one of that client's handlers (on its conductor thread), the client must be
+/// closed elsewhere. It used to be destroyed on its own conductor thread,
+/// crashing the process.
+#[test]
+fn context_holding_the_last_client_reference_dropped_in_its_handler() {
+    let driver = archive_or_skip!();
+    let client = driver.client();
+    let context = Arc::new(Mutex::new(Some(driver.context(&client))));
+    let dropped = Arc::new(AtomicUsize::new(0));
+    let (held, flag) = (context.clone(), dropped.clone());
+    client
+        .add_available_counter_handler(move |_| {
+            if held.lock().unwrap().take().is_some() {
+                flag.fetch_add(1, Ordering::SeqCst);
+            }
+        })
+        .unwrap();
+    drop(context); // only the handler holds the context now
+    drop(client); // and the context holds the client
+    let other = driver.client();
+    let _counter = other.add_counter(1001, b"", "trigger").unwrap();
+    wait_until("the handler to drop the context", || {
+        dropped.load(Ordering::SeqCst) == 1
+    });
+    std::thread::sleep(std::time::Duration::from_millis(500)); // let the close finish
+}
+
+/// Starting an asynchronous connect waits on the driver, which the conductor
+/// running the handler would have to answer.
+#[test]
+fn connect_async_from_a_handler_is_reentrant() {
+    let driver = archive_or_skip!();
+    let client = driver.client();
+    let kind = Arc::new(Mutex::new(None));
+    let (seen, context) = (
+        kind.clone(),
+        Mutex::new(Some(driver.context(&driver.client()))),
+    );
+    client
+        .add_available_counter_handler(move |_| {
+            if let Some(context) = context.lock().unwrap().take() {
+                *seen.lock().unwrap() = Some(context.connect_async().map(drop).unwrap_err().kind());
+            }
+        })
+        .unwrap();
+    let _counter = client.add_counter(1001, b"", "trigger").unwrap();
+    wait_until("the handler", || kind.lock().unwrap().is_some());
+    assert_eq!(*kind.lock().unwrap(), Some(ErrorKind::Reentrant));
 }

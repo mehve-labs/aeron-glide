@@ -18,6 +18,37 @@ use std::panic::{self, AssertUnwindSafe};
 
 thread_local! {
     static IN_CONDUCTOR_CALLBACK: Cell<bool> = const { Cell::new(false) };
+    static IN_ARCHIVE_RESPONSE: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Fails with [`ErrorKind::Reentrant`](crate::ErrorKind::Reentrant) inside an
+/// archive listing consumer, which runs inside the archive client's response
+/// poll: another request would poll the same responses again.
+pub(crate) fn ensure_not_in_archive_response(what: &str) -> crate::Result<()> {
+    if IN_ARCHIVE_RESPONSE.get() {
+        return Err(crate::Error::new(
+            crate::ErrorKind::Reentrant,
+            format!("{what} cannot be made from an archive listing consumer"),
+        ));
+    }
+    Ok(())
+}
+
+/// Marks the current thread as running an archive listing consumer until
+/// dropped. Unlike [`ConductorCallbackScope`], it does not move drops to
+/// another thread: the consumer runs on the caller's thread, not a conductor.
+pub(crate) struct ArchiveResponseScope(bool);
+
+impl ArchiveResponseScope {
+    pub(crate) fn enter() -> Self {
+        Self(IN_ARCHIVE_RESPONSE.replace(true))
+    }
+}
+
+impl Drop for ArchiveResponseScope {
+    fn drop(&mut self) {
+        IN_ARCHIVE_RESPONSE.set(self.0);
+    }
 }
 
 /// Returns `true` while this thread runs a callback invoked by an Aeron client

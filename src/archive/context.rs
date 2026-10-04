@@ -25,6 +25,16 @@ pub struct Context {
 // connected, and the handlers it holds are `Send + Sync`.
 unsafe impl Send for Context {}
 
+impl Drop for Context {
+    fn drop(&mut self) {
+        // It may hold the last reference to its client (`aeron`): not on that
+        // client's conductor thread, e.g. inside one of its handlers.
+        if let Ok(inner) = &mut self.inner {
+            crate::callback::drop_outside_conductor(inner);
+        }
+    }
+}
+
 impl Default for Context {
     fn default() -> Self {
         Self {
@@ -240,8 +250,8 @@ impl Context {
         })
     }
 
-    pub(crate) fn build(self) -> Result<cxx::UniquePtr<ffi::ArchiveContextWrapper>> {
-        self.inner
+    pub(crate) fn build(mut self) -> Result<cxx::UniquePtr<ffi::ArchiveContextWrapper>> {
+        std::mem::replace(&mut self.inner, Err(used()))
     }
 
     /// Connect to the archive, waiting for it to answer (C++
@@ -254,7 +264,12 @@ impl Context {
 
     /// Start connecting to the archive without waiting (C++
     /// `AeronArchive::asyncConnect`): poll the returned [`AsyncConnect`].
+    ///
+    /// Starting makes one blocking round trip to the media driver (for the next
+    /// session id), so like [`connect`](Self::connect) it fails with
+    /// [`ErrorKind::Reentrant`](crate::ErrorKind::Reentrant) from a client handler.
     pub fn connect_async(self) -> Result<AsyncConnect> {
+        crate::callback::ensure_not_in_conductor_callback("connecting to an archive")?;
         Ok(AsyncConnect::new(ffi::archive_async_connect(
             self.build()?,
         )?))
@@ -314,4 +329,12 @@ where
     fn on_challenge(&self, challenge: &[u8]) -> Vec<u8> {
         (self.1)(challenge)
     }
+}
+
+/// The value left behind once a context's C++ object has been taken.
+pub(crate) fn used() -> Error {
+    Error::new(
+        crate::ErrorKind::IllegalState,
+        "the archive context was already used",
+    )
 }
