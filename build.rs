@@ -21,7 +21,14 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     // Inputs of the CMake build that Cargo doesn't track by itself.
-    for var in ["CC", "CXX", "CFLAGS", "CXXFLAGS", "CMAKE_GENERATOR", "JAVA_HOME"] {
+    for var in [
+        "CC",
+        "CXX",
+        "CFLAGS",
+        "CXXFLAGS",
+        "CMAKE_GENERATOR",
+        "JAVA_HOME",
+    ] {
         println!("cargo:rerun-if-env-changed={var}");
     }
 

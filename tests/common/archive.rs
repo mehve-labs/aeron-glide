@@ -94,10 +94,48 @@ impl ArchiveDriver {
         let dir =
             std::env::temp_dir().join(format!("aeron-glide-archive-{}-{n}", std::process::id()));
         let aeron_dir = dir.join("driver").to_string_lossy().into_owned();
-        let control_channel = format!("aeron:udp?endpoint=localhost:{}", free_udp_port());
         let archive_id = i64::from(std::process::id()) * 1000 + n as i64;
+        // The control port is probed, so another test can take it before the
+        // JVM binds it: retry with a new one when the JVM exits for that.
+        for attempt in 1..=5 {
+            let control_channel = format!("aeron:udp?endpoint=localhost:{}", free_udp_port());
+            match Self::spawn(
+                &jar,
+                &dir,
+                &aeron_dir,
+                &control_channel,
+                archive_id,
+                properties,
+            ) {
+                Ok(driver) => return Some(driver),
+                Err(Spawn::JavaMissing(e)) => {
+                    assert!(!required, "cannot run java: {e}");
+                    eprintln!("skipping: cannot run java: {e}");
+                    return None;
+                }
+                Err(Spawn::Failed(log))
+                    if log.contains("Address already in use") && attempt < 5 =>
+                {
+                    let _ = std::fs::remove_dir_all(&dir);
+                }
+                Err(Spawn::Failed(log)) => {
+                    panic!("the archiving media driver did not start; its output:\n{log}")
+                }
+            }
+        }
+        unreachable!()
+    }
+
+    fn spawn(
+        jar: &std::path::Path,
+        dir: &std::path::Path,
+        aeron_dir: &str,
+        control_channel: &str,
+        archive_id: i64,
+        properties: &[(&str, &str)],
+    ) -> Result<Self, Spawn> {
         let mut props: Vec<(String, String)> = [
-            ("aeron.dir", aeron_dir.as_str()),
+            ("aeron.dir", aeron_dir),
             ("aeron.dir.delete.on.start", "true"),
             ("aeron.dir.delete.on.shutdown", "true"),
             ("aeron.threading.mode", "SHARED"),
@@ -106,7 +144,7 @@ impl ArchiveDriver {
             ("aeron.publication.linger.timeout", "50ms"),
             ("aeron.archive.threading.mode", "SHARED"),
             ("aeron.archive.dir.delete.on.start", "true"),
-            ("aeron.archive.control.channel", control_channel.as_str()),
+            ("aeron.archive.control.channel", control_channel),
             (
                 "aeron.archive.replication.channel",
                 "aeron:udp?endpoint=localhost:0",
@@ -129,6 +167,11 @@ impl ArchiveDriver {
         for (k, v) in properties {
             props.push((k.to_string(), v.to_string()));
         }
+        // The JVM's output, shown if it fails to start.
+        std::fs::create_dir_all(dir).map_err(|e| Spawn::Failed(e.to_string()))?;
+        let log_path = dir.join("jvm.log");
+        let log = std::fs::File::create(&log_path).map_err(|e| Spawn::Failed(e.to_string()))?;
+        let read_log = || std::fs::read_to_string(&log_path).unwrap_or_default();
         let mut command = Command::new("java");
         command
             .arg("--add-opens")
@@ -140,57 +183,50 @@ impl ArchiveDriver {
         }
         let child = command
             .arg("-cp")
-            .arg(&jar)
+            .arg(jar)
             .arg("io.aeron.archive.ArchivingMediaDriver")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stdout(log.try_clone().map_err(|e| Spawn::Failed(e.to_string()))?)
+            .stderr(log)
             .stdin(Stdio::null())
-            .spawn();
-        let child = match child {
-            Ok(child) => child,
-            Err(e) => {
-                assert!(!required, "cannot run java: {e}");
-                eprintln!("skipping: cannot run java: {e}");
-                return None;
-            }
-        };
-        let driver = Self {
+            .spawn()
+            .map_err(|e| Spawn::JavaMissing(e.to_string()))?;
+        let mut driver = Self {
             child,
-            dir,
-            aeron_dir,
-            control_channel,
+            dir: dir.to_path_buf(),
+            aeron_dir: aeron_dir.to_string(),
+            control_channel: control_channel.to_string(),
             archive_id,
         };
-        // Wait for the media driver, then for the archive to answer.
+        // Wait for the media driver, then for the archive to answer, failing
+        // as soon as the JVM exits.
         let deadline = Instant::now() + Duration::from_secs(30);
+        let mut client: Option<AeronClient> = None;
         loop {
-            if let Ok(cnc) = CncFile::map_existing_with_timeout(&driver.aeron_dir, Duration::ZERO)
-                && cnc.is_driver_active(Duration::from_secs(10))
-            {
-                break;
+            if driver.child.try_wait().ok().flatten().is_some() {
+                return Err(Spawn::Failed(read_log()));
             }
-            assert!(
-                Instant::now() < deadline,
-                "the archiving media driver did not start"
-            );
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        let mut client = driver.client();
-        loop {
-            if client.is_closed() {
-                // E.g. timed out while the JVM was busy starting.
-                client = driver.client();
+            if Instant::now() > deadline {
+                return Err(Spawn::Failed(format!("timed out starting\n{}", read_log())));
             }
-            match driver
-                .context(&client)
+            let active = CncFile::map_existing_with_timeout(&driver.aeron_dir, Duration::ZERO)
+                .is_ok_and(|cnc| cnc.is_driver_active(Duration::from_secs(10)));
+            if !active {
+                std::thread::sleep(Duration::from_millis(50));
+                continue;
+            }
+            if client.as_ref().is_none_or(|c| c.is_closed()) {
+                // (Again if it timed out while the JVM was busy starting.)
+                client = AeronClient::connect(Context::new().aeron_dir(&driver.aeron_dir)).ok();
+                continue;
+            }
+            let connected = driver
+                .context(client.as_ref().unwrap())
                 .message_timeout(Duration::from_secs(1))
-                .connect()
-            {
-                Ok(_) => break,
-                Err(e) => assert!(Instant::now() < deadline, "the archive did not start: {e}"),
+                .connect();
+            if connected.is_ok() {
+                return Ok(driver);
             }
         }
-        Some(driver)
     }
 
     /// Freeze (`SIGSTOP`) or resume (`SIGCONT`) the Java process.
@@ -244,4 +280,12 @@ macro_rules! archive_or_skip {
             None => return,
         }
     };
+}
+
+/// Why a JVM did not start.
+enum Spawn {
+    /// `java` could not be run.
+    JavaMissing(String),
+    /// It exited or timed out; its output.
+    Failed(String),
 }
