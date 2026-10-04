@@ -214,7 +214,7 @@ fn map_without_waiting() {
 #[test]
 fn rejects_nul_and_corrupt_files() {
     let driver = TestDriver::start();
-    let err = CncFile::map_existing(&format!("{}\0/elsewhere", driver.dir)).expect_err("NUL");
+    let err = CncFile::map_existing(format!("{}\0/elsewhere", driver.dir)).expect_err("NUL");
     assert_eq!(err.kind(), ErrorKind::IllegalArgument, "{err}");
 
     // A CnC file whose buffer lengths wrap around when summed as size_t.

@@ -329,7 +329,7 @@ fn agents_refuse_clients_and_drivers_not_in_invoker_mode() {
 
     let threaded_driver = Arc::new(
         MediaDriver::builder()
-            .dir(&format!("{}-threaded", driver.dir))
+            .dir(format!("{}-threaded", driver.dir))
             .dir_delete_on_start(true)
             .dir_delete_on_shutdown(true)
             .threading_mode(ThreadingMode::Shared)

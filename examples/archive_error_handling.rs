@@ -157,7 +157,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::thread::sleep(Duration::from_millis(1));
     };
     // The client must be serviced within the driver's client liveness timeout.
-    let cnc = CncFile::map_existing(&invoker.aeron_dir())?;
+    let cnc = CncFile::map_existing(invoker.aeron_dir())?;
     let timeout = cnc.constants()?.client_liveness_timeout + Duration::from_millis(500);
     println!("  connected with an invoker client; not invoking it for {timeout:?}...");
     std::thread::sleep(timeout);
