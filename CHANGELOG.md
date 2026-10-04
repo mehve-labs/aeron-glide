@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** counter record states are a `CounterState` enum
+  (`Unused`, `Allocated`, `Reclaimed`), returned by
+  `CountersReader::get_counter_state`, `Counter::state` and
+  `CounterView::state`; the `CountersReader::RECORD_*` constants are removed.
 - **Breaking:** counts and limits are `usize`: poll fragment limits and block
   lengths, the fragments or bytes a poll returns, `Subscription::image_count`,
   and work counts (`AeronClient::invoke`, `MediaDriver::do_work` / `idle`,
@@ -286,6 +290,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `MIGRATION.md`: upgrading from 0.3, and moving from rusteron.
+- `frame` module: Aeron's data frame constants (`BEGIN_FLAG`, `END_FLAG`,
+  `UNFRAGMENTED`, `EOS_FLAG`, `HDR_TYPE_DATA`, `HDR_TYPE_PAD`,
+  `DATA_HEADER_LENGTH`, `FRAME_ALIGNMENT`), and
+  `ExclusivePublication::term_id` / `term_offset` for building `offer_block`
+  blocks.
 - `BENCHMARKS.md` and `scripts/benchmark.py`: throughput and latency against
   one shared media driver, optionally pinned with `taskset`, compared with
   rusteron. The `throughput` example takes `--shared-client` to use one client

@@ -33,12 +33,6 @@ impl std::fmt::Debug for CountersReader {
 }
 
 impl CountersReader {
-    /// State of a counter record that was never allocated.
-    pub const RECORD_UNUSED: i32 = 0;
-    /// State of an allocated counter.
-    pub const RECORD_ALLOCATED: i32 = 1;
-    /// State of a freed counter.
-    pub const RECORD_RECLAIMED: i32 = -1;
     /// The registration ID of a counter allocated without one.
     pub const DEFAULT_REGISTRATION_ID: i64 = 0;
     /// The free-for-reuse deadline of a counter that is not free.
@@ -58,11 +52,9 @@ impl CountersReader {
         Ok(self.inner.getCounterValue(id)?)
     }
 
-    /// The record state of a counter: [`RECORD_ALLOCATED`](Self::RECORD_ALLOCATED),
-    /// [`RECORD_RECLAIMED`](Self::RECORD_RECLAIMED) or
-    /// [`RECORD_UNUSED`](Self::RECORD_UNUSED). Fails for an out-of-range ID.
-    pub fn get_counter_state(&self, id: i32) -> Result<i32> {
-        Ok(self.inner.getCounterState(id)?)
+    /// The record state of a counter. Fails for an out-of-range ID.
+    pub fn get_counter_state(&self, id: i32) -> Result<CounterState> {
+        Ok(CounterState::from_raw(self.inner.getCounterState(id)?))
     }
 
     /// Get the type ID of a counter. Fails for an out-of-range ID.
@@ -262,9 +254,9 @@ impl Counter {
         self.inner.registrationId()
     }
 
-    /// The counter's record state, e.g. [`CountersReader::RECORD_ALLOCATED`].
-    pub fn state(&self) -> i32 {
-        self.inner.state()
+    /// The counter's record state.
+    pub fn state(&self) -> CounterState {
+        CounterState::from_raw(self.inner.state())
     }
 
     /// The counter's label. Invalid UTF-8 is replaced with `U+FFFD`.
@@ -635,9 +627,9 @@ impl CounterView {
         self.inner.registrationId()
     }
 
-    /// The counter's record state, e.g. [`CountersReader::RECORD_ALLOCATED`].
-    pub fn state(&self) -> i32 {
-        self.inner.state()
+    /// The counter's record state.
+    pub fn state(&self) -> CounterState {
+        CounterState::from_raw(self.inner.state())
     }
 
     /// The counter's label. Invalid UTF-8 is replaced with `U+FFFD`.
@@ -659,5 +651,42 @@ impl CounterView {
     /// The current value, without ordering guarantees (relaxed read).
     pub fn get_weak(&self) -> i64 {
         self.inner.getWeak()
+    }
+}
+
+/// The state of a counter's record in a [`CountersReader`] (C++
+/// `CountersReader::RECORD_*`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum CounterState {
+    /// Never allocated (`RECORD_UNUSED`, 0).
+    Unused,
+    /// Allocated (`RECORD_ALLOCATED`, 1).
+    Allocated,
+    /// Freed, waiting to be reused (`RECORD_RECLAIMED`, -1).
+    Reclaimed,
+    /// A value this version does not know.
+    Other(i32),
+}
+
+impl CounterState {
+    /// The state for Aeron's raw value.
+    pub fn from_raw(state: i32) -> Self {
+        match state {
+            0 => Self::Unused,
+            1 => Self::Allocated,
+            -1 => Self::Reclaimed,
+            other => Self::Other(other),
+        }
+    }
+
+    /// Aeron's raw value.
+    pub fn as_raw(self) -> i32 {
+        match self {
+            Self::Unused => 0,
+            Self::Allocated => 1,
+            Self::Reclaimed => -1,
+            Self::Other(state) => state,
+        }
     }
 }

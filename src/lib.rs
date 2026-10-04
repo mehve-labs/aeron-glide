@@ -113,6 +113,7 @@ mod driver;
 #[cfg(feature = "driver")]
 mod driver_gen;
 mod error;
+pub mod frame;
 mod handlers;
 mod header;
 mod image;
@@ -123,8 +124,8 @@ pub use channel::{ChannelBuilder, ChannelUri, ControlMode};
 pub use client::{AeronClient, PendingAdd};
 pub use context::Context;
 pub use counters::{
-    CncConstants, CncFile, Counter, CounterView, CountersReader, ErrorLogEntry, LossReportEntry,
-    heartbeat_timestamp,
+    CncConstants, CncFile, Counter, CounterState, CounterView, CountersReader, ErrorLogEntry,
+    LossReportEntry, heartbeat_timestamp,
 };
 #[cfg(feature = "driver")]
 #[cfg_attr(docsrs, doc(cfg(feature = "driver")))]

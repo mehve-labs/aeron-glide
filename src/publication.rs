@@ -358,10 +358,9 @@ impl ExclusivePublication {
     /// headers are rewritten for this publication.
     ///
     /// The block must start at this publication's current position: its first
-    /// frame's term ID and term offset are those of
-    /// [`position`](Self::position) (term ID `initial_term_id + (position >>
-    /// log2(term_buffer_length))`, term offset `position & (term_buffer_length -
-    /// 1)`), and every frame carries this publication's session and stream IDs.
+    /// frame has [`term_id`](Self::term_id) and [`term_offset`](Self::term_offset),
+    /// the frames after it follow on, and every frame carries this
+    /// publication's session and stream IDs. [`crate::frame`] has the layout.
     /// It must fit in the rest of the current term. Returns the new position.
     ///
     /// Fails with [`ErrorKind::IllegalArgument`](crate::ErrorKind::IllegalArgument)
@@ -376,6 +375,20 @@ impl ExclusivePublication {
             self.inner.raiseOfferError()?;
         }
         error::offer_result(position)
+    }
+
+    /// The term the next message goes in (C++ `termId`), from the position.
+    pub fn term_id(&self) -> Result<i32> {
+        let shift = self.term_buffer_length().trailing_zeros();
+        Ok(self
+            .initial_term_id()
+            .wrapping_add((self.position()? >> shift) as i32))
+    }
+
+    /// Where the next message goes in its term (C++ `termOffset`), from the
+    /// position.
+    pub fn term_offset(&self) -> Result<usize> {
+        Ok((self.position()? & (self.term_buffer_length() as i64 - 1)) as usize)
     }
 
     /// Append a padding frame of `length` bytes (C
@@ -483,12 +496,8 @@ pub struct BufferClaim<'a> {
 }
 
 /// Length of the data frame header that precedes the claimed bytes.
-const DATA_HEADER_LENGTH: usize = 32;
-/// Frames are aligned to 32 bytes (`AERON_LOGBUFFER_FRAME_ALIGNMENT`).
-const FRAME_ALIGNMENT: usize = 32;
-/// `AERON_HDR_TYPE_PAD` and `AERON_HDR_TYPE_DATA`.
-const HDR_TYPE_PAD: i16 = 0;
-const HDR_TYPE_DATA: i16 = 1;
+use crate::frame::DATA_HEADER_LENGTH;
+use crate::frame::{FRAME_ALIGNMENT, HDR_TYPE_DATA, HDR_TYPE_PAD};
 
 /// Check that `block` is a sequence of well-formed frames for one term of one
 /// stream (`aeron_data_header_t`, little-endian): each frame's length is at
@@ -513,7 +522,7 @@ fn validate_block(block: &[u8], session_id: i32, stream_id: i32) -> Result<()> {
     let mut offset = 0;
     while offset < block.len() {
         let frame_length = i32_at(offset);
-        let frame_type = i16::from_le_bytes([block[offset + 6], block[offset + 7]]);
+        let frame_type = u16::from_le_bytes([block[offset + 6], block[offset + 7]]);
         let aligned = usize::try_from(frame_length)
             .ok()
             .filter(|&length| length >= DATA_HEADER_LENGTH)

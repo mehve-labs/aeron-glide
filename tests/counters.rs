@@ -1,13 +1,13 @@
 #![cfg(feature = "driver")]
 mod common;
 
-use aeron_glide::{Context, CounterEvent, CountersReader, ErrorKind};
+use aeron_glide::{Context, CounterEvent, CounterState, CountersReader, ErrorKind};
 use common::{TestDriver, wait_until};
 use std::sync::{Arc, Mutex};
 
 const TYPE_ID: i32 = 1001;
 
-fn state(reader: &CountersReader, id: i32) -> i32 {
+fn state(reader: &CountersReader, id: i32) -> CounterState {
     reader.get_counter_state(id).unwrap()
 }
 
@@ -21,7 +21,7 @@ fn added_counter_is_visible_to_readers() {
     assert!(counter.id() >= 0);
     assert!(counter.registration_id() > 0);
     assert_eq!(counter.label(), "my counter");
-    assert_eq!(counter.state(), CountersReader::RECORD_ALLOCATED);
+    assert_eq!(counter.state(), CounterState::Allocated);
     assert!(!counter.is_closed());
 
     counter.set(42);
@@ -98,7 +98,7 @@ fn dropped_counter_is_freed() {
     let id = counter.id();
     drop(counter);
     wait_until("the counter to be freed", || {
-        state(&reader, id) != CountersReader::RECORD_ALLOCATED
+        state(&reader, id) != CounterState::Allocated
     });
 }
 
@@ -119,7 +119,7 @@ fn a_counter_keeps_its_client_open() {
     assert_eq!(reader.get_counter_value(id).unwrap(), 1);
     drop(counter);
     wait_until("the counter to be freed", || {
-        state(&reader, id) != CountersReader::RECORD_ALLOCATED
+        state(&reader, id) != CounterState::Allocated
     });
 }
 
@@ -167,7 +167,7 @@ fn static_counters_are_shared_and_never_freed() {
     drop(other);
     let reader = driver.client().counters_reader();
     std::thread::sleep(std::time::Duration::from_millis(100));
-    assert_eq!(state(&reader, id), CountersReader::RECORD_ALLOCATED);
+    assert_eq!(state(&reader, id), CounterState::Allocated);
     assert_eq!(reader.get_counter_value(id).unwrap(), 5);
 }
 
@@ -191,10 +191,7 @@ fn counter_handles_from_a_reader() {
     // A handle does not own the counter.
     drop(handle);
     std::thread::sleep(std::time::Duration::from_millis(50));
-    assert_eq!(
-        state(&reader, counter.id()),
-        CountersReader::RECORD_ALLOCATED
-    );
+    assert_eq!(state(&reader, counter.id()), CounterState::Allocated);
 
     // Refused: out of range, wrong registration ID, Aeron's own counters, free records.
     for id in [-1, reader.max_counter_id() + 1, i32::MAX] {
@@ -269,7 +266,7 @@ fn counter_views_read_any_counter() {
     let reader = client.counters_reader();
     let view = reader.counter_view(0).unwrap();
     assert_eq!(view.label(), "Bytes sent");
-    assert_eq!(view.state(), CountersReader::RECORD_ALLOCATED);
+    assert_eq!(view.state(), CounterState::Allocated);
     assert!(view.is_valid());
     let cnc = aeron_glide::CncFile::map_existing(&driver.dir).unwrap();
     let from_file = cnc.counters_reader().counter_view(0).unwrap();
@@ -317,7 +314,7 @@ fn abandoned_counter_adds_are_freed() {
         let mut found = None;
         reader
             .for_each(|id, _, _, label| {
-                if label == "abandoned" && state(&reader, id) == CountersReader::RECORD_ALLOCATED {
+                if label == "abandoned" && state(&reader, id) == CounterState::Allocated {
                     found = Some(id);
                 }
             })
@@ -426,7 +423,7 @@ fn counters_in_invoker_mode() {
     drop(counter);
     wait_until("the counter to be freed", || {
         client.invoke().unwrap();
-        state(&reader, id) != CountersReader::RECORD_ALLOCATED
+        state(&reader, id) != CounterState::Allocated
     });
 }
 
@@ -542,7 +539,7 @@ fn owners_states_and_static_conflicts() {
     );
     assert_eq!(
         reader.get_counter_state(reader.max_counter_id()).unwrap(),
-        CountersReader::RECORD_UNUSED
+        CounterState::Unused
     );
 
     // A static counter cannot take the (type, registration ID) of a normal one.
@@ -557,7 +554,7 @@ fn owners_states_and_static_conflicts() {
     let id = counter.id();
     drop(counter);
     wait_until("the counter to be freed", || {
-        state(&reader, id) == CountersReader::RECORD_RECLAIMED
+        state(&reader, id) == CounterState::Reclaimed
     });
     assert_eq!(
         reader.get_counter_key(id).unwrap(),

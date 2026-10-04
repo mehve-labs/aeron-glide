@@ -1,7 +1,7 @@
 #![cfg(feature = "driver")]
 mod common;
 
-use aeron_glide::ChannelStatus;
+use aeron_glide::{ChannelStatus, frame};
 use common::{TestDriver, free_udp_port, offer, wait_connected, wait_until};
 
 #[test]
@@ -294,8 +294,8 @@ fn data_frame(
 ) -> Vec<u8> {
     let mut frame = Vec::new();
     frame.extend_from_slice(&(32 + payload.len() as i32).to_le_bytes()); // frame length
-    frame.extend_from_slice(&[0, 0xC0]); // version, flags: begin and end
-    frame.extend_from_slice(&1i16.to_le_bytes()); // type: data
+    frame.extend_from_slice(&[0, frame::UNFRAGMENTED]); // version, flags
+    frame.extend_from_slice(&frame::HDR_TYPE_DATA.to_le_bytes());
     for value in [term_offset, session_id, stream_id, term_id] {
         frame.extend_from_slice(&value.to_le_bytes());
     }
@@ -310,10 +310,8 @@ fn block_at_position(
     publication: &aeron_glide::ExclusivePublication,
     messages: &[&[u8]],
 ) -> Vec<u8> {
-    let position = publication.position().unwrap();
-    let term_length = publication.term_buffer_length() as i64;
-    let term_id = publication.initial_term_id() + (position >> term_length.trailing_zeros()) as i32;
-    let mut term_offset = (position & (term_length - 1)) as i32;
+    let term_id = publication.term_id().unwrap();
+    let mut term_offset = publication.term_offset().unwrap() as i32;
     let mut block = Vec::new();
     for message in messages {
         let frame = data_frame(
