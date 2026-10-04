@@ -33,6 +33,10 @@ Signed-off-by: Your Name <your.email@example.com>
 
 See [README.md](README.md) for build and test instructions.
 
+The Rust snippets in README.md are compiled by `tests/readme.rs`, which also
+checks the README still shows the same code: when you change one, change the
+other.
+
 Integration tests live in `tests/`. Each test starts its own media driver in a
 unique directory through `tests/common::TestDriver`, so tests run in parallel;
 wait with `common::wait_until` (it has a deadline) rather than open-ended loops.
