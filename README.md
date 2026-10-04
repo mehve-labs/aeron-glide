@@ -193,7 +193,7 @@ media driver; start one in its own terminal:
 
 ```bash
 cargo run --features bin --bin mediadriver                              # defaults
-cargo run --features bin --bin mediadriver -- examples/mediadriver.yaml # tuned
+cargo run --features bin --bin mediadriver -- examples/mediadriver.yaml # from a config
 ```
 
 | Example | Shows |
@@ -220,6 +220,9 @@ cargo run --features bin --bin mediadriver -- examples/mediadriver.yaml # tuned
 cargo run --example pong              # terminal 2
 cargo run --example ping              # terminal 3
 cargo run --example ping -- --exclusive --zero-copy
+
+# Over UDP: both sides on the same channel
+cargo run --example pong -- --channel "aeron:udp?endpoint=localhost:20121"
 cargo run --example ping -- --channel "aeron:udp?endpoint=localhost:20121"
 ```
 
