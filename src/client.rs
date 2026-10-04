@@ -292,7 +292,7 @@ impl AeronClient {
     /// returned [`Counter`], so another client can find it again. Its owner ID is
     /// -1 and its registration ID is `registration_id`.
     ///
-    /// Fails with the driver's error ([`ErrorKind::Aeron`]) if a non-static
+    /// Fails with the driver's error ([`ErrorKind::Registration`]) if a non-static
     /// counter with the same type ID and registration ID exists.
     pub fn add_static_counter(
         &self,
@@ -470,7 +470,7 @@ fn check_counter_metadata(key: &[u8], label: &str) -> Result<()> {
 /// client closes it on a later add, poll or `invoke`.
 ///
 /// A rejected add (e.g. an invalid channel) fails with the driver's error,
-/// [`ErrorKind::Aeron`] with a negative [`Error::code`].
+/// [`ErrorKind::Registration`] with a negative [`Error::code`].
 #[must_use = "poll the pending add to get the resource"]
 pub struct PendingAdd<'a, T> {
     client: &'a AeronClient,
@@ -550,7 +550,7 @@ macro_rules! pending_add {
                 let found = self.client.inner.$find(self.registration_id);
                 self.client.reap();
                 // Failures here are the driver rejecting the registration.
-                let inner = match found.map_err(|e| Error::from(e).as_registration()) {
+                let inner = match found.map_err(|e| Error::from(e).into_registration()) {
                     Ok(inner) => inner,
                     // The conductor is running on this thread (inside a handler):
                     // nothing happened, so the add is still pending.

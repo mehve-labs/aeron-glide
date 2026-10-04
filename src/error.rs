@@ -168,7 +168,7 @@ impl Error {
 
     /// The same error, classified as a registration the media driver rejected
     /// (from a generic Aeron error).
-    pub(crate) fn as_registration(mut self) -> Self {
+    pub(crate) fn into_registration(mut self) -> Self {
         if self.kind == ErrorKind::Aeron {
             self.kind = ErrorKind::Registration;
         }

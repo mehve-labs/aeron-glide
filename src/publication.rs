@@ -157,7 +157,7 @@ macro_rules! publication_accessors {
         pub fn find_destination_response(&self, correlation_id: i64) -> Result<bool> {
             self.inner
                 .findDestinationResponse(correlation_id)
-                .map_err(|e| Error::from(e).as_registration())
+                .map_err(|e| Error::from(e).into_registration())
         }
 
         /// The local socket address the channel is bound to, e.g. to find a port

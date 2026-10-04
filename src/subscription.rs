@@ -280,7 +280,7 @@ impl Subscription {
     pub fn find_destination_response(&self, correlation_id: i64) -> Result<bool> {
         self.inner
             .findDestinationResponse(correlation_id)
-            .map_err(|e| Error::from(e).as_registration())
+            .map_err(|e| Error::from(e).into_registration())
     }
 
     #[cfg(feature = "archive")]
