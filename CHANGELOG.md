@@ -317,6 +317,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `MIGRATION.md`: upgrading from 0.3, and moving from rusteron.
+- `mediadriver` binary: `--help`, errors printed as messages (exit code 1),
+  and `shared_idle_strategy` / `sharednetwork_idle_strategy` keys for the
+  shared threading modes, whose idle strategy the other keys don't set.
 - `MediaDriver::close() -> Result`, reporting a failure dropping it would
   ignore; `MediaDriverBuilder::termination_hook` takes an `FnMut`.
 - `FromStr` for `ThreadingMode` and `DriverIdleStrategy` (Aeron's names, any

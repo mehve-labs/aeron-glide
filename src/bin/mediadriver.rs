@@ -15,6 +15,10 @@ struct Config {
     conductor_idle_strategy: Option<String>,
     sender_idle_strategy: Option<String>,
     receiver_idle_strategy: Option<String>,
+    /// The idle strategy of the single thread in `shared` and `invoker` modes.
+    shared_idle_strategy: Option<String>,
+    /// The idle strategy of the sender and receiver thread in `shared_network` mode.
+    sharednetwork_idle_strategy: Option<String>,
     term_buffer_length: Option<usize>,
     ipc_term_buffer_length: Option<usize>,
     mtu_length: Option<usize>,
@@ -30,8 +34,30 @@ struct Config {
     termination_token: Option<String>,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+const USAGE: &str = "\
+Usage: mediadriver [CONFIG.yaml]
+
+Runs an Aeron media driver until Ctrl-C, SIGTERM or an accepted termination
+request. Settings come from the optional YAML file (see
+examples/mediadriver.yaml for every key), then from Aeron's AERON_*
+environment variables for anything the file leaves out.";
+
+fn main() -> std::process::ExitCode {
+    match run() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("mediadriver: {e}");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config_path = std::env::args().nth(1);
+    if matches!(config_path.as_deref(), Some("-h" | "--help")) {
+        println!("{USAGE}");
+        return Ok(());
+    }
 
     let config = if let Some(ref path) = config_path {
         let contents = std::fs::read_to_string(path)
@@ -70,6 +96,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(ref s) = config.receiver_idle_strategy {
         builder = builder.receiver_idle_strategy(s.parse::<DriverIdleStrategy>()?);
+    }
+    if let Some(ref s) = config.shared_idle_strategy {
+        builder = builder.shared_idle_strategy(s.parse::<DriverIdleStrategy>()?);
+    }
+    if let Some(ref s) = config.sharednetwork_idle_strategy {
+        builder = builder.sharednetwork_idle_strategy(s.parse::<DriverIdleStrategy>()?);
     }
     if let Some(v) = config.term_buffer_length {
         builder = builder.term_buffer_length(v);
