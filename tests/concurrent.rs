@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 #[test]
 fn idle_strategies() {
-    let time = |strategy: &mut dyn IdleStrategy, work: i32, times: usize| {
+    let time = |strategy: &mut dyn IdleStrategy, work: usize, times: usize| {
         let start = Instant::now();
         for _ in 0..times {
             strategy.idle(work);
@@ -77,7 +77,7 @@ impl Agent for Counting {
         Ok(())
     }
 
-    fn do_work(&mut self) -> Result<i32> {
+    fn do_work(&mut self) -> Result<usize> {
         self.cycles += 1;
         if self.panic_after == Some(self.cycles) {
             panic!("agent panic");
@@ -124,7 +124,7 @@ fn agent_invoker_lifecycle() {
     invoker.start();
     assert!(invoker.is_started() && invoker.is_running());
     assert_eq!(invoker.agent().started, 1);
-    let work: i32 = (0..10).map(|_| invoker.invoke()).sum();
+    let work: usize = (0..10).map(|_| invoker.invoke()).sum();
     assert_eq!(work, 3, "cycles 1, 2 and 4 worked; 3 failed; 5 terminated");
     assert!(invoker.is_closed() && !invoker.is_running());
     assert_eq!(invoker.agent().cycles, 5);
@@ -205,7 +205,7 @@ fn agent_runner_lifecycle() {
     let closed = Arc::new(AtomicUsize::new(0));
     struct Flag(Arc<AtomicUsize>);
     impl Agent for Flag {
-        fn do_work(&mut self) -> Result<i32> {
+        fn do_work(&mut self) -> Result<usize> {
             Ok(0)
         }
         fn on_close(&mut self) -> Result<()> {

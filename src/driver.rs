@@ -162,17 +162,17 @@ impl MediaDriver {
     ///
     /// Clients can connect while nobody runs the driver, but their requests
     /// time out, and after the driver timeout they no longer connect.
-    pub fn do_work(&self) -> Result<i32> {
+    pub fn do_work(&self) -> Result<usize> {
         let _cycle = self.cycle()?;
-        Ok(self.inner.doWork()?)
+        Ok(crate::error::count(self.inner.doWork()?))
     }
 
     /// Idle after a duty cycle with the driver's shared idle strategy (C
     /// `aeron_driver_main_idle_strategy`): returns at once if `work_count` is
     /// positive, otherwise backs off. Same failures as [`do_work`](Self::do_work).
-    pub fn idle(&self, work_count: i32) -> Result<()> {
+    pub fn idle(&self, work_count: usize) -> Result<()> {
         let _cycle = self.cycle()?;
-        Ok(self.inner.idle(work_count)?)
+        Ok(self.inner.idle(crate::error::ffi_limit(work_count))?)
     }
 
     fn cycle(&self) -> Result<std::sync::MutexGuard<'_, ()>> {

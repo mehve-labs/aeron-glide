@@ -112,7 +112,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut next_check = BURST_LENGTH;
 
     while running.load(Ordering::Acquire) {
-        subscription.poll(MESSAGE_LENGTH as i32, |_data, _| {
+        subscription.poll(MESSAGE_LENGTH, |_data, _| {
             message_count += 1;
         })?;
 

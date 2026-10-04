@@ -42,7 +42,7 @@ struct PublisherAgent {
 }
 
 impl Agent for PublisherAgent {
-    fn do_work(&mut self) -> Result<i32> {
+    fn do_work(&mut self) -> Result<usize> {
         if self.next == self.total {
             return Err(Error::agent_termination()); // done: stop the runner
         }

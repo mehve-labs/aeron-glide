@@ -38,7 +38,7 @@ use std::time::Duration;
 /// How a duty cycle waits when it did no work (C++ `IdleStrategy`).
 pub trait IdleStrategy {
     /// Back off if `work_count` is 0 (no work was done); reset otherwise.
-    fn idle(&mut self, work_count: i32) {
+    fn idle(&mut self, work_count: usize) {
         if work_count > 0 {
             self.reset();
         } else {
@@ -95,7 +95,7 @@ impl SleepingIdleStrategy {
 }
 
 impl IdleStrategy for SleepingIdleStrategy {
-    fn idle(&mut self, work_count: i32) {
+    fn idle(&mut self, work_count: usize) {
         if work_count == 0 {
             self.idle_now();
         }
@@ -193,7 +193,7 @@ impl IdleStrategy for BackoffIdleStrategy {
 }
 
 impl<T: IdleStrategy + ?Sized> IdleStrategy for Box<T> {
-    fn idle(&mut self, work_count: i32) {
+    fn idle(&mut self, work_count: usize) {
         (**self).idle(work_count)
     }
 
@@ -218,7 +218,7 @@ pub trait Agent {
     }
 
     /// One duty cycle: returns the amount of work done (0 to idle).
-    fn do_work(&mut self) -> Result<i32>;
+    fn do_work(&mut self) -> Result<usize>;
 
     /// Called once when the agent stops.
     fn on_close(&mut self) -> Result<()> {
@@ -231,7 +231,7 @@ impl<A: Agent + ?Sized> Agent for Box<A> {
         (**self).on_start()
     }
 
-    fn do_work(&mut self) -> Result<i32> {
+    fn do_work(&mut self) -> Result<usize> {
         (**self).do_work()
     }
 
@@ -264,7 +264,7 @@ impl Agent for ClientAgent {
         Ok(())
     }
 
-    fn do_work(&mut self) -> Result<i32> {
+    fn do_work(&mut self) -> Result<usize> {
         self.0.invoke()
     }
 }
@@ -297,7 +297,7 @@ impl Agent for MediaDriverAgent {
         Ok(())
     }
 
-    fn do_work(&mut self) -> Result<i32> {
+    fn do_work(&mut self) -> Result<usize> {
         self.0.do_work()
     }
 }
@@ -353,7 +353,7 @@ impl<A: Agent, H: FnMut(&Error)> AgentInvoker<A, H> {
     /// [`AgentTermination`](ErrorKind::AgentTermination) error closes the invoker
     /// without being reported (C++ `AgentInvoker` has no termination: it reports
     /// and keeps running).
-    pub fn invoke(&mut self) -> i32 {
+    pub fn invoke(&mut self) -> usize {
         if !self.running {
             return 0;
         }

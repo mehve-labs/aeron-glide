@@ -7,15 +7,28 @@ fn endpoint() -> String {
     format!("aeron:udp?endpoint=127.0.0.1:{}", free_udp_port())
 }
 
+/// Run `bind` with a fresh endpoint, again if another test took the probed port
+/// before Aeron bound it.
+fn on_free_endpoint<T>(mut bind: impl FnMut(&str) -> aeron_glide::Result<T>) -> (String, T) {
+    for _ in 0..5 {
+        let destination = endpoint();
+        match bind(&destination) {
+            Ok(value) => return (destination, value),
+            Err(e) if e.message().contains("Address already in use") => continue,
+            Err(e) => panic!("{e}"),
+        }
+    }
+    panic!("no free endpoint after 5 tries")
+}
+
 #[test]
 fn multi_destination_cast() {
     let driver = TestDriver::start();
     let client = driver.client();
-    let destination = endpoint();
     let publication = client
         .add_publication("aeron:udp?control-mode=manual", 1)
         .unwrap();
-    let mut sub = client.add_subscription(&destination, 1).unwrap();
+    let (destination, mut sub) = on_free_endpoint(|e| client.add_subscription(e, 1));
 
     let id = publication.add_destination(&destination).unwrap();
     wait_until("the destination to be added", || {
@@ -55,13 +68,21 @@ fn exclusive_publication_destinations_by_endpoint() {
 fn multi_destination_subscription() {
     let driver = TestDriver::start();
     let client = driver.client();
-    let destination = endpoint();
     let mut sub = client
         .add_subscription("aeron:udp?control-mode=manual", 3)
         .unwrap();
-    let id = sub.add_destination(&destination).unwrap();
-    wait_until("the destination to be added", || {
-        sub.find_destination_response(id).unwrap()
+    // Binding the destination's port fails in the response if it was taken.
+    let (destination, _id) = on_free_endpoint(|e| {
+        let id = sub.add_destination(e)?;
+        let deadline = std::time::Instant::now() + common::TIMEOUT;
+        while !sub.find_destination_response(id)? {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "no destination response"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        Ok(id)
     });
 
     let publication = client.add_publication(&destination, 3).unwrap();

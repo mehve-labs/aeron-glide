@@ -139,19 +139,19 @@ impl Image<'_> {
     ///
     /// If `handler` panics, the panic is resumed once Aeron returns from the poll;
     /// the fragment being handled is aborted and delivered again by the next poll.
-    pub fn controlled_poll<R, F>(&mut self, limit: i32, handler: F) -> Result<i32>
+    pub fn controlled_poll<R, F>(&mut self, limit: usize, handler: F) -> Result<usize>
     where
         R: PollAction,
         F: FnMut(&[u8], &Header) -> R,
     {
-        crate::error::check_limit(limit)?;
+        let limit = crate::error::ffi_limit(limit);
         let mut cb = Callback::new(handler);
         let result = self.inner.pin_mut().controlledPoll(
             limit,
             callback::controlled_fragment::<F, R>,
             cb.ctx(),
         );
-        Ok(cb.finish(result)?)
+        Ok(crate::error::count(cb.finish(result)?))
     }
 
     /// Like [`poll`](Self::poll), but only delivers fragments that start before
@@ -163,13 +163,13 @@ impl Image<'_> {
     pub fn bounded_poll<F>(
         &mut self,
         limit_position: i64,
-        fragment_limit: i32,
+        fragment_limit: usize,
         handler: F,
-    ) -> Result<i32>
+    ) -> Result<usize>
     where
         F: FnMut(&[u8], &Header),
     {
-        crate::error::check_limit(fragment_limit)?;
+        let fragment_limit = crate::error::ffi_limit(fragment_limit);
         let mut cb = Callback::new(handler);
         let result = self.inner.pin_mut().boundedPoll(
             limit_position,
@@ -177,7 +177,7 @@ impl Image<'_> {
             callback::fragment::<F>,
             cb.ctx(),
         );
-        Ok(cb.finish(result)?)
+        Ok(crate::error::count(cb.finish(result)?))
     }
 
     /// Like [`controlled_poll`](Self::controlled_poll), but only delivers fragments
@@ -189,14 +189,14 @@ impl Image<'_> {
     pub fn bounded_controlled_poll<R, F>(
         &mut self,
         limit_position: i64,
-        fragment_limit: i32,
+        fragment_limit: usize,
         handler: F,
-    ) -> Result<i32>
+    ) -> Result<usize>
     where
         R: PollAction,
         F: FnMut(&[u8], &Header) -> R,
     {
-        crate::error::check_limit(fragment_limit)?;
+        let fragment_limit = crate::error::ffi_limit(fragment_limit);
         let mut cb = Callback::new(handler);
         let result = self.inner.pin_mut().boundedControlledPoll(
             limit_position,
@@ -204,7 +204,7 @@ impl Image<'_> {
             callback::controlled_fragment::<F, R>,
             cb.ctx(),
         );
-        Ok(cb.finish(result)?)
+        Ok(crate::error::count(cb.finish(result)?))
     }
 
     /// Like [`poll_assembled`](Self::poll_assembled), but only delivers messages
@@ -216,14 +216,14 @@ impl Image<'_> {
     pub fn bounded_poll_assembled<R, F>(
         &mut self,
         limit_position: i64,
-        fragment_limit: i32,
+        fragment_limit: usize,
         handler: F,
-    ) -> Result<i32>
+    ) -> Result<usize>
     where
         R: PollAction,
         F: FnMut(&[u8], &Header) -> R,
     {
-        crate::error::check_limit(fragment_limit)?;
+        let fragment_limit = crate::error::ffi_limit(fragment_limit);
         let mut cb = Callback::new(handler);
         let result = self.inner.pin_mut().boundedControlledPollAssembled(
             limit_position,
@@ -231,23 +231,23 @@ impl Image<'_> {
             callback::controlled_fragment::<F, R>,
             cb.ctx(),
         );
-        Ok(cb.finish(result)?)
+        Ok(crate::error::count(cb.finish(result)?))
     }
 
     /// Poll a block of whole frames (headers included) of up to
     /// `block_length_limit` bytes, calling `handler(block, session_id, term_id)`.
     /// Returns the number of bytes consumed.
-    pub fn block_poll<F>(&mut self, block_length_limit: i32, handler: F) -> Result<i32>
+    pub fn block_poll<F>(&mut self, block_length_limit: usize, handler: F) -> Result<usize>
     where
         F: FnMut(&[u8], i32, i32),
     {
-        crate::error::check_limit(block_length_limit)?;
+        let block_length_limit = crate::error::ffi_limit(block_length_limit);
         let mut cb = Callback::new(handler);
         let result =
             self.inner
                 .pin_mut()
                 .blockPoll(block_length_limit, callback::block::<F>, cb.ctx());
-        Ok(cb.finish(result)?)
+        Ok(crate::error::count(cb.finish(result)?))
     }
 
     /// Poll this specific image for fragments. Returns the number of fragments dispatched.
@@ -256,17 +256,17 @@ impl Image<'_> {
     ///
     /// If `handler` panics, the panic is resumed once Aeron returns from the poll;
     /// the remaining fragments of this poll are consumed without being delivered.
-    pub fn poll<F>(&mut self, limit: i32, handler: F) -> Result<i32>
+    pub fn poll<F>(&mut self, limit: usize, handler: F) -> Result<usize>
     where
         F: FnMut(&[u8], &Header),
     {
-        crate::error::check_limit(limit)?;
+        let limit = crate::error::ffi_limit(limit);
         let mut cb = Callback::new(handler);
         let result = self
             .inner
             .pin_mut()
             .poll(limit, callback::fragment::<F>, cb.ctx());
-        Ok(cb.finish(result)?)
+        Ok(crate::error::count(cb.finish(result)?))
     }
 
     /// Poll this image with automatic fragment reassembly, like
@@ -283,18 +283,18 @@ impl Image<'_> {
     ///
     /// If `handler` panics, the panic is resumed once Aeron returns from the poll;
     /// the fragment being handled is aborted and delivered again by the next poll.
-    pub fn poll_assembled<R, F>(&mut self, limit: i32, handler: F) -> Result<i32>
+    pub fn poll_assembled<R, F>(&mut self, limit: usize, handler: F) -> Result<usize>
     where
         R: PollAction,
         F: FnMut(&[u8], &Header) -> R,
     {
-        crate::error::check_limit(limit)?;
+        let limit = crate::error::ffi_limit(limit);
         let mut cb = Callback::new(handler);
         let result = self.inner.pin_mut().controlledPollAssembled(
             limit,
             callback::controlled_fragment::<F, R>,
             cb.ctx(),
         );
-        Ok(cb.finish(result)?)
+        Ok(crate::error::count(cb.finish(result)?))
     }
 }

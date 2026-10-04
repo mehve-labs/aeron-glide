@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 
 const CHANNEL: &str = "aeron:ipc";
 const STREAM_ID: i32 = 1001;
-const FRAGMENT_COUNT_LIMIT: i32 = 256;
+const FRAGMENT_COUNT_LIMIT: usize = 256;
 
 #[derive(Parser)]
 #[command(about = "Exclusive publication IPC throughput (EmbeddedExclusiveIpcThroughput)")]

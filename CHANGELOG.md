@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** counts and limits are `usize`: poll fragment limits and block
+  lengths, the fragments or bytes a poll returns, `Subscription::image_count`,
+  and work counts (`AeronClient::invoke`, `MediaDriver::do_work` / `idle`,
+  `Agent::do_work`, `IdleStrategy::idle`, `AgentInvoker::invoke`, the archive
+  context's `idle_strategy`). Limits above `i32::MAX` are capped.
+- **Breaking:** `impl Default for AeronClient` is removed: it connected to a
+  driver and panicked without one. Use `AeronClient::new()`.
 - **Breaking:** the media driver's idle strategy enum is `DriverIdleStrategy`
   (was `IdleStrategy`, now the name of the `concurrent::IdleStrategy` trait),
   `#[non_exhaustive]`. `ThreadingMode` is `#[non_exhaustive]` too.

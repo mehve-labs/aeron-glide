@@ -168,17 +168,14 @@ fn short_idle_sleeps_round_up_to_a_millisecond() {
 }
 
 #[test]
-fn negative_poll_limits_are_rejected() {
-    // Aeron casts the limit to size_t: -1 used to mean "no limit".
+fn poll_limits_beyond_i32_are_capped() {
+    // Limits are `usize` (negative ones, which Aeron took as "no limit",
+    // can't be written); Aeron takes an i32, so larger ones are capped.
     let driver = TestDriver::start();
     let client = driver.client();
     let mut sub = client.add_subscription("aeron:ipc", 41).unwrap();
-    let err = sub.poll(-1, |_, _| {}).unwrap_err();
-    assert_eq!(err.kind(), ErrorKind::IllegalArgument);
-    assert_eq!(
-        sub.block_poll(-1, |_, _, _| {}).unwrap_err().kind(),
-        ErrorKind::IllegalArgument
-    );
+    assert_eq!(sub.poll(usize::MAX, |_, _| {}).unwrap(), 0);
+    assert_eq!(sub.block_poll(usize::MAX, |_, _, _| {}).unwrap(), 0);
     assert_eq!(sub.poll(0, |_, _| {}).unwrap(), 0);
 }
 

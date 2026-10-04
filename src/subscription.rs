@@ -85,17 +85,17 @@ impl Subscription {
     ///
     /// If `handler` panics, the panic is resumed once Aeron returns from the poll;
     /// the remaining fragments of this poll are consumed without being delivered.
-    pub fn poll<F>(&mut self, limit: i32, handler: F) -> Result<i32>
+    pub fn poll<F>(&mut self, limit: usize, handler: F) -> Result<usize>
     where
         F: FnMut(&[u8], &Header),
     {
-        crate::error::check_limit(limit)?;
+        let limit = crate::error::ffi_limit(limit);
         let mut cb = Callback::new(handler);
         let result = self
             .inner
             .pin_mut()
             .poll(limit, callback::fragment::<F>, cb.ctx());
-        Ok(cb.finish(result)?)
+        Ok(crate::error::count(cb.finish(result)?))
     }
 
     /// Poll with automatic fragment reassembly. Messages that span multiple fragments
@@ -113,19 +113,19 @@ impl Subscription {
     ///
     /// If `handler` panics, the panic is resumed once Aeron returns from the poll;
     /// the fragment being handled is aborted and delivered again by the next poll.
-    pub fn poll_assembled<R, F>(&mut self, limit: i32, handler: F) -> Result<i32>
+    pub fn poll_assembled<R, F>(&mut self, limit: usize, handler: F) -> Result<usize>
     where
         R: PollAction,
         F: FnMut(&[u8], &Header) -> R,
     {
-        crate::error::check_limit(limit)?;
+        let limit = crate::error::ffi_limit(limit);
         let mut cb = Callback::new(handler);
         let result = self.inner.pin_mut().controlledPollAssembled(
             limit,
             callback::controlled_fragment::<F, R>,
             cb.ctx(),
         );
-        Ok(cb.finish(result)?)
+        Ok(crate::error::count(cb.finish(result)?))
     }
 
     /// Poll for fragments without reassembly, with flow control: the handler returns
@@ -135,19 +135,19 @@ impl Subscription {
     ///
     /// If `handler` panics, the panic is resumed once Aeron returns from the poll;
     /// the fragment being handled is aborted and delivered again by the next poll.
-    pub fn controlled_poll<R, F>(&mut self, limit: i32, handler: F) -> Result<i32>
+    pub fn controlled_poll<R, F>(&mut self, limit: usize, handler: F) -> Result<usize>
     where
         R: PollAction,
         F: FnMut(&[u8], &Header) -> R,
     {
-        crate::error::check_limit(limit)?;
+        let limit = crate::error::ffi_limit(limit);
         let mut cb = Callback::new(handler);
         let result = self.inner.pin_mut().controlledPoll(
             limit,
             callback::controlled_fragment::<F, R>,
             cb.ctx(),
         );
-        Ok(cb.finish(result)?)
+        Ok(crate::error::count(cb.finish(result)?))
     }
 
     /// Poll each image for a block of whole frames (headers included) of up to
@@ -155,17 +155,17 @@ impl Subscription {
     /// Returns the number of bytes consumed.
     ///
     /// For relaying or recording streams without parsing individual fragments.
-    pub fn block_poll<F>(&mut self, block_length_limit: i32, handler: F) -> Result<i64>
+    pub fn block_poll<F>(&mut self, block_length_limit: usize, handler: F) -> Result<usize>
     where
         F: FnMut(&[u8], i32, i32),
     {
-        crate::error::check_limit(block_length_limit)?;
+        let block_length_limit = crate::error::ffi_limit(block_length_limit);
         let mut cb = Callback::new(handler);
         let result =
             self.inner
                 .pin_mut()
                 .blockPoll(block_length_limit, callback::block::<F>, cb.ctx());
-        Ok(cb.finish(result)?)
+        Ok(crate::error::count(cb.finish(result)?))
     }
 
     /// The channel URI this subscription was added with.
@@ -287,8 +287,8 @@ impl Subscription {
     }
 
     /// The number of active images (one per publisher session) on this subscription.
-    pub fn image_count(&self) -> i32 {
-        self.inner.imageCount()
+    pub fn image_count(&self) -> usize {
+        crate::error::count(self.inner.imageCount())
     }
 
     /// Get an image by its index (0-based), or `None` if there is no image at that index.

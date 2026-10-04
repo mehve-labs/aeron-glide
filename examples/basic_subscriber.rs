@@ -34,7 +34,7 @@ struct Args {
     dir: Option<String>,
 }
 
-const FRAGMENT_COUNT_LIMIT: i32 = 10;
+const FRAGMENT_COUNT_LIMIT: usize = 10;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();

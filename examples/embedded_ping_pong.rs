@@ -25,7 +25,7 @@ const PING_CHANNEL: &str = "aeron:udp?endpoint=localhost:20125";
 const PONG_CHANNEL: &str = "aeron:udp?endpoint=localhost:20126";
 const PING_STREAM_ID: i32 = 1002;
 const PONG_STREAM_ID: i32 = 1003;
-const FRAGMENT_COUNT_LIMIT: i32 = 10;
+const FRAGMENT_COUNT_LIMIT: usize = 10;
 
 #[derive(Parser)]
 #[command(about = "Ping-pong latency with an embedded media driver (EmbeddedPingPong)")]

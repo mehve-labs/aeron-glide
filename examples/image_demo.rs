@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let count = sub.image_count();
     println!("=== {} Active Images (one per publisher) ===\n", count);
 
-    for i in 0..count as usize {
+    for i in 0..count {
         let image = sub.image_by_index(i).ok_or("no image")?;
         println!(
             "  Image[{}]: session_id={:<10} correlation_id={} join_position={} source=\"{}\"",
@@ -81,7 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Poll messages per-image using raw poll — each image only sees its own publisher
     println!("\n=== Per-Image Raw Poll ===");
     println!("  (Each image only contains messages from its publisher)\n");
-    for i in 0..count as usize {
+    for i in 0..count {
         let mut image = sub.image_by_index(i).ok_or("no image")?;
         let sid = image.session_id();
         let fragments = image.poll(10, |data, _| {
@@ -110,7 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Assembled poll with auto-Continue
     println!("=== Per-Image Assembled Poll ===\n");
-    for i in 0..count as usize {
+    for i in 0..count {
         let mut image = sub.image_by_index(i).ok_or("no image")?;
         let sid = image.session_id();
         let fragments = image.poll_assembled(10, |data, _| {
@@ -134,7 +134,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     thread::sleep(Duration::from_millis(100));
 
-    for i in 0..count as usize {
+    for i in 0..count {
         let mut image = sub.image_by_index(i).ok_or("no image")?;
         let sid = image.session_id();
         let pos_before = image.position()?;
@@ -171,7 +171,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Final positions
     println!("\n=== Final Position Tracking ===\n");
-    for i in 0..count as usize {
+    for i in 0..count {
         let image = sub.image_by_index(i).ok_or("no image")?;
         println!(
             "  Image[{}] session={}: position={}",

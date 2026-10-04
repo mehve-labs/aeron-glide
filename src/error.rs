@@ -318,16 +318,14 @@ impl std::error::Error for OfferError {
     }
 }
 
-/// Polls take an `i32` limit like Aeron, which casts it to `size_t`: a negative
-/// one would mean "no limit" (or wrap a block length).
-pub(crate) fn check_limit(limit: i32) -> Result<()> {
-    if limit < 0 {
-        return Err(Error::new(
-            ErrorKind::IllegalArgument,
-            format!("poll limit {limit} is negative"),
-        ));
-    }
-    Ok(())
+/// A poll limit for Aeron, which takes an `i32`: larger limits are capped.
+pub(crate) fn ffi_limit(limit: usize) -> i32 {
+    i32::try_from(limit).unwrap_or(i32::MAX)
+}
+
+/// A count Aeron returns (never negative: errors are raised as exceptions).
+pub(crate) fn count<T: TryInto<usize>>(count: T) -> usize {
+    count.try_into().unwrap_or(0)
 }
 
 /// Convert a raw offer / try_claim position into a `Result`.

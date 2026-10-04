@@ -161,28 +161,27 @@ impl<'a> ReplayMerge<'a> {
     ///
     /// If `handler` panics, the panic is resumed once Aeron returns from the poll;
     /// the remaining fragments of this poll are consumed without being delivered.
-    pub fn poll<F>(&mut self, fragment_limit: i32, handler: F) -> Result<i32>
+    pub fn poll<F>(&mut self, fragment_limit: usize, handler: F) -> Result<usize>
     where
         F: FnMut(&[u8], &crate::Header),
     {
-        crate::error::check_limit(fragment_limit)?;
+        let fragment_limit = crate::error::ffi_limit(fragment_limit);
         let mut cb = Callback::new(handler);
         let result = self
             .inner
             .pin_mut()
             .poll(fragment_limit, callback::fragment::<F>, cb.ctx());
-        Ok(cb.finish(result)?)
+        Ok(crate::error::count(cb.finish(result)?))
     }
 
     /// Drive the merge and poll for reassembled messages:
     /// [`do_work`](Self::do_work), then `Image::poll_assembled` on the image
     /// being merged, if there is one yet.
-    pub fn poll_assembled<R, F>(&mut self, fragment_limit: i32, handler: F) -> Result<i32>
+    pub fn poll_assembled<R, F>(&mut self, fragment_limit: usize, handler: F) -> Result<usize>
     where
         R: crate::PollAction,
         F: FnMut(&[u8], &crate::Header) -> R,
     {
-        crate::error::check_limit(fragment_limit)?;
         self.do_work()?;
         match self.image() {
             Some(mut image) => image.poll_assembled(fragment_limit, handler),

@@ -179,7 +179,7 @@ impl Context {
     /// archive (C++ `idleStrategy`; the default yields the thread).
     pub fn idle_strategy<F>(self, idle: F) -> Self
     where
-        F: Fn(i32) + Send + Sync + 'static,
+        F: Fn(usize) + Send + Sync + 'static,
     {
         self.set(move |ctx| {
             Ok(ctx.setIdleStrategy(idle_trampoline::<F>, release::<F>, into_ctx(idle))?)
@@ -280,7 +280,8 @@ fn invoker_trampoline<F: Fn() + Send + Sync + 'static>(ctx: usize) {
     handlers::invoke::<F>(ctx, "archive delegating invoker", |f| f());
 }
 
-fn idle_trampoline<F: Fn(i32) + Send + Sync + 'static>(ctx: usize, work_count: i32) {
+fn idle_trampoline<F: Fn(usize) + Send + Sync + 'static>(ctx: usize, work_count: i32) {
+    let work_count = crate::error::count(work_count);
     handlers::invoke::<F>(ctx, "archive idle strategy", |f| f(work_count));
 }
 

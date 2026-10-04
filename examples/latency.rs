@@ -25,7 +25,7 @@ const PONG_STREAM_ID: i32 = 1003;
 const WARMUP_MESSAGES: usize = 100_000;
 const NUMBER_OF_MESSAGES: usize = 1_000_000;
 const MESSAGE_LENGTH: usize = 32;
-const FRAGMENT_COUNT_LIMIT: i32 = 10;
+const FRAGMENT_COUNT_LIMIT: usize = 10;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let channel = "aeron:udp?endpoint=localhost:20123";

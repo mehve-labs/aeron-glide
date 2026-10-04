@@ -334,10 +334,10 @@ impl AeronClient {
     ///
     /// Calling it from a handler (i.e. inside `invoke`) fails with
     /// [`ErrorKind::Reentrant`].
-    pub fn invoke(&self) -> Result<i32> {
+    pub fn invoke(&self) -> Result<usize> {
         let work = self.inner.invokeConductor()?;
         self.reap();
-        Ok(work)
+        Ok(crate::error::count(work))
     }
 
     /// The client name set with [`Context::client_name`] (empty by default).
@@ -444,12 +444,6 @@ fn check_counter_metadata(key: &[u8], label: &str) -> Result<()> {
         ));
     }
     Ok(())
-}
-
-impl Default for AeronClient {
-    fn default() -> Self {
-        Self::new().expect("Failed to create AeronClient")
-    }
 }
 
 /// A publication, subscription or counter being added by the media driver,

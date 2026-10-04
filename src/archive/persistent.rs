@@ -52,33 +52,33 @@ impl PersistentSubscription {
     ///
     /// If `handler` panics, the panic is resumed once Aeron returns from the poll;
     /// the remaining fragments of this poll are consumed without being delivered.
-    pub fn poll<F>(&mut self, fragment_limit: i32, handler: F) -> Result<i32>
+    pub fn poll<F>(&mut self, fragment_limit: usize, handler: F) -> Result<usize>
     where
         F: FnMut(&[u8], &crate::Header),
     {
-        crate::error::check_limit(fragment_limit)?;
+        let fragment_limit = crate::error::ffi_limit(fragment_limit);
         let mut cb = Callback::new(handler);
         let result = self
             .inner
             .pin_mut()
             .poll(fragment_limit, callback::fragment::<F>, cb.ctx());
-        Ok(cb.finish(result)?)
+        Ok(crate::error::count(cb.finish(result)?))
     }
 
     /// Poll with flow control: `handler` returns a [`ControlledAction`](crate::ControlledAction).
-    pub fn controlled_poll<F, R>(&mut self, fragment_limit: i32, handler: F) -> Result<i32>
+    pub fn controlled_poll<F, R>(&mut self, fragment_limit: usize, handler: F) -> Result<usize>
     where
         F: FnMut(&[u8], &crate::Header) -> R,
         R: crate::PollAction,
     {
-        crate::error::check_limit(fragment_limit)?;
+        let fragment_limit = crate::error::ffi_limit(fragment_limit);
         let mut cb = Callback::new(handler);
         let result = self.inner.pin_mut().controlledPoll(
             fragment_limit,
             callback::controlled_fragment::<F, R>,
             cb.ctx(),
         );
-        Ok(cb.finish(result)?)
+        Ok(crate::error::count(cb.finish(result)?))
     }
 
     /// Returns `true` while it follows the live stream.
