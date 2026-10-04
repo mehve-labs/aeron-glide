@@ -15,16 +15,10 @@ const MAGIC: &str = "aeron-glide";
 /// Result type used throughout the crate.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// The category of an [`Error`], mirroring the Aeron C++ exception hierarchy.
-///
-/// With Aeron 1.53 the C++ wrapper maps C client errors only to
-/// [`IllegalArgument`](Self::IllegalArgument), [`IllegalState`](Self::IllegalState),
-/// [`Io`](Self::Io), the three fatal timeouts, [`Archive`](Self::Archive) and
-/// [`Aeron`](Self::Aeron) (the default); aeron-glide itself reports
-/// [`Timeout`](Self::Timeout), [`Reentrant`](Self::Reentrant) and
-/// [`UnsupportedOperation`](Self::UnsupportedOperation). The remaining kinds
-/// exist in the hierarchy but are not currently produced; match on
-/// [`Error::code`] for finer detail.
+/// The category of an [`Error`], from the Aeron C++ exception hierarchy (kinds
+/// Aeron's C++ wrapper never raises over its C client are left out). Match on
+/// [`Error::code`] for finer detail; [`Error::is_timeout`] covers every kind
+/// of timeout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ErrorKind {
@@ -35,14 +29,10 @@ pub enum ErrorKind {
     IllegalState,
     /// An I/O error, e.g. a missing or unreadable Aeron directory.
     Io,
-    /// Malformed data. Not currently produced.
-    Format,
-    /// A buffer bound was exceeded, e.g. offering a buffer of 2 GiB or more.
+    /// An index was out of range in Aeron's C++ code (`std::out_of_range`).
     OutOfBounds,
     /// Input could not be parsed.
     Parse,
-    /// A requested element does not exist. Not currently produced.
-    ElementNotFound,
     /// The media driver did not respond in time, or shut down. Fatal for the client.
     DriverTimeout,
     /// The client conductor service was not invoked in time. Fatal for the client.
@@ -52,14 +42,10 @@ pub enum ErrorKind {
     /// A generic timeout, e.g. the media driver not responding to a synchronous
     /// add. Archive timeouts are reported as [`Archive`](Self::Archive).
     Timeout,
-    /// A channel endpoint failed. Not currently produced.
-    ChannelEndpoint,
-    /// The media driver rejected a registration. Not currently produced: driver
-    /// rejections (invalid channel, unknown host, bad term length, ...) are
-    /// reported as [`Aeron`](Self::Aeron) with a negative [`Error::code`].
+    /// The media driver rejected an add (publication, subscription, counter or
+    /// destination): an invalid channel, an unknown host, a bad term length,
+    /// ... [`Error::code`] is the driver's (negative) error code.
     Registration,
-    /// A subscription is unknown to the media driver. Not currently produced.
-    UnknownSubscription,
     /// A callback re-entered the client in an unsupported way, e.g. a nested
     /// assembled poll on the same subscription.
     Reentrant,
@@ -71,8 +57,7 @@ pub enum ErrorKind {
     AgentTermination,
     /// An Archive error, including archive connect and request timeouts.
     Archive,
-    /// A general Aeron error without a more specific category, including
-    /// registrations rejected by the media driver.
+    /// A general Aeron error without a more specific category.
     Aeron,
     /// Any other error, e.g. a non-Aeron C++ exception.
     Other,
@@ -84,17 +69,13 @@ impl ErrorKind {
             "illegal_argument" => Self::IllegalArgument,
             "illegal_state" => Self::IllegalState,
             "io" => Self::Io,
-            "format" => Self::Format,
             "out_of_bounds" => Self::OutOfBounds,
             "parse" => Self::Parse,
-            "element_not_found" => Self::ElementNotFound,
             "driver_timeout" => Self::DriverTimeout,
             "conductor_service_timeout" => Self::ConductorServiceTimeout,
             "client_timeout" => Self::ClientTimeout,
             "timeout" => Self::Timeout,
-            "channel_endpoint" => Self::ChannelEndpoint,
             "registration" => Self::Registration,
-            "unknown_subscription" => Self::UnknownSubscription,
             "reentrant" => Self::Reentrant,
             "unsupported_operation" => Self::UnsupportedOperation,
             "archive" => Self::Archive,
@@ -168,6 +149,32 @@ impl Error {
         )
     }
 
+    /// Returns `true` for timeouts of any kind: the media driver, client or
+    /// conductor timeouts, a generic [`Timeout`](ErrorKind::Timeout), and
+    /// archive requests that timed out (reported as
+    /// [`Archive`](ErrorKind::Archive) with the platform's `ETIMEDOUT`).
+    pub fn is_timeout(&self) -> bool {
+        match self.kind {
+            ErrorKind::Timeout
+            | ErrorKind::DriverTimeout
+            | ErrorKind::ClientTimeout
+            | ErrorKind::ConductorServiceTimeout => true,
+            ErrorKind::Archive => {
+                std::io::Error::from_raw_os_error(self.code).kind() == std::io::ErrorKind::TimedOut
+            }
+            _ => false,
+        }
+    }
+
+    /// The same error, classified as a registration the media driver rejected
+    /// (from a generic Aeron error).
+    pub(crate) fn as_registration(mut self) -> Self {
+        if self.kind == ErrorKind::Aeron {
+            self.kind = ErrorKind::Registration;
+        }
+        self
+    }
+
     /// Decode a message encoded by the C++ shim (see `encode_exception` in shim.h).
     pub(crate) fn from_encoded(what: &str) -> Self {
         Self::decode(what)
@@ -206,8 +213,9 @@ impl fmt::Debug for Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}: {}", self.kind, self.message)?;
-        if self.code != 0 {
+        write!(f, "{:?}: {}", self.kind, self.message.trim_end())?;
+        // Aeron's messages usually start with "(<code>) ": don't repeat it.
+        if self.code != 0 && !self.message.starts_with(&format!("({}) ", self.code)) {
             write!(f, " (code {})", self.code)?;
         }
         Ok(())

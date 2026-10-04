@@ -549,7 +549,8 @@ macro_rules! pending_add {
                 self.check_not_done()?;
                 let found = self.client.inner.$find(self.registration_id);
                 self.client.reap();
-                let inner = match found.map_err(Error::from) {
+                // Failures here are the driver rejecting the registration.
+                let inner = match found.map_err(|e| Error::from(e).as_registration()) {
                     Ok(inner) => inner,
                     // The conductor is running on this thread (inside a handler):
                     // nothing happened, so the add is still pending.

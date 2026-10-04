@@ -70,3 +70,24 @@ fn builder_keeps_the_first_setter_error() {
     assert_eq!(err.kind(), ErrorKind::IllegalArgument, "{err}");
     assert!(err.message().contains("sender_idle_strategy"), "{err}");
 }
+
+#[test]
+fn error_display_and_timeouts() {
+    // Aeron's message already carries the code: it isn't repeated.
+    let driver = common::TestDriver::start();
+    let err = driver
+        .client()
+        .add_publication("aeron:udp?endpoint=not-a-host-name.invalid:1", 1)
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Registration);
+    let shown = err.to_string();
+    assert!(
+        shown.starts_with("Registration: (-9) unknown host"),
+        "{shown}"
+    );
+    assert!(!shown.contains("(code -9)"), "{shown}");
+    assert!(!err.is_timeout());
+    // Timeouts of every kind.
+    assert!(aeron_glide::Error::new(ErrorKind::DriverTimeout, "x").is_timeout());
+    assert!(aeron_glide::Error::new(ErrorKind::Timeout, "x").is_timeout());
+}

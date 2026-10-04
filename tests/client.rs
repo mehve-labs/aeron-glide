@@ -54,7 +54,7 @@ fn rejected_async_add_is_an_error() {
         !matches!(result, Ok(None))
     });
     let err = result.expect_err("the driver rejects the channel");
-    assert_eq!(err.kind(), ErrorKind::Aeron, "{err}");
+    assert_eq!(err.kind(), ErrorKind::Registration, "{err}");
     assert!(err.code() < 0, "{err}");
     // The synchronous form reports the same error.
     assert!(
@@ -125,7 +125,7 @@ fn polling_after_a_failure_reports_done() {
         !matches!(result, Ok(None))
     });
     let err = result.err().unwrap();
-    assert_eq!(err.kind(), ErrorKind::Aeron, "{err}");
+    assert_eq!(err.kind(), ErrorKind::Registration, "{err}");
     assert!(err.code() < 0, "{err}");
     assert_eq!(
         pending.poll().err().unwrap().kind(),

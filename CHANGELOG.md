@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** registrations the media driver rejects (adds and
+  destinations: invalid channel, unknown host, ...) are
+  `ErrorKind::Registration` (were `Aeron`). The kinds Aeron's C++ wrapper never
+  raises over its C client (`Format`, `ElementNotFound`, `ChannelEndpoint`,
+  `UnknownSubscription`) are removed. `Error::is_timeout` covers every timeout,
+  including archive requests. `Display` no longer repeats the code when
+  Aeron's message starts with it.
 - **Breaking:** directories are `impl AsRef<Path>`: `Context::aeron_dir`,
   `Context::request_driver_termination`, `CncFile::map_existing*`,
   `MediaDriverBuilder::dir` and the archive contexts' `aeron_directory_name`.

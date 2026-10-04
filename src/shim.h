@@ -32,18 +32,14 @@ inline std::string encode_exception(const std::exception &e) {
         code = s->errorCode();
         if (dynamic_cast<const RegistrationException *>(&e)) kind = "registration";
         else if (dynamic_cast<const TimeoutException *>(&e)) kind = "timeout";
-        else if (dynamic_cast<const ChannelEndpointException *>(&e)) kind = "channel_endpoint";
         else if (dynamic_cast<const IllegalArgumentException *>(&e)) kind = "illegal_argument";
         else if (dynamic_cast<const IllegalStateException *>(&e)) kind = "illegal_state";
         else if (dynamic_cast<const IOException *>(&e)) kind = "io";
-        else if (dynamic_cast<const FormatException *>(&e)) kind = "format";
         else if (dynamic_cast<const OutOfBoundsException *>(&e)) kind = "out_of_bounds";
         else if (dynamic_cast<const ParseException *>(&e)) kind = "parse";
-        else if (dynamic_cast<const ElementNotFound *>(&e)) kind = "element_not_found";
         else if (dynamic_cast<const DriverTimeoutException *>(&e)) kind = "driver_timeout";
         else if (dynamic_cast<const ConductorServiceTimeoutException *>(&e)) kind = "conductor_service_timeout";
         else if (dynamic_cast<const ClientTimeoutException *>(&e)) kind = "client_timeout";
-        else if (dynamic_cast<const UnknownSubscriptionException *>(&e)) kind = "unknown_subscription";
         else if (dynamic_cast<const ReentrantException *>(&e)) kind = "reentrant";
         else if (dynamic_cast<const UnsupportedOperationException *>(&e)) kind = "unsupported_operation";
 #ifdef AERON_ARCHIVE

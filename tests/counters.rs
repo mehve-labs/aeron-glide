@@ -547,7 +547,7 @@ fn owners_states_and_static_conflicts() {
     let err = client
         .add_static_counter(TYPE_ID, &[], "clash", counter.registration_id())
         .expect_err("conflict");
-    assert_eq!(err.kind(), ErrorKind::Aeron, "{err}");
+    assert_eq!(err.kind(), ErrorKind::Registration, "{err}");
     assert!(err.code() < 0, "{err}");
 
     // A freed counter is reclaimed and its key cleared.
