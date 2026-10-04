@@ -56,6 +56,7 @@ impl PersistentSubscription {
     where
         F: FnMut(&[u8], &crate::Header),
     {
+        crate::error::check_limit(fragment_limit)?;
         let mut cb = Callback::new(handler);
         let result = self
             .inner
@@ -70,6 +71,7 @@ impl PersistentSubscription {
         F: FnMut(&[u8], &crate::Header) -> R,
         R: crate::PollAction,
     {
+        crate::error::check_limit(fragment_limit)?;
         let mut cb = Callback::new(handler);
         let result = self.inner.pin_mut().controlledPoll(
             fragment_limit,

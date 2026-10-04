@@ -158,3 +158,52 @@ fn huge_client_timeouts_are_clamped() {
     offer(&publication, b"timeouts");
     common::poll_n(&mut sub, 1, |_| {});
 }
+
+#[test]
+fn short_idle_sleeps_round_up_to_a_millisecond() {
+    // A sub-millisecond sleep used to truncate to 0: a busy-spinning conductor.
+    let driver = TestDriver::start();
+    let client = driver.connect(Context::new().idle_sleep_duration(Duration::from_micros(500)));
+    assert_eq!(client.idle_sleep_duration(), Duration::from_millis(1));
+}
+
+#[test]
+fn negative_poll_limits_are_rejected() {
+    // Aeron casts the limit to size_t: -1 used to mean "no limit".
+    let driver = TestDriver::start();
+    let client = driver.client();
+    let mut sub = client.add_subscription("aeron:ipc", 41).unwrap();
+    let err = sub.poll(-1, |_, _| {}).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::IllegalArgument);
+    assert_eq!(
+        sub.block_poll(-1, |_, _, _| {}).unwrap_err().kind(),
+        ErrorKind::IllegalArgument
+    );
+    assert_eq!(sub.poll(0, |_, _| {}).unwrap(), 0);
+}
+
+#[test]
+fn closed_publications_report_no_position() {
+    // Aeron returns -4 (closed) in place of the value; it used to come back as Ok(-4).
+    let driver = TestDriver::start();
+    let client = driver.connect(
+        Context::new()
+            .driver_timeout(Duration::from_millis(500))
+            .error_handler(|_| {}),
+    );
+    let publication = client.add_publication("aeron:ipc", 42).unwrap();
+    assert!(publication.position().unwrap() >= 0);
+    drop(driver);
+    wait_until("the publication to close", || publication.is_closed());
+    for err in [
+        publication.position().unwrap_err(),
+        publication.publication_limit().unwrap_err(),
+        publication.available_window().unwrap_err(),
+    ] {
+        assert_eq!(
+            (err.kind(), err.code()),
+            (ErrorKind::IllegalState, -4),
+            "{err}"
+        );
+    }
+}

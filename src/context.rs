@@ -118,7 +118,8 @@ impl Context {
     }
 
     /// How long the client conductor thread sleeps when idle. Aeron's default is 16 ms.
-    /// Rounded down to whole milliseconds.
+    /// Rounded up to whole milliseconds (Aeron takes milliseconds), so a short
+    /// non-zero sleep does not become a busy spin; zero does spin.
     pub fn idle_sleep_duration(mut self, duration: Duration) -> Self {
         self.idle_sleep_duration = Some(duration);
         self
@@ -310,7 +311,13 @@ impl Context {
             ctx.pin_mut().setResourceLingerTimeoutMs(millis(timeout))?;
         }
         if let Some(duration) = self.idle_sleep_duration {
-            ctx.pin_mut().setIdleSleepDurationMs(millis(duration))?;
+            // Round up: a sub-millisecond sleep must not truncate to 0 (a spin).
+            let ms = millis(
+                duration
+                    .checked_add(Duration::from_nanos(999_999))
+                    .unwrap_or(duration),
+            );
+            ctx.pin_mut().setIdleSleepDurationMs(ms)?;
         }
         if let Some(value) = self.pre_touch_mapped_memory {
             ctx.pin_mut().setPreTouchMappedMemory(value)?;

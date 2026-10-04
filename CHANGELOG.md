@@ -117,6 +117,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A `ReplayMerge` dropped inside an archive listing consumer was closed on
+  another thread after its borrows ended, racing with later use of its archive
+  client. It now closes before the drop returns (inside an Aeron handler it is
+  leaked instead). Listing consumers no longer move drops to other threads.
+- Dropping an `archive::Context` or `PersistentSubscriptionBuilder` that held
+  the last reference to its client, inside one of that client's handlers,
+  crashed the process; the client now closes on another thread.
+- `archive::Context::connect_async` from a client handler hung the client's
+  conductor; it fails with `Reentrant`, like `connect`.
+- A crafted CnC file whose counter metadata and value buffers don't match
+  passed validation and crashed `CncFile`; the buffers are checked record for
+  record.
+- `archive::Context::max_error_message_length(u32::MAX)` made
+  `poll_for_error_response` write through a null pointer; the error buffer is
+  capped at 64 KiB.
+- `Context::idle_sleep_duration` below 1 ms truncated to 0, a busy-spinning
+  conductor; it rounds up to whole milliseconds.
+- Negative poll limits meant "no limit" (Aeron casts them to `size_t`); they
+  fail with `IllegalArgument`.
+- `position`, `publication_limit` and `available_window` on a closed
+  publication returned `Ok(-4)`; they fail with `IllegalState` (code -4).
 - An archive connect hung forever when the media driver stopped answering
   during it: Aeron's client stops timing out pending requests once it times out
   the driver, and the archive client waits for one without a deadline. It now

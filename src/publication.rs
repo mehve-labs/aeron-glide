@@ -73,15 +73,18 @@ macro_rules! publication_accessors {
             self.inner.maxPossiblePosition()
         }
 
-        /// The current position the publication has written to.
+        /// The current position the publication has written to. Fails with
+        /// [`ErrorKind::IllegalState`](crate::ErrorKind::IllegalState) once the
+        /// publication is closed.
         pub fn position(&self) -> Result<i64> {
-            Ok(self.inner.position()?)
+            self.open_value(self.inner.position()?)
         }
 
         /// The position this publication can be written up to before back pressure
         /// applies (flow control limit).
+        /// Fails once the publication is closed, like [`position`](Self::position).
         pub fn publication_limit(&self) -> Result<i64> {
-            Ok(self.inner.publicationLimit()?)
+            self.open_value(self.inner.publicationLimit()?)
         }
 
         /// The counter ID of the publication limit, for reading it from a
@@ -90,9 +93,23 @@ macro_rules! publication_accessors {
             self.inner.publicationLimitId()
         }
 
-        /// How many bytes can be written before reaching the publication limit.
+        /// How many bytes can be written before reaching the publication limit
+        /// (negative once an offer has gone past it). Fails once the publication
+        /// is closed, like [`position`](Self::position).
         pub fn available_window(&self) -> Result<i64> {
-            Ok(self.inner.availableWindow()?)
+            self.open_value(self.inner.availableWindow()?)
+        }
+
+        /// Aeron returns `AERON_PUBLICATION_CLOSED` (-4) in place of a value once
+        /// the publication is closed.
+        fn open_value(&self, value: i64) -> Result<i64> {
+            if value == AERON_PUBLICATION_CLOSED && self.inner.isClosed() {
+                return Err(
+                    Error::new(ErrorKind::IllegalState, "the publication is closed")
+                        .with_code(AERON_PUBLICATION_CLOSED as i32),
+                );
+            }
+            Ok(value)
         }
 
         /// The counter ID of the channel status, for reading it from a
@@ -526,6 +543,9 @@ fn validate_block(block: &[u8], session_id: i32, stream_id: i32) -> Result<()> {
     }
     Ok(())
 }
+
+/// C `AERON_PUBLICATION_CLOSED`.
+const AERON_PUBLICATION_CLOSED: i64 = -4;
 
 /// C `AERON_PUBLICATION_ERROR`: the offer failed with an Aeron error (e.g. a
 /// message longer than the maximum message length).

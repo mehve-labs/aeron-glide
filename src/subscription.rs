@@ -89,6 +89,7 @@ impl Subscription {
     where
         F: FnMut(&[u8], &Header),
     {
+        crate::error::check_limit(limit)?;
         let mut cb = Callback::new(handler);
         let result = self
             .inner
@@ -117,6 +118,7 @@ impl Subscription {
         R: PollAction,
         F: FnMut(&[u8], &Header) -> R,
     {
+        crate::error::check_limit(limit)?;
         let mut cb = Callback::new(handler);
         let result = self.inner.pin_mut().controlledPollAssembled(
             limit,
@@ -138,6 +140,7 @@ impl Subscription {
         R: PollAction,
         F: FnMut(&[u8], &Header) -> R,
     {
+        crate::error::check_limit(limit)?;
         let mut cb = Callback::new(handler);
         let result = self.inner.pin_mut().controlledPoll(
             limit,
@@ -156,6 +159,7 @@ impl Subscription {
     where
         F: FnMut(&[u8], i32, i32),
     {
+        crate::error::check_limit(block_length_limit)?;
         let mut cb = Callback::new(handler);
         let result =
             self.inner

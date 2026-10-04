@@ -165,6 +165,7 @@ impl<'a> ReplayMerge<'a> {
     where
         F: FnMut(&[u8], &crate::Header),
     {
+        crate::error::check_limit(fragment_limit)?;
         let mut cb = Callback::new(handler);
         let result = self
             .inner
@@ -181,6 +182,7 @@ impl<'a> ReplayMerge<'a> {
         R: crate::PollAction,
         F: FnMut(&[u8], &crate::Header) -> R,
     {
+        crate::error::check_limit(fragment_limit)?;
         self.do_work()?;
         match self.image() {
             Some(mut image) => image.poll_assembled(fragment_limit, handler),
