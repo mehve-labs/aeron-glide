@@ -56,6 +56,9 @@ public:
 
     void setThreadingMode(int32_t mode);
     void setDir(rust::Str dir);
+    // Close the driver and its context now, reporting a failure (the
+    // destructor, which also closes them, cannot).
+    void closeDriver();
 
     // The idle strategy chosen for `base` (e.g. "sender_idle_strategy") through
     // the builder, to reload it with new init args: Aeron records "backoff" as

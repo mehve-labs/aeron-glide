@@ -317,6 +317,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `MIGRATION.md`: upgrading from 0.3, and moving from rusteron.
+- `MediaDriver::close() -> Result`, reporting a failure dropping it would
+  ignore; `MediaDriverBuilder::termination_hook` takes an `FnMut`.
 - `FromStr` for `ThreadingMode` and `DriverIdleStrategy` (Aeron's names, any
   case).
 - `PublicationErrorFrame` carries the receiver's `error_code` and

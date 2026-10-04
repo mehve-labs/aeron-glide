@@ -484,3 +484,37 @@ fn modes_and_strategies_parse() {
         ErrorKind::IllegalArgument
     );
 }
+
+#[test]
+fn fnmut_termination_hook_and_explicit_close() {
+    let dir = temp_dir("fnmut-hook");
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut requests = 0;
+    let driver = MediaDriver::builder()
+        .dir(&dir)
+        .dir_delete_on_start(true)
+        .dir_delete_on_shutdown(true)
+        .threading_mode(ThreadingMode::Shared)
+        .termination_validator(|_| true)
+        // FnMut: keeps its own count.
+        .termination_hook(move || {
+            requests += 1;
+            tx.send(requests).ok();
+        })
+        .start()
+        .unwrap();
+    let deadline = Instant::now() + common::TIMEOUT;
+    let count = loop {
+        let _ = aeron_glide::Context::request_driver_termination(&dir, b"");
+        if let Ok(count) = rx.recv_timeout(Duration::from_millis(50)) {
+            break count;
+        }
+        assert!(Instant::now() < deadline, "no termination hook call");
+    };
+    assert_eq!(count, 1);
+    driver.close().unwrap();
+    assert!(
+        !std::path::Path::new(&dir).exists(),
+        "closed: the directory is deleted"
+    );
+}

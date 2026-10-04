@@ -36,6 +36,21 @@ MediaDriverWrapper::~MediaDriverWrapper() {
     if (context_) { aeron_driver_context_close(context_); context_ = nullptr; }
 }
 
+void MediaDriverWrapper::closeDriver() {
+    int rc = 0;
+    if (driver_) {
+        rc = aeron_driver_close(driver_);
+        driver_ = nullptr;
+    }
+    if (context_) {
+        aeron_driver_context_close(context_);
+        context_ = nullptr;
+    }
+    if (rc < 0) {
+        throwDriverError("Failed to close the driver");
+    }
+}
+
 // aeron_driver.h, not in the public aeronmd.h.
 extern "C" int aeron_driver_apply_cpuset_affinity(aeron_driver_context_t *context);
 

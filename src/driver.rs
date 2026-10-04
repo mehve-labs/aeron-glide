@@ -28,6 +28,7 @@ pub(crate) mod ffi {
 
         fn setThreadingMode(self: Pin<&mut MediaDriverWrapper>, mode: i32) -> Result<()>;
         fn setDir(self: Pin<&mut MediaDriverWrapper>, dir: &str) -> Result<()>;
+        fn closeDriver(self: Pin<&mut MediaDriverWrapper>) -> Result<()>;
     }
 }
 
@@ -219,6 +220,15 @@ impl MediaDriver {
         Ok(self.inner.idle(crate::error::ffi_limit(work_count))?)
     }
 
+    /// Close the driver now (C `aeron_driver_close`), reporting a failure that
+    /// dropping it would ignore. Fails with
+    /// [`ErrorKind::Reentrant`] from a driver or client handler, where closing
+    /// could wait on the thread running it (dropping it there works).
+    pub fn close(mut self) -> Result<()> {
+        callback::ensure_not_in_conductor_callback("closing a media driver")?;
+        Ok(self.inner.pin_mut().closeDriver()?)
+    }
+
     fn cycle(&self) -> Result<std::sync::MutexGuard<'_, ()>> {
         match self.duty_cycle.try_lock() {
             Ok(guard) => Ok(guard),
@@ -335,13 +345,16 @@ impl MediaDriverBuilder {
     /// (a reference cycle): hold a `Weak` instead.
     pub fn termination_hook<F>(self, hook: F) -> Self
     where
-        F: Fn() + Send + Sync + 'static,
+        F: FnMut() + Send + 'static,
     {
+        // Called once per accepted request, by one conductor thread at a time.
+        let hook = std::sync::Mutex::new(hook);
+        let hook = move || (hook.lock().unwrap_or_else(|e| e.into_inner()))();
         self.apply(move |w| {
             w.setTerminationHook(
-                termination_hook::<F>,
-                crate::handlers::release::<F>,
-                crate::handlers::into_ctx(hook),
+                termination_hook::<SyncHook>,
+                crate::handlers::release::<SyncHook>,
+                crate::handlers::into_ctx(Box::new(hook) as SyncHook),
             )
         })
     }
@@ -378,6 +391,9 @@ fn termination_validator<F: Fn(&[u8]) -> bool + Send + Sync + 'static>(
     crate::handlers::invoke::<F>(ctx, "termination validator", |f| accepted = f(token));
     accepted
 }
+
+/// A termination hook made `Fn + Sync` (see `termination_hook`).
+type SyncHook = Box<dyn Fn() + Send + Sync>;
 
 fn termination_hook<F: Fn() + Send + Sync + 'static>(ctx: usize) {
     crate::handlers::invoke::<F>(ctx, "termination hook", |f| f());
