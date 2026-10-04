@@ -64,6 +64,30 @@ cannot be expressed in safe code. Performance is the same (on the hot path
 both call Aeron's C client functions; see [Benchmarks](#benchmarks)), so the
 difference is in what the API guarantees.
 
+The same publish/subscribe setup with each (rusteron's half adapted from its
+README):
+
+```rust
+// rusteron
+let ctx = AeronContext::new()?;
+ctx.set_dir(&cformat!("{}", dir))?;
+let aeron = Aeron::new(&ctx)?;
+aeron.start()?;
+let publication = aeron
+    .async_add_publication(c"aeron:ipc", 123)?
+    .poll_blocking(Duration::from_secs(5))?;
+let subscription = aeron
+    .async_add_subscription(c"aeron:ipc", 123, Handlers::NONE, Handlers::NONE)?
+    .poll_blocking(Duration::from_secs(5))?;
+subscription.poll_fn(|msg: &[u8], header: AeronHeader| { /* ... */ }, 10)?;
+
+// aeron-glide
+let client = AeronClient::connect(Context::new().aeron_dir(dir))?;
+let publication = client.add_publication("aeron:ipc", 123)?;
+let mut subscription = client.add_subscription("aeron:ipc", 123)?;
+subscription.poll(10, |msg, header| { /* ... */ })?;
+```
+
 **Where aeron-glide is stronger**
 
 - **Safe by construction.** Publications, subscriptions and counters keep
