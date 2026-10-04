@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** `impl From<cxx::Exception> for Error` (and for `OfferError`)
+  is removed, so `cxx`, an implementation detail, is no longer part of the
+  public API. `OfferError` gains `From<Error>`.
 - **Breaking:** `ClientAgent` and `MediaDriverAgent` keep their fields
   private; use `client()` / `driver()`.
 - **Breaking:** the media driver's time settings take and return a

@@ -1,6 +1,7 @@
 //! Publications ([`Publication`], [`ExclusivePublication`]).
 
 use super::*;
+use crate::error::Ffi;
 use std::marker::PhantomData;
 
 /// Accessors shared by [`Publication`] and [`ExclusivePublication`] (C++ `Publication` /
@@ -77,14 +78,14 @@ macro_rules! publication_accessors {
         /// [`ErrorKind::IllegalState`](crate::ErrorKind::IllegalState) once the
         /// publication is closed.
         pub fn position(&self) -> Result<i64> {
-            self.open_value(self.inner.position()?)
+            self.open_value(self.inner.position().ffi()?)
         }
 
         /// The position this publication can be written up to before back pressure
         /// applies (flow control limit).
         /// Fails once the publication is closed, like [`position`](Self::position).
         pub fn publication_limit(&self) -> Result<i64> {
-            self.open_value(self.inner.publicationLimit()?)
+            self.open_value(self.inner.publicationLimit().ffi()?)
         }
 
         /// The counter ID of the publication limit, for reading it from a
@@ -97,7 +98,7 @@ macro_rules! publication_accessors {
         /// (negative once an offer has gone past it). Fails once the publication
         /// is closed, like [`position`](Self::position).
         pub fn available_window(&self) -> Result<i64> {
-            self.open_value(self.inner.availableWindow()?)
+            self.open_value(self.inner.availableWindow().ffi()?)
         }
 
         /// Aeron returns `AERON_PUBLICATION_CLOSED` (-4) in place of a value once
@@ -121,7 +122,7 @@ macro_rules! publication_accessors {
         /// The status of the publication's channel endpoint;
         /// [`ChannelStatus::NoStatus`] for IPC channels and closed publications.
         pub fn channel_status(&self) -> Result<ChannelStatus> {
-            let status = self.inner.channelStatus()?;
+            let status = self.inner.channelStatus().ffi()?;
             let unavailable = self.channel_status_id() < 0 || self.is_closed();
             Ok(ChannelStatus::from_c(status, unavailable))
         }
@@ -134,21 +135,21 @@ macro_rules! publication_accessors {
         /// `true`. The correlation ID is also the destination's registration ID for
         /// [`remove_destination_by_id`](Self::remove_destination_by_id).
         pub fn add_destination(&self, endpoint_channel: &str) -> Result<i64> {
-            Ok(self.inner.addDestination(endpoint_channel)?)
+            self.inner.addDestination(endpoint_channel).ffi()
         }
 
         /// Remove a destination added with [`add_destination`](Self::add_destination).
         /// Returns a correlation ID to pass to
         /// [`find_destination_response`](Self::find_destination_response).
         pub fn remove_destination(&self, endpoint_channel: &str) -> Result<i64> {
-            Ok(self.inner.removeDestination(endpoint_channel)?)
+            self.inner.removeDestination(endpoint_channel).ffi()
         }
 
         /// Remove a destination by the registration ID that
         /// [`add_destination`](Self::add_destination) returned. Returns a correlation
         /// ID to pass to [`find_destination_response`](Self::find_destination_response).
         pub fn remove_destination_by_id(&self, registration_id: i64) -> Result<i64> {
-            Ok(self.inner.removeDestinationById(registration_id)?)
+            self.inner.removeDestinationById(registration_id).ffi()
         }
 
         /// Returns `true` once the media driver has applied the destination change
@@ -157,13 +158,13 @@ macro_rules! publication_accessors {
         pub fn find_destination_response(&self, correlation_id: i64) -> Result<bool> {
             self.inner
                 .findDestinationResponse(correlation_id)
-                .map_err(|e| Error::from(e).into_registration())
+                .map_err(|e| Error::from_cxx(e).into_registration())
         }
 
         /// The local socket address the channel is bound to, e.g. to find a port
         /// the driver chose. Empty for IPC and while the channel is not active.
         pub fn local_socket_addresses(&self) -> Result<Vec<String>> {
-            Ok(self.inner.localSocketAddresses()?)
+            self.inner.localSocketAddresses().ffi()
         }
     };
 }
@@ -243,7 +244,7 @@ impl Publication {
         // SAFETY: `buffer` is a live slice of `buffer.len()` bytes.
         let position = unsafe { self.inner.offerRaw(buffer.as_ptr(), buffer.len()) };
         if position == AERON_PUBLICATION_ERROR {
-            self.inner.raiseOfferError()?;
+            self.inner.raiseOfferError().ffi()?;
         }
         error::offer_result(position)
     }
@@ -296,7 +297,7 @@ impl Publication {
     pub fn try_claim(&self, length: usize) -> std::result::Result<BufferClaim<'_>, OfferError> {
         let length = claim_length(length)?;
         let mut frame = ffi::ClaimFrame { ptr: 0, len: 0 };
-        let position = error::offer_result(self.inner.tryClaim(length, &mut frame)?)?;
+        let position = error::offer_result(self.inner.tryClaim(length, &mut frame).ffi()?)?;
         Ok(BufferClaim::new(frame, position))
     }
 
@@ -348,7 +349,7 @@ impl ExclusivePublication {
         // SAFETY: `buffer` is a live slice of `buffer.len()` bytes.
         let position = unsafe { self.inner.offerRaw(buffer.as_ptr(), buffer.len()) };
         if position == AERON_PUBLICATION_ERROR {
-            self.inner.raiseOfferError()?;
+            self.inner.raiseOfferError().ffi()?;
         }
         error::offer_result(position)
     }
@@ -374,7 +375,7 @@ impl ExclusivePublication {
         // SAFETY: `block` is a live slice of `block.len()` bytes of valid frames.
         let position = unsafe { self.inner.offerBlockRaw(block.as_ptr(), block.len()) };
         if position == AERON_PUBLICATION_ERROR {
-            self.inner.raiseOfferError()?;
+            self.inner.raiseOfferError().ffi()?;
         }
         error::offer_result(position)
     }
@@ -402,7 +403,7 @@ impl ExclusivePublication {
     pub fn append_padding(&mut self, length: usize) -> std::result::Result<i64, OfferError> {
         let position = self.inner.appendPaddingRaw(length);
         if position == AERON_PUBLICATION_ERROR {
-            self.inner.raiseOfferError()?;
+            self.inner.raiseOfferError().ffi()?;
         }
         error::offer_result(position)
     }
@@ -455,7 +456,7 @@ impl ExclusivePublication {
     pub fn try_claim(&mut self, length: usize) -> std::result::Result<BufferClaim<'_>, OfferError> {
         let length = claim_length(length)?;
         let mut frame = ffi::ClaimFrame { ptr: 0, len: 0 };
-        let position = error::offer_result(self.inner.tryClaim(length, &mut frame)?)?;
+        let position = error::offer_result(self.inner.tryClaim(length, &mut frame).ffi()?)?;
         Ok(BufferClaim::new(frame, position))
     }
 
@@ -469,7 +470,7 @@ impl ExclusivePublication {
     /// immediately, without the usual linger, and their images report
     /// `is_publication_revoked`.
     pub fn revoke(self) -> Result<()> {
-        Ok(self.inner.revoke()?)
+        self.inner.revoke().ffi()
     }
 
     /// Revoke the publication when it is closed (dropped) instead of letting it
@@ -745,7 +746,7 @@ where
             cb.finish(result)
         }
     };
-    error::offer_result(result?)
+    error::offer_result(result.ffi()?)
 }
 
 /// Aeron claim lengths are `int32`; reject longer ones instead of truncating them.

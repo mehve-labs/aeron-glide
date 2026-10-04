@@ -1,5 +1,6 @@
 //! Client configuration ([`Context`]).
 
+use crate::error::Ffi;
 use crate::handlers::{self, into_ctx, release};
 use crate::{
     AeronClient, CounterEvent, Error, ImageEvent, NewPublication, NewSubscription,
@@ -72,7 +73,7 @@ impl Context {
     /// on Linux), used when neither [`aeron_dir`](Self::aeron_dir) nor `AERON_DIR`
     /// is set.
     pub fn default_aeron_path() -> Result<String> {
-        Ok(ffi::defaultAeronPath()?)
+        ffi::defaultAeronPath().ffi()
     }
 
     /// Ask the media driver running in `aeron_dir` to terminate, presenting
@@ -87,7 +88,7 @@ impl Context {
         token: &[u8],
     ) -> Result<bool> {
         let aeron_dir = crate::error::path_str(aeron_dir.as_ref())?;
-        Ok(ffi::requestDriverTermination(aeron_dir, token)?)
+        ffi::requestDriverTermination(aeron_dir, token).ffi()
     }
 
     /// The Aeron directory shared with the media driver.
@@ -301,21 +302,25 @@ impl Context {
     }
 
     pub(crate) fn connect(self) -> Result<AeronClient> {
-        let mut ctx = ffi::create_context()?;
+        let mut ctx = ffi::create_context().ffi()?;
         if let Some(dir) = self
             .aeron_dir
             .or_else(|| std::env::var_os("AERON_DIR").map(Into::into))
         {
-            ctx.pin_mut().setAeronDir(crate::error::path_str(&dir)?)?;
+            ctx.pin_mut()
+                .setAeronDir(crate::error::path_str(&dir)?)
+                .ffi()?;
         }
         if let Some(name) = &self.client_name {
-            ctx.pin_mut().setClientName(name)?;
+            ctx.pin_mut().setClientName(name).ffi()?;
         }
         if let Some(timeout) = self.driver_timeout {
-            ctx.pin_mut().setDriverTimeoutMs(millis(timeout))?;
+            ctx.pin_mut().setDriverTimeoutMs(millis(timeout)).ffi()?;
         }
         if let Some(timeout) = self.resource_linger_timeout {
-            ctx.pin_mut().setResourceLingerTimeoutMs(millis(timeout))?;
+            ctx.pin_mut()
+                .setResourceLingerTimeoutMs(millis(timeout))
+                .ffi()?;
         }
         if let Some(duration) = self.idle_sleep_duration {
             // Round up: a sub-millisecond sleep must not truncate to 0 (a spin).
@@ -324,13 +329,13 @@ impl Context {
                     .checked_add(Duration::from_nanos(999_999))
                     .unwrap_or(duration),
             );
-            ctx.pin_mut().setIdleSleepDurationMs(ms)?;
+            ctx.pin_mut().setIdleSleepDurationMs(ms).ffi()?;
         }
         if let Some(value) = self.pre_touch_mapped_memory {
-            ctx.pin_mut().setPreTouchMappedMemory(value)?;
+            ctx.pin_mut().setPreTouchMappedMemory(value).ffi()?;
         }
         if let Some(value) = self.use_conductor_agent_invoker {
-            ctx.pin_mut().setUseConductorAgentInvoker(value)?;
+            ctx.pin_mut().setUseConductorAgentInvoker(value).ffi()?;
         }
         // C++ takes ownership of each handler and releases it when the client is
         // destroyed (or the handler is replaced).
@@ -338,7 +343,7 @@ impl Context {
             install(ctx.pin_mut());
         }
         Ok(AeronClient {
-            inner: ffi::create_aeron(ctx)?,
+            inner: ffi::create_aeron(ctx).ffi()?,
             abandoned: std::sync::Mutex::new(Vec::new()),
         })
     }

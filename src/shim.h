@@ -23,7 +23,7 @@ namespace aeron_rs {
 namespace detail {
 
 // Encodes an exception as "aeron-glide<RS>kind<RS>code<RS>message", decoded by
-// `Error::from(cxx::Exception)` in src/error.rs. Most-derived classes first.
+// `Error::from_cxx` in src/error.rs. Most-derived classes first.
 inline std::string encode_exception(const std::exception &e) {
     using namespace aeron::util;
     const char *kind = "other";

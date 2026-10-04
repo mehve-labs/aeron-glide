@@ -195,9 +195,23 @@ impl Error {
     }
 }
 
-impl From<cxx::Exception> for Error {
-    fn from(e: cxx::Exception) -> Self {
+impl Error {
+    /// An error raised by the C++ shim (encoded by `encode_exception`).
+    pub(crate) fn from_cxx(e: cxx::Exception) -> Self {
         Self::decode(e.what())
+    }
+}
+
+/// Converts the result of a call into C++ to this crate's [`Result`]. Not a
+/// `From` impl: that would make `cxx`, an implementation detail, part of the
+/// public API.
+pub(crate) trait Ffi<T> {
+    fn ffi(self) -> Result<T>;
+}
+
+impl<T> Ffi<T> for std::result::Result<T, cxx::Exception> {
+    fn ffi(self) -> Result<T> {
+        self.map_err(Error::from_cxx)
     }
 }
 
@@ -278,9 +292,9 @@ impl OfferError {
     }
 }
 
-impl From<cxx::Exception> for OfferError {
-    fn from(e: cxx::Exception) -> Self {
-        Self::Error(e.into())
+impl From<Error> for OfferError {
+    fn from(e: Error) -> Self {
+        Self::Error(e)
     }
 }
 

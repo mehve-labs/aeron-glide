@@ -1,6 +1,7 @@
 //! Subscriptions ([`Subscription`]) and controlled polling.
 
 use super::*;
+use crate::error::Ffi;
 
 /// Flow-control actions returned by the handlers of `controlled_poll`,
 /// `poll_assembled` and the bounded controlled polls.
@@ -95,7 +96,7 @@ impl Subscription {
             .inner
             .pin_mut()
             .poll(limit, callback::fragment::<F>, cb.ctx());
-        Ok(crate::error::count(cb.finish(result)?))
+        Ok(crate::error::count(cb.finish(result).ffi()?))
     }
 
     /// Poll with automatic fragment reassembly. Messages that span multiple fragments
@@ -125,7 +126,7 @@ impl Subscription {
             callback::controlled_fragment::<F, R>,
             cb.ctx(),
         );
-        Ok(crate::error::count(cb.finish(result)?))
+        Ok(crate::error::count(cb.finish(result).ffi()?))
     }
 
     /// Poll for fragments without reassembly, with flow control: the handler returns
@@ -147,7 +148,7 @@ impl Subscription {
             callback::controlled_fragment::<F, R>,
             cb.ctx(),
         );
-        Ok(crate::error::count(cb.finish(result)?))
+        Ok(crate::error::count(cb.finish(result).ffi()?))
     }
 
     /// Poll each image for a block of whole frames (headers included) of up to
@@ -165,7 +166,7 @@ impl Subscription {
             self.inner
                 .pin_mut()
                 .blockPoll(block_length_limit, callback::block::<F>, cb.ctx());
-        Ok(crate::error::count(cb.finish(result)?))
+        Ok(crate::error::count(cb.finish(result).ffi()?))
     }
 
     /// The channel URI this subscription was added with.
@@ -186,7 +187,7 @@ impl Subscription {
     /// The status of the subscription's channel endpoint;
     /// [`ChannelStatus::NoStatus`] for IPC channels and closed subscriptions.
     pub fn channel_status(&self) -> Result<ChannelStatus> {
-        let status = self.inner.channelStatus()?;
+        let status = self.inner.channelStatus().ffi()?;
         let unavailable = self.channel_status_id() < 0 || self.is_closed();
         Ok(ChannelStatus::from_c(status, unavailable))
     }
@@ -205,13 +206,13 @@ impl Subscription {
     /// The local socket addresses the channel is bound to (several for a
     /// multi-destination subscription). Empty unless the channel is active.
     pub fn local_socket_addresses(&self) -> Result<Vec<String>> {
-        Ok(self.inner.localSocketAddresses()?)
+        self.inner.localSocketAddresses().ffi()
     }
 
     /// The endpoint the subscription is bound to, with a wildcard port (`:0`)
     /// resolved, or `None` if it is not bound yet.
     pub fn resolved_endpoint(&self) -> Result<Option<String>> {
-        let endpoint = self.inner.resolvedEndpoint()?;
+        let endpoint = self.inner.resolvedEndpoint().ffi()?;
         Ok((!endpoint.is_empty()).then_some(endpoint))
     }
 
@@ -219,7 +220,7 @@ impl Subscription {
     /// port, e.g. to hand to publishers. Returns `None` while the port is not bound
     /// yet; channels without a wildcard port are returned unchanged.
     pub fn try_resolve_channel_endpoint_port(&self) -> Result<Option<String>> {
-        let channel = self.inner.tryResolveChannelEndpointPort()?;
+        let channel = self.inner.tryResolveChannelEndpointPort().ffi()?;
         Ok((!channel.is_empty()).then_some(channel))
     }
 
@@ -264,14 +265,14 @@ impl Subscription {
     /// Returns a correlation ID; the destination is in use once
     /// [`find_destination_response`](Self::find_destination_response) returns `true`.
     pub fn add_destination(&self, endpoint_channel: &str) -> Result<i64> {
-        Ok(self.inner.addDestination(endpoint_channel)?)
+        self.inner.addDestination(endpoint_channel).ffi()
     }
 
     /// Remove a destination added with [`add_destination`](Self::add_destination).
     /// Returns a correlation ID to pass to
     /// [`find_destination_response`](Self::find_destination_response).
     pub fn remove_destination(&self, endpoint_channel: &str) -> Result<i64> {
-        Ok(self.inner.removeDestination(endpoint_channel)?)
+        self.inner.removeDestination(endpoint_channel).ffi()
     }
 
     /// Returns `true` once the media driver has applied the destination change with
@@ -280,7 +281,7 @@ impl Subscription {
     pub fn find_destination_response(&self, correlation_id: i64) -> Result<bool> {
         self.inner
             .findDestinationResponse(correlation_id)
-            .map_err(|e| Error::from(e).into_registration())
+            .map_err(|e| Error::from_cxx(e).into_registration())
     }
 
     #[cfg(feature = "archive")]

@@ -1,6 +1,7 @@
 //! Images ([`Image`]): one publisher session as seen by a subscription.
 
 use super::*;
+use crate::error::Ffi;
 
 /// A single publisher session as seen by a subscriber.
 ///
@@ -68,7 +69,7 @@ impl Image<'_> {
     /// The current consumption position within the stream, or the final position
     /// once the image is closed.
     pub fn position(&self) -> Result<i64> {
-        Ok(self.inner.position()?)
+        self.inner.position().ffi()
     }
 
     /// Returns `true` if the image has been closed (publisher disconnected or timed out).
@@ -123,13 +124,13 @@ impl Image<'_> {
     /// 0 for IPC. The media driver updates it periodically, so it lags new
     /// connections.
     pub fn active_transport_count(&self) -> Result<i32> {
-        Ok(self.inner.activeTransportCount()?)
+        self.inner.activeTransportCount().ffi()
     }
 
     /// Ask the media driver to reject (disconnect) the remote publisher of this
     /// image, with a reason reported to it.
     pub fn reject(&self, reason: &str) -> Result<()> {
-        Ok(self.inner.reject(reason)?)
+        self.inner.reject(reason).ffi()
     }
 
     /// Poll for fragments without reassembly, with flow control: the handler
@@ -151,7 +152,7 @@ impl Image<'_> {
             callback::controlled_fragment::<F, R>,
             cb.ctx(),
         );
-        Ok(crate::error::count(cb.finish(result)?))
+        Ok(crate::error::count(cb.finish(result).ffi()?))
     }
 
     /// Like [`poll`](Self::poll), but only delivers fragments that start before
@@ -177,7 +178,7 @@ impl Image<'_> {
             callback::fragment::<F>,
             cb.ctx(),
         );
-        Ok(crate::error::count(cb.finish(result)?))
+        Ok(crate::error::count(cb.finish(result).ffi()?))
     }
 
     /// Like [`controlled_poll`](Self::controlled_poll), but only delivers fragments
@@ -204,7 +205,7 @@ impl Image<'_> {
             callback::controlled_fragment::<F, R>,
             cb.ctx(),
         );
-        Ok(crate::error::count(cb.finish(result)?))
+        Ok(crate::error::count(cb.finish(result).ffi()?))
     }
 
     /// Like [`poll_assembled`](Self::poll_assembled), but only delivers messages
@@ -231,7 +232,7 @@ impl Image<'_> {
             callback::controlled_fragment::<F, R>,
             cb.ctx(),
         );
-        Ok(crate::error::count(cb.finish(result)?))
+        Ok(crate::error::count(cb.finish(result).ffi()?))
     }
 
     /// Poll a block of whole frames (headers included) of up to
@@ -247,7 +248,7 @@ impl Image<'_> {
             self.inner
                 .pin_mut()
                 .blockPoll(block_length_limit, callback::block::<F>, cb.ctx());
-        Ok(crate::error::count(cb.finish(result)?))
+        Ok(crate::error::count(cb.finish(result).ffi()?))
     }
 
     /// Poll this specific image for fragments. Returns the number of fragments dispatched.
@@ -266,7 +267,7 @@ impl Image<'_> {
             .inner
             .pin_mut()
             .poll(limit, callback::fragment::<F>, cb.ctx());
-        Ok(crate::error::count(cb.finish(result)?))
+        Ok(crate::error::count(cb.finish(result).ffi()?))
     }
 
     /// Poll this image with automatic fragment reassembly, like
@@ -295,6 +296,6 @@ impl Image<'_> {
             callback::controlled_fragment::<F, R>,
             cb.ctx(),
         );
-        Ok(crate::error::count(cb.finish(result)?))
+        Ok(crate::error::count(cb.finish(result).ffi()?))
     }
 }

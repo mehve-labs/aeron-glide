@@ -4,6 +4,7 @@ use super::client::AeronArchive;
 use super::ffi;
 use crate::Result;
 use crate::callback::{self, Callback};
+use crate::error::Ffi;
 use std::marker::PhantomData;
 
 /// Default timeout for replay merge progress (C++
@@ -145,7 +146,8 @@ impl<'a> ReplayMerge<'a> {
             start_position,
             // C++ adds it to the clock: clamp far below overflow.
             crate::timeout_millis(merge_progress_timeout),
-        )?;
+        )
+        .ffi()?;
         Ok(Self {
             inner,
             _borrows: PhantomData,
@@ -155,7 +157,7 @@ impl<'a> ReplayMerge<'a> {
     /// Drive the merge. Call it regularly (or use [`poll`](Self::poll)). Returns
     /// the amount of work done.
     pub fn do_work(&mut self) -> Result<i32> {
-        Ok(self.inner.pin_mut().doWork()?)
+        self.inner.pin_mut().doWork().ffi()
     }
 
     /// Drive the merge and poll the merged stream (C++ `ReplayMerge::poll`).
@@ -174,7 +176,7 @@ impl<'a> ReplayMerge<'a> {
             .inner
             .pin_mut()
             .poll(fragment_limit, callback::fragment::<F>, cb.ctx());
-        Ok(crate::error::count(cb.finish(result)?))
+        Ok(crate::error::count(cb.finish(result).ffi()?))
     }
 
     /// Drive the merge and poll for reassembled messages:

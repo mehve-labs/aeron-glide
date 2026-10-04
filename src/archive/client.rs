@@ -7,6 +7,7 @@ use super::types::{
     SourceLocation,
 };
 use crate::callback::{self, Callback};
+use crate::error::Ffi;
 use crate::{ExclusivePublication, Publication, Result, Subscription};
 
 /// A connection to an Aeron Archive (C++ `aeron::archive::client::AeronArchive`),
@@ -89,7 +90,7 @@ impl AeronArchive {
 
     /// The settings this client connected with.
     pub fn context(&self) -> Result<ContextInfo> {
-        Ok(ContextInfo::from_ffi(self.inner.context()?))
+        Ok(ContextInfo::from_ffi(self.inner.context().ffi()?))
     }
 
     /// The ID of the archive this client is connected to.
@@ -106,19 +107,19 @@ impl AeronArchive {
     /// [`recording_signal_consumer`](super::Context::recording_signal_consumer).
     /// Returns the number of signals.
     pub fn poll_for_recording_signals(&self) -> Result<i32> {
-        Ok(self.request()?.pollForRecordingSignals()?)
+        self.request()?.pollForRecordingSignals().ffi()
     }
 
     /// Poll for an error response from the archive, e.g. for an asynchronous
     /// request: the error message, if there is one.
     pub fn poll_for_error_response(&self) -> Result<Option<String>> {
-        let message = self.request()?.pollForErrorResponse()?;
+        let message = self.request()?.pollForErrorResponse().ffi()?;
         Ok((!message.is_empty()).then_some(message))
     }
 
     /// Fail with the archive's error if an error response is waiting.
     pub fn check_for_error_response(&self) -> Result<()> {
-        Ok(self.request()?.checkForErrorResponse()?)
+        self.request()?.checkForErrorResponse().ffi()
     }
 
     /// Add a concurrent publication and record it (C++ `addRecordedPublication`).
@@ -126,7 +127,10 @@ impl AeronArchive {
     /// client. Stop with [`stop_recording_publication`](Self::stop_recording_publication).
     pub fn add_recorded_publication(&self, channel: &str, stream_id: i32) -> Result<Publication> {
         Ok(Publication {
-            inner: self.request()?.addRecordedPublication(channel, stream_id)?,
+            inner: self
+                .request()?
+                .addRecordedPublication(channel, stream_id)
+                .ffi()?,
         })
     }
 
@@ -139,7 +143,8 @@ impl AeronArchive {
         Ok(ExclusivePublication {
             inner: self
                 .request()?
-                .addRecordedExclusivePublication(channel, stream_id)?,
+                .addRecordedExclusivePublication(channel, stream_id)
+                .ffi()?,
         })
     }
 
@@ -153,9 +158,9 @@ impl AeronArchive {
         source: SourceLocation,
         auto_stop: bool,
     ) -> Result<i64> {
-        Ok(self
-            .request()?
-            .startRecording(channel, stream_id, source as i32, auto_stop)?)
+        self.request()?
+            .startRecording(channel, stream_id, source as i32, auto_stop)
+            .ffi()
     }
 
     /// Extend a stopped recording with a stream that continues it (same
@@ -168,25 +173,21 @@ impl AeronArchive {
         source: SourceLocation,
         auto_stop: bool,
     ) -> Result<i64> {
-        Ok(self.request()?.extendRecording(
-            recording_id,
-            channel,
-            stream_id,
-            source as i32,
-            auto_stop,
-        )?)
+        self.request()?
+            .extendRecording(recording_id, channel, stream_id, source as i32, auto_stop)
+            .ffi()
     }
 
     /// Stop a recording subscription by the ID [`start_recording`](Self::start_recording)
     /// returned. Fails if there is no such subscription.
     pub fn stop_recording(&self, subscription_id: i64) -> Result<()> {
-        Ok(self.request()?.stopRecording(subscription_id)?)
+        self.request()?.stopRecording(subscription_id).ffi()
     }
 
     /// Like [`stop_recording`](Self::stop_recording), but returns `false` instead
     /// of failing if there is no such subscription.
     pub fn try_stop_recording(&self, subscription_id: i64) -> Result<bool> {
-        Ok(self.request()?.tryStopRecording(subscription_id)?)
+        self.request()?.tryStopRecording(subscription_id).ffi()
     }
 
     /// Stop recording a channel and stream.
@@ -195,9 +196,9 @@ impl AeronArchive {
         channel: &str,
         stream_id: i32,
     ) -> Result<()> {
-        Ok(self
-            .request()?
-            .stopRecordingByChannelAndStream(channel, stream_id)?)
+        self.request()?
+            .stopRecordingByChannelAndStream(channel, stream_id)
+            .ffi()
     }
 
     /// Like [`stop_recording_by_channel_and_stream`](Self::stop_recording_by_channel_and_stream),
@@ -207,9 +208,9 @@ impl AeronArchive {
         channel: &str,
         stream_id: i32,
     ) -> Result<bool> {
-        Ok(self
-            .request()?
-            .tryStopRecordingByChannelAndStream(channel, stream_id)?)
+        self.request()?
+            .tryStopRecordingByChannelAndStream(channel, stream_id)
+            .ffi()
     }
 
     /// Stop a recording by its recording ID. Returns `false` if it was not
@@ -217,15 +218,17 @@ impl AeronArchive {
     /// if there is no such recording. Its recording subscription is removed (as
     /// in Java), even if it records other sessions.
     pub fn try_stop_recording_by_identity(&self, recording_id: i64) -> Result<bool> {
-        Ok(self.request()?.tryStopRecordingByIdentity(recording_id)?)
+        self.request()?
+            .tryStopRecordingByIdentity(recording_id)
+            .ffi()
     }
 
     /// Stop recording a publication added with
     /// [`add_recorded_publication`](Self::add_recorded_publication) (its session only).
     pub fn stop_recording_publication(&self, publication: &Publication) -> Result<()> {
-        Ok(self
-            .request()?
-            .stopRecordingPublication(&publication.inner)?)
+        self.request()?
+            .stopRecordingPublication(&publication.inner)
+            .ffi()
     }
 
     /// Stop recording an exclusive publication.
@@ -233,49 +236,51 @@ impl AeronArchive {
         &self,
         publication: &ExclusivePublication,
     ) -> Result<()> {
-        Ok(self
-            .request()?
-            .stopRecordingExclusivePublication(&publication.inner)?)
+        self.request()?
+            .stopRecordingExclusivePublication(&publication.inner)
+            .ffi()
     }
 
     /// Delete a stopped recording and its files. Returns the number of segment
     /// files deleted.
     pub fn purge_recording(&self, recording_id: i64) -> Result<i64> {
-        Ok(self.request()?.purgeRecording(recording_id)?)
+        self.request()?.purgeRecording(recording_id).ffi()
     }
 
     /// Change the original channel of a recording in the catalog.
     pub fn update_channel(&self, recording_id: i64, channel: &str) -> Result<()> {
-        Ok(self.request()?.updateChannel(recording_id, channel)?)
+        self.request()?.updateChannel(recording_id, channel).ffi()
     }
 
     /// Truncate a stopped recording to `position`. Returns the number of segment
     /// files deleted.
     pub fn truncate_recording(&self, recording_id: i64, position: i64) -> Result<i64> {
-        Ok(self.request()?.truncateRecording(recording_id, position)?)
+        self.request()?
+            .truncateRecording(recording_id, position)
+            .ffi()
     }
 
     /// The position an active recording has reached, or
     /// [`NULL_POSITION`](super::NULL_POSITION) if it is not active.
     pub fn get_recording_position(&self, recording_id: i64) -> Result<i64> {
-        Ok(self.request()?.getRecordingPosition(recording_id)?)
+        self.request()?.getRecordingPosition(recording_id).ffi()
     }
 
     /// The position a recording starts at.
     pub fn get_start_position(&self, recording_id: i64) -> Result<i64> {
-        Ok(self.request()?.getStartPosition(recording_id)?)
+        self.request()?.getStartPosition(recording_id).ffi()
     }
 
     /// The position a recording stopped at, or
     /// [`NULL_POSITION`](super::NULL_POSITION) while it is active.
     pub fn get_stop_position(&self, recording_id: i64) -> Result<i64> {
-        Ok(self.request()?.getStopPosition(recording_id)?)
+        self.request()?.getStopPosition(recording_id).ffi()
     }
 
     /// The position recorded so far: the recording position while active,
     /// otherwise the stop position.
     pub fn get_max_recorded_position(&self, recording_id: i64) -> Result<i64> {
-        Ok(self.request()?.getMaxRecordedPosition(recording_id)?)
+        self.request()?.getMaxRecordedPosition(recording_id).ffi()
     }
 
     /// The ID of the last recording at or after `min_recording_id` whose
@@ -288,12 +293,9 @@ impl AeronArchive {
         stream_id: i32,
         session_id: i32,
     ) -> Result<i64> {
-        Ok(self.request()?.findLastMatchingRecording(
-            min_recording_id,
-            channel_fragment,
-            stream_id,
-            session_id,
-        )?)
+        self.request()?
+            .findLastMatchingRecording(min_recording_id, channel_fragment, stream_id, session_id)
+            .ffi()
     }
 
     /// Describe one recording. Returns the number found (0 or 1).
@@ -305,7 +307,7 @@ impl AeronArchive {
         let result =
             self.request()?
                 .listRecording(recording_id, recording_descriptor::<F>, cb.ctx());
-        Ok(cb.finish(result)?)
+        cb.finish(result).ffi()
     }
 
     /// Describe up to `record_count` recordings from `from_recording_id`.
@@ -329,7 +331,7 @@ impl AeronArchive {
             recording_descriptor::<F>,
             cb.ctx(),
         );
-        Ok(cb.finish(result)?)
+        cb.finish(result).ffi()
     }
 
     /// Like [`list_recordings`](Self::list_recordings), only recordings whose
@@ -357,7 +359,7 @@ impl AeronArchive {
             recording_descriptor::<F>,
             cb.ctx(),
         );
-        Ok(cb.finish(result)?)
+        cb.finish(result).ffi()
     }
 
     /// Describe up to `subscription_count` active recording subscriptions from
@@ -388,7 +390,7 @@ impl AeronArchive {
             recording_subscription::<F>,
             cb.ctx(),
         );
-        Ok(cb.finish(result)?)
+        cb.finish(result).ffi()
     }
 
     /// Start replaying a recording to `channel` and `stream_id`, where you
@@ -401,17 +403,19 @@ impl AeronArchive {
         stream_id: i32,
         params: &ReplayParams,
     ) -> Result<i64> {
-        Ok(self.request()?.startReplay(
-            recording_id,
-            channel,
-            stream_id,
-            params.position,
-            params.length,
-            params.bounding_limit_counter_id,
-            params.file_io_max_length,
-            params.replay_token,
-            params.subscription_registration_id,
-        )?)
+        self.request()?
+            .startReplay(
+                recording_id,
+                channel,
+                stream_id,
+                params.position,
+                params.length,
+                params.bounding_limit_counter_id,
+                params.file_io_max_length,
+                params.replay_token,
+                params.subscription_registration_id,
+            )
+            .ffi()
     }
 
     /// Subscribe to a replay of a recording and start it (C++ `replay`).
@@ -428,28 +432,31 @@ impl AeronArchive {
         params: &ReplayParams,
     ) -> Result<Subscription> {
         Ok(Subscription {
-            inner: self.request()?.replay(
-                recording_id,
-                channel,
-                stream_id,
-                params.position,
-                params.length,
-                params.bounding_limit_counter_id,
-                params.file_io_max_length,
-                params.replay_token,
-                params.subscription_registration_id,
-            )?,
+            inner: self
+                .request()?
+                .replay(
+                    recording_id,
+                    channel,
+                    stream_id,
+                    params.position,
+                    params.length,
+                    params.bounding_limit_counter_id,
+                    params.file_io_max_length,
+                    params.replay_token,
+                    params.subscription_registration_id,
+                )
+                .ffi()?,
         })
     }
 
     /// Stop a replay by its replay session ID.
     pub fn stop_replay(&self, replay_session_id: i64) -> Result<()> {
-        Ok(self.request()?.stopReplay(replay_session_id)?)
+        self.request()?.stopReplay(replay_session_id).ffi()
     }
 
     /// Stop all replays of a recording (-1: of every recording).
     pub fn stop_all_replays(&self, recording_id: i64) -> Result<()> {
-        Ok(self.request()?.stopAllReplays(recording_id)?)
+        self.request()?.stopAllReplays(recording_id).ffi()
     }
 
     /// Replicate a recording from another archive (the source, reached at
@@ -462,66 +469,68 @@ impl AeronArchive {
         src_control_channel: &str,
         params: &ReplicationParams,
     ) -> Result<i64> {
-        Ok(self.request()?.replicate(
-            src_recording_id,
-            src_control_stream_id,
-            src_control_channel,
-            params.stop_position,
-            params.dst_recording_id,
-            &params.live_destination,
-            &params.replication_channel,
-            params.channel_tag_id,
-            params.subscription_tag_id,
-            params.file_io_max_length,
-            params.replication_session_id,
-            &params.encoded_credentials,
-        )?)
+        self.request()?
+            .replicate(
+                src_recording_id,
+                src_control_stream_id,
+                src_control_channel,
+                params.stop_position,
+                params.dst_recording_id,
+                &params.live_destination,
+                &params.replication_channel,
+                params.channel_tag_id,
+                params.subscription_tag_id,
+                params.file_io_max_length,
+                params.replication_session_id,
+                &params.encoded_credentials,
+            )
+            .ffi()
     }
 
     /// Stop a replication. Fails if there is no such replication.
     pub fn stop_replication(&self, replication_id: i64) -> Result<()> {
-        Ok(self.request()?.stopReplication(replication_id)?)
+        self.request()?.stopReplication(replication_id).ffi()
     }
 
     /// Like [`stop_replication`](Self::stop_replication), but returns `false`
     /// instead of failing if there is no such replication.
     pub fn try_stop_replication(&self, replication_id: i64) -> Result<bool> {
-        Ok(self.request()?.tryStopReplication(replication_id)?)
+        self.request()?.tryStopReplication(replication_id).ffi()
     }
 
     /// Detach the segments before `new_start_position` from a recording (it then
     /// starts there), keeping the files.
     pub fn detach_segments(&self, recording_id: i64, new_start_position: i64) -> Result<()> {
-        Ok(self
-            .request()?
-            .detachSegments(recording_id, new_start_position)?)
+        self.request()?
+            .detachSegments(recording_id, new_start_position)
+            .ffi()
     }
 
     /// Delete the files of detached segments. Returns the number deleted.
     pub fn delete_detached_segments(&self, recording_id: i64) -> Result<i64> {
-        Ok(self.request()?.deleteDetachedSegments(recording_id)?)
+        self.request()?.deleteDetachedSegments(recording_id).ffi()
     }
 
     /// Detach and delete the segments before `new_start_position`. Returns the
     /// number deleted.
     pub fn purge_segments(&self, recording_id: i64, new_start_position: i64) -> Result<i64> {
-        Ok(self
-            .request()?
-            .purgeSegments(recording_id, new_start_position)?)
+        self.request()?
+            .purgeSegments(recording_id, new_start_position)
+            .ffi()
     }
 
     /// Attach detached segment files back to the start of a recording. Returns
     /// the number attached.
     pub fn attach_segments(&self, recording_id: i64) -> Result<i64> {
-        Ok(self.request()?.attachSegments(recording_id)?)
+        self.request()?.attachSegments(recording_id).ffi()
     }
 
     /// Move the segments of `src_recording_id` to the start of
     /// `dst_recording_id`, which must continue it. Returns the number moved.
     pub fn migrate_segments(&self, src_recording_id: i64, dst_recording_id: i64) -> Result<i64> {
-        Ok(self
-            .request()?
-            .migrateSegments(src_recording_id, dst_recording_id)?)
+        self.request()?
+            .migrateSegments(src_recording_id, dst_recording_id)
+            .ffi()
     }
 
     /// The position of the start of the segment file containing `position`, for
@@ -606,7 +615,8 @@ impl AsyncConnect {
             .pin_mut()
             .poll()
             // A failed poll frees the C connection: never poll it again.
-            .inspect_err(|_| self.done = true)?;
+            .inspect_err(|_| self.done = true)
+            .ffi()?;
         if archive.is_null() {
             return Ok(None);
         }

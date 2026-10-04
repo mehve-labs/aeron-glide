@@ -1,6 +1,7 @@
 //! The embedded media driver ([`MediaDriver`]).
 
 use super::*;
+use crate::error::Ffi;
 
 #[cxx::bridge(namespace = "aeron_rs")]
 pub(crate) mod ffi {
@@ -209,7 +210,7 @@ impl MediaDriver {
     /// time out, and after the driver timeout they no longer connect.
     pub fn do_work(&self) -> Result<usize> {
         let _cycle = self.cycle()?;
-        Ok(crate::error::count(self.inner.doWork()?))
+        Ok(crate::error::count(self.inner.doWork().ffi()?))
     }
 
     /// Idle after a duty cycle with the driver's shared idle strategy (C
@@ -217,7 +218,7 @@ impl MediaDriver {
     /// positive, otherwise backs off. Same failures as [`do_work`](Self::do_work).
     pub fn idle(&self, work_count: usize) -> Result<()> {
         let _cycle = self.cycle()?;
-        Ok(self.inner.idle(crate::error::ffi_limit(work_count))?)
+        self.inner.idle(crate::error::ffi_limit(work_count)).ffi()
     }
 
     /// Close the driver now (C `aeron_driver_close`), reporting a failure that
@@ -226,7 +227,7 @@ impl MediaDriver {
     /// could wait on the thread running it (dropping it there works).
     pub fn close(mut self) -> Result<()> {
         callback::ensure_not_in_conductor_callback("closing a media driver")?;
-        Ok(self.inner.pin_mut().closeDriver()?)
+        self.inner.pin_mut().closeDriver().ffi()
     }
 
     fn cycle(&self) -> Result<std::sync::MutexGuard<'_, ()>> {
@@ -277,7 +278,7 @@ impl MediaDriverBuilder {
     /// A builder with Aeron's defaults (including `AERON_*` environment variables).
     pub fn new() -> Self {
         Self {
-            inner: ffi::create_media_driver().map_err(Error::from),
+            inner: ffi::create_media_driver().map_err(Error::from_cxx),
         }
     }
 
@@ -291,7 +292,7 @@ impl MediaDriverBuilder {
         if let Ok(inner) = &mut self.inner
             && let Err(e) = set(inner.pin_mut())
         {
-            self.inner = Err(e.into());
+            self.inner = Err(Error::from_cxx(e));
         }
         self
     }
@@ -306,7 +307,7 @@ impl MediaDriverBuilder {
         let invoker =
             ThreadingMode::from_c(crate::driver_gen::ffi::driver_get_threading_mode(&inner))
                 == ThreadingMode::Invoker;
-        inner.pin_mut().start(invoker)?;
+        inner.pin_mut().start(invoker).ffi()?;
         Ok(MediaDriver {
             inner,
             duty_cycle: std::sync::Mutex::new(()),

@@ -4,6 +4,7 @@
 use super::context::Context;
 use super::ffi;
 use crate::callback::{self, Callback};
+use crate::error::Ffi;
 use crate::handlers::{self, into_ctx, release};
 use crate::{AeronClient, Counter, Error, ErrorKind, Result};
 use std::pin::Pin;
@@ -64,7 +65,7 @@ impl PersistentSubscription {
             .inner
             .pin_mut()
             .poll(fragment_limit, callback::fragment::<F>, cb.ctx());
-        Ok(crate::error::count(cb.finish(result)?))
+        Ok(crate::error::count(cb.finish(result).ffi()?))
     }
 
     /// Poll with flow control: `handler` returns a [`ControlledAction`](crate::ControlledAction).
@@ -80,7 +81,7 @@ impl PersistentSubscription {
             callback::controlled_fragment::<F, R>,
             cb.ctx(),
         );
-        Ok(crate::error::count(cb.finish(result)?))
+        Ok(crate::error::count(cb.finish(result).ffi()?))
     }
 
     /// Returns `true` while it follows the live stream.
@@ -137,7 +138,7 @@ impl Drop for PersistentSubscriptionBuilder {
 impl Default for PersistentSubscriptionBuilder {
     fn default() -> Self {
         Self {
-            inner: ffi::create_persistent_subscription_context().map_err(Error::from),
+            inner: ffi::create_persistent_subscription_context().map_err(Error::from_cxx),
         }
     }
 }
@@ -170,50 +171,53 @@ impl PersistentSubscriptionBuilder {
 
     /// How to reach the archive that holds the recording (required).
     pub fn archive_context(self, archive: Context) -> Self {
-        self.set(move |ctx| Ok(ctx.setArchiveContext(archive.build()?)?))
+        self.set(move |ctx| ctx.setArchiveContext(archive.build()?).ffi())
     }
 
     /// The client to subscribe with. Without one, the archive context's client
     /// is used, or an internal client in agent invoker mode, driven by `poll`.
     pub fn aeron(self, client: &AeronClient) -> Self {
-        self.set(|ctx| Ok(ctx.setAeron(&client.inner)?))
+        self.set(|ctx| ctx.setAeron(&client.inner).ffi())
     }
 
     /// The Aeron directory of the internal client.
     pub fn aeron_directory_name(self, dir: impl AsRef<std::path::Path>) -> Self {
-        self.set(|ctx| Ok(ctx.setAeronDirectoryName(crate::error::path_str(dir.as_ref())?)?))
+        self.set(|ctx| {
+            ctx.setAeronDirectoryName(crate::error::path_str(dir.as_ref())?)
+                .ffi()
+        })
     }
 
     /// The recording to replay.
     pub fn recording_id(self, recording_id: i64) -> Self {
-        self.set(|ctx| Ok(ctx.setRecordingId(recording_id)?))
+        self.set(|ctx| ctx.setRecordingId(recording_id).ffi())
     }
 
     /// Where to start: a recorded position,
     /// [`PersistentSubscription::FROM_START`] or
     /// [`PersistentSubscription::FROM_LIVE`] (the default).
     pub fn start_position(self, position: i64) -> Self {
-        self.set(|ctx| Ok(ctx.setStartPosition(position)?))
+        self.set(|ctx| ctx.setStartPosition(position).ffi())
     }
 
     /// The live stream's channel (required).
     pub fn live_channel(self, channel: &str) -> Self {
-        self.set(|ctx| Ok(ctx.setLiveChannel(channel)?))
+        self.set(|ctx| ctx.setLiveChannel(channel).ffi())
     }
 
     /// The live stream's stream ID.
     pub fn live_stream_id(self, stream_id: i32) -> Self {
-        self.set(|ctx| Ok(ctx.setLiveStreamId(stream_id)?))
+        self.set(|ctx| ctx.setLiveStreamId(stream_id).ffi())
     }
 
     /// The channel to replay to (required).
     pub fn replay_channel(self, channel: &str) -> Self {
-        self.set(|ctx| Ok(ctx.setReplayChannel(channel)?))
+        self.set(|ctx| ctx.setReplayChannel(channel).ffi())
     }
 
     /// The stream ID to replay to.
     pub fn replay_stream_id(self, stream_id: i32) -> Self {
-        self.set(|ctx| Ok(ctx.setReplayStreamId(stream_id)?))
+        self.set(|ctx| ctx.setReplayStreamId(stream_id).ffi())
     }
 
     /// A counter to keep the subscription's state in (one is allocated
@@ -224,23 +228,23 @@ impl PersistentSubscriptionBuilder {
     /// [`CountersReader`](crate::CountersReader). The subscription takes them
     /// over and closes them when it is dropped (or if `create` fails).
     pub fn state_counter(self, counter: Counter) -> Self {
-        self.set(|ctx| Ok(ctx.setCounter(0, &counter.inner)?))
+        self.set(|ctx| ctx.setCounter(0, &counter.inner).ffi())
     }
 
     /// A counter to keep the difference between the replay and live positions
     /// in, while joining.
     pub fn join_difference_counter(self, counter: Counter) -> Self {
-        self.set(|ctx| Ok(ctx.setCounter(1, &counter.inner)?))
+        self.set(|ctx| ctx.setCounter(1, &counter.inner).ffi())
     }
 
     /// A counter of how many times it left the live stream.
     pub fn live_left_counter(self, counter: Counter) -> Self {
-        self.set(|ctx| Ok(ctx.setCounter(2, &counter.inner)?))
+        self.set(|ctx| ctx.setCounter(2, &counter.inner).ffi())
     }
 
     /// A counter of how many times it joined the live stream.
     pub fn live_joined_counter(self, counter: Counter) -> Self {
-        self.set(|ctx| Ok(ctx.setCounter(3, &counter.inner)?))
+        self.set(|ctx| ctx.setCounter(3, &counter.inner).ffi())
     }
 
     /// Called (from `poll`) when it joins the live stream.
@@ -249,7 +253,8 @@ impl PersistentSubscriptionBuilder {
         F: Fn() + Send + Sync + 'static,
     {
         self.set(move |ctx| {
-            Ok(ctx.setOnLiveJoined(live_trampoline::<F>, release::<F>, into_ctx(callback))?)
+            ctx.setOnLiveJoined(live_trampoline::<F>, release::<F>, into_ctx(callback))
+                .ffi()
         })
     }
 
@@ -259,7 +264,8 @@ impl PersistentSubscriptionBuilder {
         F: Fn() + Send + Sync + 'static,
     {
         self.set(move |ctx| {
-            Ok(ctx.setOnLiveLeft(live_trampoline::<F>, release::<F>, into_ctx(callback))?)
+            ctx.setOnLiveLeft(live_trampoline::<F>, release::<F>, into_ctx(callback))
+                .ffi()
         })
     }
 
@@ -270,7 +276,8 @@ impl PersistentSubscriptionBuilder {
         F: Fn(&Error) + Send + Sync + 'static,
     {
         self.set(move |ctx| {
-            Ok(ctx.setOnError(error_trampoline::<F>, release::<F>, into_ctx(callback))?)
+            ctx.setOnError(error_trampoline::<F>, release::<F>, into_ctx(callback))
+                .ffi()
         })
     }
 
@@ -280,7 +287,7 @@ impl PersistentSubscriptionBuilder {
         callback::ensure_not_in_conductor_callback("creating a persistent subscription")?;
         let inner = std::mem::replace(&mut self.inner, Err(super::context::used()))?;
         Ok(PersistentSubscription {
-            inner: ffi::create_persistent_subscription(inner)?,
+            inner: ffi::create_persistent_subscription(inner).ffi()?,
         })
     }
 }

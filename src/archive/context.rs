@@ -3,6 +3,7 @@
 use super::client::{AeronArchive, AsyncConnect};
 use super::ffi;
 use super::types::RecordingSignal;
+use crate::error::Ffi;
 use crate::handlers::{self, into_ctx, release};
 use crate::{AeronClient, Error, Result};
 use std::pin::Pin;
@@ -38,7 +39,7 @@ impl Drop for Context {
 impl Default for Context {
     fn default() -> Self {
         Self {
-            inner: ffi::create_archive_context().map_err(Error::from),
+            inner: ffi::create_archive_context().map_err(Error::from_cxx),
         }
     }
 }
@@ -117,25 +118,28 @@ impl Context {
     /// replays then belong to it.
     pub fn aeron(self, client: &AeronClient) -> Self {
         // The C++ context shares (and keeps alive) the C++ client.
-        self.set(|ctx| Ok(ctx.setAeron(&client.inner)?))
+        self.set(|ctx| ctx.setAeron(&client.inner).ffi())
     }
 
     /// The Aeron directory of the internal client (when [`aeron`](Self::aeron) is
     /// not set).
     pub fn aeron_directory_name(self, dir: impl AsRef<std::path::Path>) -> Self {
         let dir = dir.as_ref().to_path_buf();
-        self.set(move |ctx| Ok(ctx.setAeronDirectoryName(crate::error::path_str(&dir)?)?))
+        self.set(move |ctx| {
+            ctx.setAeronDirectoryName(crate::error::path_str(&dir)?)
+                .ffi()
+        })
     }
 
     /// The archive's control channel, e.g. `aeron:udp?endpoint=localhost:8010`.
     pub fn control_request_channel(self, channel: &str) -> Self {
         let channel = channel.to_string();
-        self.set(move |ctx| Ok(ctx.setControlRequestChannel(&channel)?))
+        self.set(move |ctx| ctx.setControlRequestChannel(&channel).ffi())
     }
 
     /// The archive's control stream ID.
     pub fn control_request_stream_id(self, stream_id: i32) -> Self {
-        self.set(move |ctx| Ok(ctx.setControlRequestStreamId(stream_id)?))
+        self.set(move |ctx| ctx.setControlRequestStreamId(stream_id).ffi())
     }
 
     /// The channel this client receives responses on, e.g.
@@ -143,36 +147,36 @@ impl Context {
     /// (`aeron:udp?control-mode=response|control=localhost:10002`).
     pub fn control_response_channel(self, channel: &str) -> Self {
         let channel = channel.to_string();
-        self.set(move |ctx| Ok(ctx.setControlResponseChannel(&channel)?))
+        self.set(move |ctx| ctx.setControlResponseChannel(&channel).ffi())
     }
 
     /// The stream ID this client receives responses on.
     pub fn control_response_stream_id(self, stream_id: i32) -> Self {
-        self.set(move |ctx| Ok(ctx.setControlResponseStreamId(stream_id)?))
+        self.set(move |ctx| ctx.setControlResponseStreamId(stream_id).ffi())
     }
 
     /// The channel the archive publishes recording events on.
     pub fn recording_events_channel(self, channel: &str) -> Self {
         let channel = channel.to_string();
-        self.set(move |ctx| Ok(ctx.setRecordingEventsChannel(&channel)?))
+        self.set(move |ctx| ctx.setRecordingEventsChannel(&channel).ffi())
     }
 
     /// How long to wait for a response (C++ `messageTimeoutNs`).
     pub fn message_timeout(self, timeout: Duration) -> Self {
         // The C client adds it to the clock: clamp far below overflow.
         let ns = crate::timeout_nanos(timeout);
-        self.set(move |ctx| Ok(ctx.setMessageTimeoutNs(ns)?))
+        self.set(move |ctx| ctx.setMessageTimeoutNs(ns).ffi())
     }
 
     /// How many times a request is retried when the publication is back
     /// pressured.
     pub fn message_retry_attempts(self, attempts: u32) -> Self {
-        self.set(move |ctx| Ok(ctx.setMessageRetryAttempts(attempts)?))
+        self.set(move |ctx| ctx.setMessageRetryAttempts(attempts).ffi())
     }
 
     /// The maximum length of an error message from the archive (default 1000).
     pub fn max_error_message_length(self, length: u32) -> Self {
-        self.set(move |ctx| Ok(ctx.setMaxErrorMessageLength(length)?))
+        self.set(move |ctx| ctx.setMaxErrorMessageLength(length).ffi())
     }
 
     /// Called with the amount of work done each time the client waits for the
@@ -182,7 +186,8 @@ impl Context {
         F: Fn(usize) + Send + Sync + 'static,
     {
         self.set(move |ctx| {
-            Ok(ctx.setIdleStrategy(idle_trampoline::<F>, release::<F>, into_ctx(idle))?)
+            ctx.setIdleStrategy(idle_trampoline::<F>, release::<F>, into_ctx(idle))
+                .ffi()
         })
     }
 
@@ -195,11 +200,8 @@ impl Context {
         F: Fn() + Send + Sync + 'static,
     {
         self.set(move |ctx| {
-            Ok(ctx.setDelegatingInvoker(
-                invoker_trampoline::<F>,
-                release::<F>,
-                into_ctx(invoker),
-            )?)
+            ctx.setDelegatingInvoker(invoker_trampoline::<F>, release::<F>, into_ctx(invoker))
+                .ffi()
         })
     }
 
@@ -213,7 +215,8 @@ impl Context {
         F: Fn(&Error) + Send + Sync + 'static,
     {
         self.set(move |ctx| {
-            Ok(ctx.setErrorHandler(handlers::error::<F>, release::<F>, into_ctx(handler))?)
+            ctx.setErrorHandler(handlers::error::<F>, release::<F>, into_ctx(handler))
+                .ffi()
         })
     }
 
@@ -224,11 +227,8 @@ impl Context {
         F: Fn(&RecordingSignal) + Send + Sync + 'static,
     {
         self.set(move |ctx| {
-            Ok(ctx.setRecordingSignalConsumer(
-                signal_trampoline::<F>,
-                release::<F>,
-                into_ctx(consumer),
-            )?)
+            ctx.setRecordingSignalConsumer(signal_trampoline::<F>, release::<F>, into_ctx(consumer))
+                .ffi()
         })
     }
 
@@ -241,12 +241,13 @@ impl Context {
         H: Fn(&[u8]) -> Vec<u8> + Send + Sync + 'static,
     {
         self.set(move |ctx| {
-            Ok(ctx.setCredentialsSupplier(
+            ctx.setCredentialsSupplier(
                 credentials_trampoline::<(C, H)>,
                 challenge_trampoline::<(C, H)>,
                 release::<(C, H)>,
                 into_ctx((encoded_credentials, on_challenge)),
-            )?)
+            )
+            .ffi()
         })
     }
 
@@ -259,7 +260,9 @@ impl Context {
     pub fn connect(self) -> Result<AeronArchive> {
         crate::callback::ensure_not_in_conductor_callback("connecting to an archive")?;
         let mut ctx = self.build()?;
-        Ok(AeronArchive::new(ffi::archive_connect(ctx.pin_mut())?))
+        Ok(AeronArchive::new(
+            ffi::archive_connect(ctx.pin_mut()).ffi()?,
+        ))
     }
 
     /// Start connecting to the archive without waiting (C++
@@ -270,9 +273,9 @@ impl Context {
     /// [`ErrorKind::Reentrant`](crate::ErrorKind::Reentrant) from a client handler.
     pub fn connect_async(self) -> Result<AsyncConnect> {
         crate::callback::ensure_not_in_conductor_callback("connecting to an archive")?;
-        Ok(AsyncConnect::new(ffi::archive_async_connect(
-            self.build()?,
-        )?))
+        Ok(AsyncConnect::new(
+            ffi::archive_async_connect(self.build()?).ffi()?,
+        ))
     }
 }
 

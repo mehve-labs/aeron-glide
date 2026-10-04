@@ -1,6 +1,7 @@
 //! Counters ([`Counter`], [`CountersReader`]) and the CnC file ([`CncFile`]).
 
 use super::*;
+use crate::error::Ffi;
 use std::time::Duration;
 
 /// Reader for the media driver's CNC (Command and Control) counters.
@@ -49,23 +50,25 @@ impl CountersReader {
 
     /// Read the current value of a counter by ID. Fails for an out-of-range ID.
     pub fn get_counter_value(&self, id: i32) -> Result<i64> {
-        Ok(self.inner.getCounterValue(id)?)
+        self.inner.getCounterValue(id).ffi()
     }
 
     /// The record state of a counter. Fails for an out-of-range ID.
     pub fn get_counter_state(&self, id: i32) -> Result<CounterState> {
-        Ok(CounterState::from_raw(self.inner.getCounterState(id)?))
+        Ok(CounterState::from_raw(
+            self.inner.getCounterState(id).ffi()?,
+        ))
     }
 
     /// Get the type ID of a counter. Fails for an out-of-range ID.
     pub fn get_counter_type_id(&self, id: i32) -> Result<i32> {
-        Ok(self.inner.getCounterTypeId(id)?)
+        self.inner.getCounterTypeId(id).ffi()
     }
 
     /// Get the human-readable label of a counter. Fails for an out-of-range ID.
     /// Invalid UTF-8 is replaced with `U+FFFD`.
     pub fn get_counter_label(&self, id: i32) -> Result<String> {
-        Ok(self.inner.getCounterLabel(id)?)
+        self.inner.getCounterLabel(id).ffi()
     }
 
     /// The ID of the first allocated counter with this registration ID, if any
@@ -98,28 +101,28 @@ impl CountersReader {
     /// ([`DEFAULT_REGISTRATION_ID`](Self::DEFAULT_REGISTRATION_ID) if it was
     /// allocated without one). Fails for an out-of-range ID.
     pub fn get_counter_registration_id(&self, id: i32) -> Result<i64> {
-        Ok(self.inner.getCounterRegistrationId(id)?)
+        self.inner.getCounterRegistrationId(id).ffi()
     }
 
     /// The ID of the client that owns a counter ([`AeronClient::client_id`]); -1
     /// for the driver's system counters and for static counters. Fails for an
     /// out-of-range ID.
     pub fn get_counter_owner_id(&self, id: i32) -> Result<i64> {
-        Ok(self.inner.getCounterOwnerId(id)?)
+        self.inner.getCounterOwnerId(id).ffi()
     }
 
     /// When a freed counter's record may be reused, in milliseconds since the
     /// epoch ([`NOT_FREE_TO_REUSE`](Self::NOT_FREE_TO_REUSE) while allocated).
     /// Fails for an out-of-range ID.
     pub fn get_free_for_reuse_deadline(&self, id: i32) -> Result<i64> {
-        Ok(self.inner.getFreeForReuseDeadline(id)?)
+        self.inner.getFreeForReuseDeadline(id).ffi()
     }
 
     /// A copy of a counter's key: the whole key region,
     /// [`MAX_KEY_LENGTH`](Self::MAX_KEY_LENGTH) bytes (counters do not record
     /// their key length). Fails for an out-of-range ID.
     pub fn get_counter_key(&self, id: i32) -> Result<Vec<u8>> {
-        Ok(self.inner.getCounterKey(id)?)
+        self.inner.getCounterKey(id).ffi()
     }
 
     /// A writable [`Counter`] handle on a counter another client (or another
@@ -139,7 +142,10 @@ impl CountersReader {
     /// maps the counters read-only.
     pub fn counter(&self, registration_id: i64, counter_id: i32) -> Result<Counter> {
         Ok(Counter {
-            inner: self.inner.counter(registration_id, counter_id, true)?,
+            inner: self
+                .inner
+                .counter(registration_id, counter_id, true)
+                .ffi()?,
         })
     }
 
@@ -163,7 +169,10 @@ impl CountersReader {
         counter_id: i32,
     ) -> Result<Counter> {
         Ok(Counter {
-            inner: self.inner.counter(registration_id, counter_id, false)?,
+            inner: self
+                .inner
+                .counter(registration_id, counter_id, false)
+                .ffi()?,
         })
     }
 
@@ -171,7 +180,7 @@ impl CountersReader {
     /// Fails if `counter_id` is out of range.
     pub fn counter_view(&self, counter_id: i32) -> Result<CounterView> {
         Ok(CounterView {
-            inner: self.inner.counterView(counter_id)?,
+            inner: self.inner.counterView(counter_id).ffi()?,
         })
     }
 
@@ -182,7 +191,7 @@ impl CountersReader {
     {
         let mut cb = Callback::new(handler);
         let result = self.inner.forEach(callback::counter::<F>, cb.ctx());
-        Ok(cb.finish(result)?)
+        cb.finish(result).ffi()
     }
 }
 
@@ -463,7 +472,7 @@ impl CncFile {
         // The C client adds it to the clock: clamp far below overflow.
         let timeout_ms = crate::timeout_millis(timeout);
         Ok(Self {
-            inner: ffi::mapCncFile(aeron_dir, timeout_ms)?,
+            inner: ffi::mapCncFile(aeron_dir, timeout_ms).ffi()?,
         })
     }
 
@@ -474,7 +483,7 @@ impl CncFile {
 
     /// The file's constants: buffer lengths, the driver's PID and start time, ...
     pub fn constants(&self) -> Result<CncConstants> {
-        let c = self.inner.constants()?;
+        let c = self.inner.constants().ffi()?;
         let length = |n: i32| usize::try_from(n).unwrap_or(0);
         Ok(CncConstants {
             cnc_version: c.cnc_version,
@@ -529,7 +538,7 @@ impl CncFile {
         let result = self
             .inner
             .readErrorLog(callback::error_log::<F>, cb.ctx(), since_timestamp);
-        Ok(cb.finish(result)?.max(0) as usize)
+        Ok(cb.finish(result).ffi()?.max(0) as usize)
     }
 
     /// Read the driver's loss report (`loss-report.dat`, next to the CnC file,
@@ -547,7 +556,7 @@ impl CncFile {
         let result = self
             .inner
             .readLossReport(callback::loss_report::<F>, cb.ctx());
-        Ok(cb.finish(result)?.max(0) as usize)
+        Ok(cb.finish(result).ffi()?.max(0) as usize)
     }
 }
 

@@ -7,6 +7,7 @@
 //! or its [`CncFile`](crate::CncFile).
 
 use super::ffi;
+use crate::error::Ffi;
 use crate::{CountersReader, Result};
 
 /// The ID of the position counter of an active recording, if any.
@@ -36,18 +37,11 @@ pub fn get_recording_id(reader: &CountersReader, counter_id: i32) -> Option<i64>
 /// socket address); empty if the counter is not an allocated recording
 /// position counter. Fails for an out-of-range counter ID.
 pub fn get_source_identity(reader: &CountersReader, counter_id: i32) -> Result<String> {
-    Ok(ffi::recordingPosGetSourceIdentity(
-        &reader.inner,
-        counter_id,
-    )?)
+    ffi::recordingPosGetSourceIdentity(&reader.inner, counter_id).ffi()
 }
 
 /// Returns `true` if `counter_id` is still the position counter of the active
 /// recording `recording_id`. Fails for an out-of-range counter ID.
 pub fn is_active(reader: &CountersReader, counter_id: i32, recording_id: i64) -> Result<bool> {
-    Ok(ffi::recordingPosIsActive(
-        &reader.inner,
-        counter_id,
-        recording_id,
-    )?)
+    ffi::recordingPosIsActive(&reader.inner, counter_id, recording_id).ffi()
 }

@@ -1,6 +1,7 @@
 //! The Aeron client ([`AeronClient`]).
 
 use super::*;
+use crate::error::Ffi;
 use crate::handlers;
 use std::marker::PhantomData;
 
@@ -129,16 +130,19 @@ impl AeronClient {
         U: Fn(&ImageEvent) + Send + Sync + 'static,
     {
         self.ensure_open()?;
-        let id = self.inner.addSubscriptionWithImageHandlers(
-            channel,
-            stream_id,
-            handlers::image_event::<A>,
-            handlers::release::<A>,
-            handlers::into_ctx(on_available_image),
-            handlers::image_event::<U>,
-            handlers::release::<U>,
-            handlers::into_ctx(on_unavailable_image),
-        )?;
+        let id = self
+            .inner
+            .addSubscriptionWithImageHandlers(
+                channel,
+                stream_id,
+                handlers::image_event::<A>,
+                handlers::release::<A>,
+                handlers::into_ctx(on_available_image),
+                handlers::image_event::<U>,
+                handlers::release::<U>,
+                handlers::into_ctx(on_unavailable_image),
+            )
+            .ffi()?;
         Ok(PendingAdd::new(self, id, AddKind::Subscription))
     }
 
@@ -154,11 +158,13 @@ impl AeronClient {
         F: Fn(CounterEvent) + Send + Sync + 'static,
     {
         callback::ensure_not_in_conductor_callback("adding a handler")?;
-        Ok(self.inner.addAvailableCounterHandler(
-            handlers::counter_event::<F>,
-            handlers::release::<F>,
-            handlers::into_ctx(handler),
-        )?)
+        self.inner
+            .addAvailableCounterHandler(
+                handlers::counter_event::<F>,
+                handlers::release::<F>,
+                handlers::into_ctx(handler),
+            )
+            .ffi()
     }
 
     /// Remove a handler added with
@@ -166,7 +172,9 @@ impl AeronClient {
     /// Removing an unknown ID does nothing.
     pub fn remove_available_counter_handler(&self, registration_id: i64) -> Result<()> {
         callback::ensure_not_in_conductor_callback("removing a handler")?;
-        Ok(self.inner.removeAvailableCounterHandler(registration_id)?)
+        self.inner
+            .removeAvailableCounterHandler(registration_id)
+            .ffi()
     }
 
     /// Add a handler called when a counter becomes unavailable. Returns its
@@ -177,20 +185,22 @@ impl AeronClient {
         F: Fn(CounterEvent) + Send + Sync + 'static,
     {
         callback::ensure_not_in_conductor_callback("adding a handler")?;
-        Ok(self.inner.addUnavailableCounterHandler(
-            handlers::counter_event::<F>,
-            handlers::release::<F>,
-            handlers::into_ctx(handler),
-        )?)
+        self.inner
+            .addUnavailableCounterHandler(
+                handlers::counter_event::<F>,
+                handlers::release::<F>,
+                handlers::into_ctx(handler),
+            )
+            .ffi()
     }
 
     /// Remove a handler added with
     /// [`add_unavailable_counter_handler`](Self::add_unavailable_counter_handler).
     pub fn remove_unavailable_counter_handler(&self, registration_id: i64) -> Result<()> {
         callback::ensure_not_in_conductor_callback("removing a handler")?;
-        Ok(self
-            .inner
-            .removeUnavailableCounterHandler(registration_id)?)
+        self.inner
+            .removeUnavailableCounterHandler(registration_id)
+            .ffi()
     }
 
     /// Add a handler called when the client closes. Returns its registration ID
@@ -200,18 +210,20 @@ impl AeronClient {
         F: Fn() + Send + Sync + 'static,
     {
         callback::ensure_not_in_conductor_callback("adding a handler")?;
-        Ok(self.inner.addCloseClientHandler(
-            handlers::close_client::<F>,
-            handlers::release::<F>,
-            handlers::into_ctx(handler),
-        )?)
+        self.inner
+            .addCloseClientHandler(
+                handlers::close_client::<F>,
+                handlers::release::<F>,
+                handlers::into_ctx(handler),
+            )
+            .ffi()
     }
 
     /// Remove a handler added with
     /// [`add_close_client_handler`](Self::add_close_client_handler).
     pub fn remove_close_client_handler(&self, registration_id: i64) -> Result<()> {
         callback::ensure_not_in_conductor_callback("removing a handler")?;
-        Ok(self.inner.removeCloseClientHandler(registration_id)?)
+        self.inner.removeCloseClientHandler(registration_id).ffi()
     }
 
     /// Start adding a concurrent publication without waiting: poll the returned
@@ -223,7 +235,7 @@ impl AeronClient {
     ) -> Result<PendingAdd<'_, Publication>> {
         self.ensure_open()?;
         self.reap();
-        let id = self.inner.addPublication(channel, stream_id)?;
+        let id = self.inner.addPublication(channel, stream_id).ffi()?;
         Ok(PendingAdd::new(self, id, AddKind::Publication))
     }
 
@@ -236,7 +248,10 @@ impl AeronClient {
     ) -> Result<PendingAdd<'_, ExclusivePublication>> {
         self.ensure_open()?;
         self.reap();
-        let id = self.inner.addExclusivePublication(channel, stream_id)?;
+        let id = self
+            .inner
+            .addExclusivePublication(channel, stream_id)
+            .ffi()?;
         Ok(PendingAdd::new(self, id, AddKind::ExclusivePublication))
     }
 
@@ -249,7 +264,7 @@ impl AeronClient {
     ) -> Result<PendingAdd<'_, Subscription>> {
         self.ensure_open()?;
         self.reap();
-        let id = self.inner.addSubscription(channel, stream_id)?;
+        let id = self.inner.addSubscription(channel, stream_id).ffi()?;
         Ok(PendingAdd::new(self, id, AddKind::Subscription))
     }
 
@@ -281,7 +296,7 @@ impl AeronClient {
         self.ensure_open()?;
         check_counter_metadata(key, label)?;
         self.reap();
-        let id = self.inner.addCounter(type_id, key, label)?;
+        let id = self.inner.addCounter(type_id, key, label).ffi()?;
         Ok(PendingAdd::new(self, id, AddKind::Counter))
     }
 
@@ -319,7 +334,8 @@ impl AeronClient {
         self.reap();
         let id = self
             .inner
-            .addStaticCounter(type_id, key, label, registration_id)?;
+            .addStaticCounter(type_id, key, label, registration_id)
+            .ffi()?;
         Ok(PendingAdd::new(self, id, AddKind::Counter))
     }
 
@@ -341,7 +357,7 @@ impl AeronClient {
     /// Calling it from a handler (i.e. inside `invoke`) fails with
     /// [`ErrorKind::Reentrant`].
     pub fn invoke(&self) -> Result<usize> {
-        let work = self.inner.invokeConductor()?;
+        let work = self.inner.invokeConductor().ffi()?;
         self.reap();
         Ok(crate::error::count(work))
     }
@@ -392,7 +408,7 @@ impl AeronClient {
             // Still pending, or the conductor is busy on this thread: retry later.
             match pending {
                 Ok(pending) => pending,
-                Err(e) => Error::from(e).kind() == ErrorKind::Reentrant,
+                Err(e) => Error::from_cxx(e).kind() == ErrorKind::Reentrant,
             }
         });
         if !abandoned.is_empty()
@@ -420,7 +436,7 @@ impl AeronClient {
 
     /// The path of the media driver's command-and-control (CnC) file.
     pub fn cnc_file_name(&self) -> Result<String> {
-        Ok(self.inner.cncFileName()?)
+        self.inner.cncFileName().ffi()
     }
 
     /// How long without a media driver heartbeat before the client considers the
@@ -550,7 +566,7 @@ macro_rules! pending_add {
                 let found = self.client.inner.$find(self.registration_id);
                 self.client.reap();
                 // Failures here are the driver rejecting the registration.
-                let inner = match found.map_err(|e| Error::from(e).into_registration()) {
+                let inner = match found.map_err(|e| Error::from_cxx(e).into_registration()) {
                     Ok(inner) => inner,
                     // The conductor is running on this thread (inside a handler):
                     // nothing happened, so the add is still pending.
