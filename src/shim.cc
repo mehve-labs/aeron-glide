@@ -1,6 +1,7 @@
 #include "shim.h"
 #include "counter_types.h"
 #include <algorithm>
+#include <climits>
 #include <array>
 #include <iostream>
 #include <vector>
