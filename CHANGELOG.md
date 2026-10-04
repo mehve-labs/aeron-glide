@@ -132,6 +132,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `PendingAdd::wait` (and the synchronous adds built on it) backs off between
+  polls instead of spinning a core until the driver answers.
+- Asynchronous adds on a closed client fail with `IllegalState`, like the
+  synchronous ones, instead of returning a `PendingAdd` that never completes.
 - `links = "aeron"`: Cargo now rejects a build with two copies of the crate
   (or another crate linking Aeron statically) instead of failing at link time
   with duplicate symbols.

@@ -203,4 +203,11 @@ fn closed_publications_report_no_position() {
             "{err}"
         );
     }
+    // Asynchronous adds on the closed client fail at once too.
+    wait_until("the client to close", || client.is_closed());
+    let err = client
+        .add_publication_async("aeron:ipc", 43)
+        .map(drop)
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::IllegalState, "{err}");
 }

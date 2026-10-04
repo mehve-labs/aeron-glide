@@ -128,6 +128,7 @@ impl AeronClient {
         A: Fn(&ImageEvent) + Send + Sync + 'static,
         U: Fn(&ImageEvent) + Send + Sync + 'static,
     {
+        self.ensure_open()?;
         let id = self.inner.addSubscriptionWithImageHandlers(
             channel,
             stream_id,
@@ -220,6 +221,7 @@ impl AeronClient {
         channel: &str,
         stream_id: i32,
     ) -> Result<PendingAdd<'_, Publication>> {
+        self.ensure_open()?;
         self.reap();
         let id = self.inner.addPublication(channel, stream_id)?;
         Ok(PendingAdd::new(self, id, AddKind::Publication))
@@ -232,6 +234,7 @@ impl AeronClient {
         channel: &str,
         stream_id: i32,
     ) -> Result<PendingAdd<'_, ExclusivePublication>> {
+        self.ensure_open()?;
         self.reap();
         let id = self.inner.addExclusivePublication(channel, stream_id)?;
         Ok(PendingAdd::new(self, id, AddKind::ExclusivePublication))
@@ -244,6 +247,7 @@ impl AeronClient {
         channel: &str,
         stream_id: i32,
     ) -> Result<PendingAdd<'_, Subscription>> {
+        self.ensure_open()?;
         self.reap();
         let id = self.inner.addSubscription(channel, stream_id)?;
         Ok(PendingAdd::new(self, id, AddKind::Subscription))
@@ -274,6 +278,7 @@ impl AeronClient {
         key: &[u8],
         label: &str,
     ) -> Result<PendingAdd<'_, Counter>> {
+        self.ensure_open()?;
         check_counter_metadata(key, label)?;
         self.reap();
         let id = self.inner.addCounter(type_id, key, label)?;
@@ -309,6 +314,7 @@ impl AeronClient {
         label: &str,
         registration_id: i64,
     ) -> Result<PendingAdd<'_, Counter>> {
+        self.ensure_open()?;
         check_counter_metadata(key, label)?;
         self.reap();
         let id = self
@@ -353,6 +359,15 @@ impl AeronClient {
 
     /// Close the resources of pending adds that were dropped before completing,
     /// once the driver has created them.
+    /// Adds on a closed client fail at once, as the synchronous ones do: the
+    /// driver will not answer it.
+    fn ensure_open(&self) -> Result<()> {
+        if self.is_closed() {
+            return Err(Error::new(ErrorKind::IllegalState, "the client is closed"));
+        }
+        Ok(())
+    }
+
     fn reap(&self) {
         if callback::in_conductor_callback() {
             return;
@@ -566,6 +581,13 @@ macro_rules! pending_add {
                 callback::ensure_not_in_conductor_callback("waiting for an add")?;
                 let deadline = std::time::Instant::now() + self.client.driver_timeout();
                 let invoke = self.client.uses_agent_invoker();
+                // Spin briefly, then yield, then sleep (up to 100 µs) between polls.
+                let mut idle = crate::concurrent::BackoffIdleStrategy::new(
+                    10,
+                    20,
+                    std::time::Duration::from_micros(1),
+                    std::time::Duration::from_micros(100),
+                );
                 loop {
                     if self.client.is_closed() {
                         // The driver will not answer a closed client.
@@ -589,7 +611,7 @@ macro_rules! pending_add {
                             ),
                         ));
                     }
-                    std::thread::yield_now();
+                    crate::concurrent::IdleStrategy::idle(&mut idle, 0);
                 }
             }
         }
