@@ -420,10 +420,8 @@ impl AeronArchive {
 
     /// Subscribe to a replay of a recording and start it (C++ `replay`).
     ///
-    /// With a response channel (`control-mode=response`) the archive would
-    /// replay to this subscription only, but the C archive client of Aeron
-    /// 1.53.3 fails to set that up (a session ID clash); this fails until it is
-    /// fixed upstream.
+    /// With a response channel (`control-mode=response`) the archive replays to
+    /// this subscription only.
     pub fn replay(
         &self,
         recording_id: i64,

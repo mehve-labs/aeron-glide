@@ -2,8 +2,6 @@
 #include <iostream>
 #include "aeron-glide/src/archive/mod.rs.h"
 
-extern "C" int aeron_glide_archive_poll_for_recording_signals(int32_t *count_p, aeron_archive_t *aeron_archive);
-
 namespace aeron_rs {
 
 namespace {
@@ -174,7 +172,7 @@ extern "C" int aeron_glide_time_out_registrations(aeron_t *client);
 void ArchiveContextWrapper::installInvoker() {
     // The archive client calls it while waiting, e.g. for the next session id
     // when connecting, which it polls without a deadline: if the client's
-    // conductor has stopped (the driver timed out), fail that wait instead of
+    // conductor has closed (e.g. the driver timed out), fail that wait instead of
     // spinning forever (see conductor_helper.c).
     std::weak_ptr<aeron::Aeron> client = ctx->aeron();
     auto user = userInvoker;
@@ -353,14 +351,7 @@ int64_t ArchiveWrapper::controlSessionId() const { return archive_->controlSessi
 int32_t ArchiveWrapper::pollForRecordingSignals() const {
     ensureOpen(archive_->context().aeron());
     ConductorLock::Guard guard(lock_);
-    // Aeron's C function (behind the C++ one) can leave the archive locked on
-    // failure: use the fixed copy in conductor_helper.c.
-    int32_t count = 0;
-    if (aeron_glide_archive_poll_for_recording_signals(&count, (*archive_).*member(CArchiveTag())) < 0) {
-        using namespace aeron::util;
-        ARCHIVE_MAP_ERRNO_TO_SOURCED_EXCEPTION_AND_THROW;
-    }
-    return count;
+    return archive_->pollForRecordingSignals();
 }
 
 // Through the C function with a local buffer: the C++ method reads its shared
@@ -688,12 +679,14 @@ int64_t ArchiveWrapper::migrateSegments(int64_t src_recording_id, int64_t dst_re
 
 // RecordingPos
 
-int32_t recordingPosFindCounterIdByRecordingId(const CountersReaderWrapper &reader, int64_t recording_id) {
-    return arc::RecordingPos::findCounterIdByRecordingId(reader.reader(), recording_id);
+int32_t recordingPosFindCounterIdByRecordingId(
+    const CountersReaderWrapper &reader, int64_t recording_id, int64_t archive_id) {
+    return arc::RecordingPos::findCounterIdByRecordingId(reader.reader(), recording_id, archive_id);
 }
 
-int32_t recordingPosFindCounterIdBySessionId(const CountersReaderWrapper &reader, int32_t session_id) {
-    return arc::RecordingPos::findCounterIdBySessionId(reader.reader(), session_id);
+int32_t recordingPosFindCounterIdBySessionId(
+    const CountersReaderWrapper &reader, int32_t session_id, int64_t archive_id) {
+    return arc::RecordingPos::findCounterIdBySessionId(reader.reader(), session_id, archive_id);
 }
 
 int64_t recordingPosGetRecordingId(const CountersReaderWrapper &reader, int32_t counter_id) {

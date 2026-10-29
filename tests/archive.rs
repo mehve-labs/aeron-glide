@@ -315,23 +315,27 @@ fn replays_with_params() {
         .unwrap_err();
     assert!(ArchiveErrorCode::of(&err).is_some(), "{err}");
 
-    // Upstream (1.53.3): the C client's replay over a response channel reuses
-    // the control publication's session ID and fails. Fails until fixed.
+    // A replay over a response channel, to this subscription only (it failed
+    // with a session ID clash before Aeron 1.54.0).
     let control = format!("localhost:{}", free_udp_port());
-    let response = archive.replay(
-        recording_id,
-        &ChannelBuilder::udp()
-            .control_mode(ControlMode::Response)
-            .control_endpoint(&control)
-            .build()
-            .unwrap(),
-        9,
-        &ReplayParams::new(),
-    );
-    assert!(
-        response.is_err(),
-        "upstream fixed: test the response replay"
-    );
+    let mut response = archive
+        .replay(
+            recording_id,
+            &ChannelBuilder::udp()
+                .control_mode(ControlMode::Response)
+                .control_endpoint(&control)
+                .build()
+                .unwrap(),
+            9,
+            &ReplayParams::new().length(3 * message_length),
+        )
+        .unwrap();
+    let mut messages = Vec::new();
+    poll_n(&mut response, 3, |data| {
+        messages.push(String::from_utf8_lossy(data).into_owned())
+    });
+    assert_eq!(messages, ["message 0", "message 1", "message 2"]);
+    drop(response);
 
     let params = ReplayParams::new()
         .bounding_limit_counter_id(4)
@@ -572,13 +576,35 @@ fn recording_position_counters() {
     let reader = client.counters_reader();
     let mut counter_id = None;
     wait_until("the recording position counter", || {
-        counter_id = recording_pos::find_counter_id_by_recording_id(&reader, recording_id);
+        counter_id = recording_pos::find_counter_id_by_recording_id(
+            &reader,
+            recording_id,
+            archive.archive_id(),
+        );
         counter_id.is_some()
     });
     let counter_id = counter_id.unwrap();
     assert_eq!(
-        recording_pos::find_counter_id_by_session_id(&reader, publication.session_id()),
+        recording_pos::find_counter_id_by_session_id(
+            &reader,
+            publication.session_id(),
+            archive.archive_id()
+        ),
         Some(counter_id)
+    );
+    // Only the counters of the given archive.
+    let other_archive = archive.archive_id() + 1;
+    assert_eq!(
+        recording_pos::find_counter_id_by_recording_id(&reader, recording_id, other_archive),
+        None
+    );
+    assert_eq!(
+        recording_pos::find_counter_id_by_session_id(
+            &reader,
+            publication.session_id(),
+            other_archive
+        ),
+        None
     );
     assert_eq!(
         recording_pos::get_recording_id(&reader, counter_id),
@@ -595,7 +621,7 @@ fn recording_position_counters() {
     });
     assert_eq!(recording_pos::get_recording_id(&reader, 0), None);
     assert_eq!(
-        recording_pos::find_counter_id_by_recording_id(&reader, 999),
+        recording_pos::find_counter_id_by_recording_id(&reader, 999, archive.archive_id()),
         None
     );
     assert_eq!(recording_pos::get_source_identity(&reader, 0).unwrap(), "");

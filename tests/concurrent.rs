@@ -303,7 +303,7 @@ fn client_and_driver_as_agents() {
 #[test]
 fn version_and_clocks() {
     let version = aeron_glide::aeron_version();
-    assert!(version.contains("1.53.3"), "{version}");
+    assert!(version.contains("1.54.0"), "{version}");
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()

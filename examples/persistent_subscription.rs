@@ -63,9 +63,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let counters = client.counters_reader();
     let mut recording_id = None;
     until(|| {
-        recording_id =
-            recording_pos::find_counter_id_by_session_id(&counters, publication.session_id())
-                .and_then(|counter_id| recording_pos::get_recording_id(&counters, counter_id));
+        recording_id = recording_pos::find_counter_id_by_session_id(
+            &counters,
+            publication.session_id(),
+            archive.archive_id(),
+        )
+        .and_then(|counter_id| recording_pos::get_recording_id(&counters, counter_id));
         recording_id.is_some()
     });
     let recording_id = recording_id.unwrap();

@@ -76,9 +76,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // The recording's position counter shows how far the archive has written.
         let counter_id = loop {
-            if let Some(id) =
-                recording_pos::find_counter_id_by_session_id(&counters, publication.session_id())
-            {
+            if let Some(id) = recording_pos::find_counter_id_by_session_id(
+                &counters,
+                publication.session_id(),
+                archive.archive_id(),
+            ) {
                 break id;
             }
             std::thread::yield_now();

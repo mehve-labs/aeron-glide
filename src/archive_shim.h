@@ -222,8 +222,10 @@ std::unique_ptr<ArchiveAsyncConnectWrapper> archive_async_connect(std::unique_pt
 
 
 // RecordingPos (A10).
-int32_t recordingPosFindCounterIdByRecordingId(const CountersReaderWrapper &reader, int64_t recording_id);
-int32_t recordingPosFindCounterIdBySessionId(const CountersReaderWrapper &reader, int32_t session_id);
+int32_t recordingPosFindCounterIdByRecordingId(
+    const CountersReaderWrapper &reader, int64_t recording_id, int64_t archive_id);
+int32_t recordingPosFindCounterIdBySessionId(
+    const CountersReaderWrapper &reader, int32_t session_id, int64_t archive_id);
 int64_t recordingPosGetRecordingId(const CountersReaderWrapper &reader, int32_t counter_id);
 rust::String recordingPosGetSourceIdentity(const CountersReaderWrapper &reader, int32_t counter_id);
 bool recordingPosIsActive(const CountersReaderWrapper &reader, int32_t counter_id, int64_t recording_id);

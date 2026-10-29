@@ -363,10 +363,12 @@ pub(crate) mod ffi {
         fn recordingPosFindCounterIdByRecordingId(
             reader: &CountersReaderWrapper,
             recording_id: i64,
+            archive_id: i64,
         ) -> Result<i32>;
         fn recordingPosFindCounterIdBySessionId(
             reader: &CountersReaderWrapper,
             session_id: i32,
+            archive_id: i64,
         ) -> Result<i32>;
         fn recordingPosGetRecordingId(
             reader: &CountersReaderWrapper,
