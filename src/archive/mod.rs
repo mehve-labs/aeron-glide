@@ -98,6 +98,11 @@ pub(crate) mod ffi {
         message_timeout_ns: i64,
         message_retry_attempts: u32,
         max_error_message_length: u32,
+        client_name: String,
+        recording_events_stream_id: i32,
+        control_term_buffer_length: usize,
+        control_mtu_length: usize,
+        control_term_buffer_sparse: bool,
     }
 
     unsafe extern "C++" {
@@ -149,6 +154,20 @@ pub(crate) mod ffi {
         fn setMaxErrorMessageLength(
             self: Pin<&mut ArchiveContextWrapper>,
             length: u32,
+        ) -> Result<()>;
+        fn setClientName(self: Pin<&mut ArchiveContextWrapper>, name: &str) -> Result<()>;
+        fn setRecordingEventsStreamId(
+            self: Pin<&mut ArchiveContextWrapper>,
+            stream_id: i32,
+        ) -> Result<()>;
+        fn setControlTermBufferLength(
+            self: Pin<&mut ArchiveContextWrapper>,
+            length: usize,
+        ) -> Result<()>;
+        fn setControlMtuLength(self: Pin<&mut ArchiveContextWrapper>, length: usize) -> Result<()>;
+        fn setControlTermBufferSparse(
+            self: Pin<&mut ArchiveContextWrapper>,
+            sparse: bool,
         ) -> Result<()>;
         fn setIdleStrategy(
             self: Pin<&mut ArchiveContextWrapper>,

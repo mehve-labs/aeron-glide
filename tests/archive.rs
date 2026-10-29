@@ -58,6 +58,43 @@ fn offer_exclusive(publication: &mut ExclusivePublication, message: &[u8]) -> i6
     }
 }
 
+/// The settings Aeron 1.54.0 added to the archive context, with the client the
+/// archive client creates (named after `client_name`).
+#[test]
+fn context_settings_and_internal_client_name() {
+    let driver = archive_or_skip!();
+    let archive = archive::Context::new()
+        .aeron_directory_name(&driver.aeron_dir)
+        .client_name("glide-archive")
+        .control_request_channel(&driver.control_channel)
+        .control_request_stream_id(common::archive::CONTROL_STREAM_ID)
+        .control_response_channel("aeron:udp?endpoint=localhost:0")
+        .control_response_stream_id(common::archive::RESPONSE_STREAM_ID)
+        .recording_events_stream_id(42)
+        .control_term_buffer_length(128 * 1024)
+        .control_mtu_length(4096)
+        .control_term_buffer_sparse(false)
+        .message_timeout(TIMEOUT)
+        .connect()
+        .unwrap();
+    let info = archive.context().unwrap();
+    assert_eq!(info.client_name, "glide-archive");
+    assert_eq!(info.recording_events_stream_id, 42);
+    assert_eq!(info.control_term_buffer_length, 128 * 1024);
+    assert_eq!(info.control_mtu_length, 4096);
+    assert!(!info.control_term_buffer_sparse);
+
+    let observer = driver.client();
+    let reader = observer.counters_reader();
+    wait_until("the internal client's heartbeat", || {
+        let mut named = false;
+        reader
+            .for_each(|_, _, _, label| named |= label.contains(" name=glide-archive "))
+            .unwrap();
+        named
+    });
+}
+
 #[test]
 fn record_list_and_replay() {
     let driver = archive_or_skip!();
@@ -816,12 +853,9 @@ fn replay_merge_validates_the_replay_destination() {
     let mut sub = client
         .add_subscription("aeron:udp?control-mode=manual", 20)
         .unwrap();
-    for destination in [
-        "",
-        "aeron:ipc",
-        "aeron:udp?control=localhost:1",
-        "aeron:udp?endpoint=x",
-    ] {
+    // Checked by the C merge since Aeron 1.54.0 (it used to dereference a
+    // missing endpoint).
+    for destination in ["", "aeron:ipc", "aeron:udp?control=localhost:1"] {
         let err = ReplayMerge::new(
             &mut sub,
             &mut archive,
@@ -893,17 +927,17 @@ fn recording_source_identity_is_bounded() {
     key.extend_from_slice(&(-1i32).to_le_bytes());
     let negative = client.add_counter(100, &key, "fake recording").unwrap();
     let reader = client.counters_reader();
-    assert_eq!(
-        recording_pos::get_source_identity(&reader, negative.id()).unwrap(),
-        ""
-    );
+    let err = recording_pos::get_source_identity(&reader, negative.id()).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::IllegalArgument, "{err}");
     key.truncate(12);
     key.extend_from_slice(&i32::MAX.to_le_bytes());
     key.extend_from_slice(b"abc");
     let huge = client.add_counter(100, &key, "fake recording").unwrap();
     let identity = recording_pos::get_source_identity(&reader, huge.id()).unwrap();
+    // At most the key's space after the layout and the archive id that
+    // follows the identity (Aeron 1.54.0): 112 - 16 - 8 bytes.
     assert!(
-        identity.starts_with("abc") && identity.len() == 96,
+        identity.starts_with("abc") && identity.len() == 88,
         "{identity:?}"
     );
 }

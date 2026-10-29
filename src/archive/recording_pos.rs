@@ -47,7 +47,8 @@ pub fn get_recording_id(reader: &CountersReader, counter_id: i32) -> Option<i64>
 
 /// The source identity of a recording position counter's stream (e.g. a
 /// socket address); empty if the counter is not an allocated recording
-/// position counter. Fails for an out-of-range counter ID.
+/// position counter. Fails for an out-of-range counter ID, or a negative
+/// identity length in the counter's key.
 pub fn get_source_identity(reader: &CountersReader, counter_id: i32) -> Result<String> {
     ffi::recordingPosGetSourceIdentity(&reader.inner, counter_id).ffi()
 }

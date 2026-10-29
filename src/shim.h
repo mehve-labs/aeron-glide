@@ -17,6 +17,7 @@
 #include <client/archive/ArchiveContext.h>
 #include <client/archive/ReplayParams.h>
 #include <client/archive/ReplayMerge.h>
+#include <aeron_archive_client_error.h>
 #endif
 
 namespace aeron_rs {
@@ -43,7 +44,16 @@ inline std::string encode_exception(const std::exception &e) {
         else if (dynamic_cast<const ReentrantException *>(&e)) kind = "reentrant";
         else if (dynamic_cast<const UnsupportedOperationException *>(&e)) kind = "unsupported_operation";
 #ifdef AERON_ARCHIVE
-        else if (dynamic_cast<const ArchiveException *>(&e)) kind = "archive";
+        else if (dynamic_cast<const ArchiveException *>(&e)) {
+            // The archive client's own codes (Aeron 1.54.0): a call from inside
+            // one of its callbacks, or any call once it has failed fatally
+            // (e.g. got disconnected) and must be closed.
+            switch (code < 0 ? -code : code) {
+                case AERON_ARCHIVE_CLIENT_ERROR_REENTRANT_CALL: kind = "reentrant"; break;
+                case AERON_ARCHIVE_CLIENT_ERROR_ILLEGAL_STATE: kind = "illegal_state"; break;
+                default: kind = "archive"; break;
+            }
+        }
 #endif
         else kind = "aeron";
         // The C++ wrapper maps only the negated client error codes; the conductor's
@@ -55,7 +65,12 @@ inline std::string encode_exception(const std::exception &e) {
                 case AERON_CLIENT_ERROR_CLIENT_TIMEOUT: kind = "client_timeout"; break;
                 case AERON_CLIENT_ERROR_CONDUCTOR_SERVICE_TIMEOUT: kind = "conductor_service_timeout"; break;
                 case AERON_CLIENT_ERROR_BUFFER_FULL:
-                case AERON_CLIENT_ERROR_DRIVER_BUFFER_FULL: kind = "illegal_state"; break;
+                case AERON_CLIENT_ERROR_DRIVER_BUFFER_FULL:
+                // After a fatal error (e.g. the driver timed out), every later
+                // call fails with CLIENT_ILLEGAL_STATE ("must be closed and
+                // discarded"); a lapped broadcast buffer is fatal too.
+                case AERON_CLIENT_ERROR_CLIENT_ILLEGAL_STATE:
+                case AERON_CLIENT_ERROR_BROADCAST_RECEIVER_ILLEGAL_STATE: kind = "illegal_state"; break;
                 default: break;
             }
         }
@@ -227,21 +242,15 @@ public:
 };
 
 
-// Workarounds for two upstream bugs in the 1.53.3 C++ wrapper, calling the C
-// functions the C++ methods are meant to call:
-// - Publication/ExclusivePublication::localSocketAddresses() build a string from an
-//   uninitialised buffer when the C call returns no address (e.g. IPC).
-// - ExclusivePublication::channelStatus() is declared but never defined.
+// The C local addresses of each publication type, read into a zeroed buffer
+// (so always terminated) and converted lossily, unlike the C++ methods'
+// std::string.
 namespace detail {
 inline int localSockaddrs(aeron::Publication &p, aeron_iovec_t *iov, size_t count) {
     return aeron_publication_local_sockaddrs(p.publication(), iov, count);
 }
 inline int localSockaddrs(aeron::ExclusivePublication &p, aeron_iovec_t *iov, size_t count) {
     return aeron_exclusive_publication_local_sockaddrs(p.publication(), iov, count);
-}
-inline int64_t channelStatus(aeron::Publication &p) { return p.channelStatus(); }
-inline int64_t channelStatus(aeron::ExclusivePublication &p) {
-    return aeron_exclusive_publication_channel_status(p.publication());
 }
 } // namespace detail
 
@@ -330,7 +339,7 @@ public:
     int32_t publicationLimitId() const { return pub->publicationLimitId(); }
     int64_t availableWindow() const { return pub->availableWindow(); }
     int32_t channelStatusId() const { return pub->channelStatusId(); }
-    int64_t channelStatus() const { return detail::channelStatus(*pub); }
+    int64_t channelStatus() const { return pub->channelStatus(); }
     // Multi-destination-cast (P5). Each returns a correlation id; poll
     // findDestinationResponse until the driver has applied the change.
     int64_t addDestination(rust::Str endpoint) const {
@@ -671,17 +680,7 @@ public:
     }
     int64_t getAndSet(int64_t value) const { return isValid() ? counter_->getAndSet(value) : get(); }
     bool compareAndSet(int64_t expected, int64_t update) const {
-        if (!isValid()) {
-            return false;
-        }
-#if defined(__GNUC__) || defined(__clang__)
-        // Upstream bug (1.53.3, Atomic64_gcc_cpp11.h, used on ARM): a failed
-        // cmpxchg returns a fresh read, so compareAndSet can report success
-        // without writing when the value changed back to `expected`.
-        return __atomic_compare_exchange_n(addr_, &expected, update, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
-#else
-        return counter_->compareAndSet(expected, update);
-#endif
+        return isValid() && counter_->compareAndSet(expected, update);
     }
 
     // For the archive shim (not bridged).
@@ -730,8 +729,9 @@ public:
     // A handle only read from: any counter, also from a CnC file.
     std::unique_ptr<CounterWrapper> counterView(int32_t counter_id) const;
 
-    // HeartbeatTimestamp (C3). isActive is false for an out-of-range id, which
-    // the C++ function does not check.
+    // HeartbeatTimestamp (C3). isActive is false for an out-of-range id (the C++
+    // function throws for it since Aeron 1.54.0, and read past the counters
+    // before).
     int32_t findHeartbeatCounterId(int32_t type_id, int64_t registration_id) const {
         return aeron::HeartbeatTimestamp::findCounterIdByRegistrationId(*reader_, type_id, registration_id);
     }

@@ -156,6 +156,11 @@ void ArchiveContextWrapper::setMessageTimeoutNs(int64_t timeout_ns) {
 }
 void ArchiveContextWrapper::setMessageRetryAttempts(uint32_t attempts) { ctx->messageRetryAttempts(attempts); }
 void ArchiveContextWrapper::setMaxErrorMessageLength(uint32_t length) { ctx->maxErrorMessageLength(length); }
+void ArchiveContextWrapper::setClientName(rust::Str name) { ctx->clientName(str(name)); }
+void ArchiveContextWrapper::setRecordingEventsStreamId(int32_t stream_id) { ctx->recordingEventsStreamId(stream_id); }
+void ArchiveContextWrapper::setControlTermBufferLength(size_t length) { ctx->controlTermBufferLength(length); }
+void ArchiveContextWrapper::setControlMtuLength(size_t length) { ctx->controlMtuLength(length); }
+void ArchiveContextWrapper::setControlTermBufferSparse(bool sparse) { ctx->controlTermBufferSparse(sparse); }
 
 void ArchiveContextWrapper::setIdleStrategy(IdleFn idle_fn, ReleaseFn release, size_t context) {
     idle = std::make_shared<RustIdleStrategy>(idle_fn, release, context);
@@ -224,15 +229,14 @@ void ArchiveContextWrapper::setCredentialsSupplier(
 
 void ArchiveContextWrapper::conclude() {
     if (ctx->aeron()) {
-        if (ctx->aeron()->usesAgentInvoker() && !std::dynamic_pointer_cast<InvokingIdleStrategy>(idle)) {
-            idle = std::make_shared<InvokingIdleStrategy>(ctx->aeron(), idle);
-            ctx->idleStrategy(*idle);
-        }
         installInvoker();
         return;
     }
     aeron::Context clientContext;
     applyClientEnvironment(clientContext);
+    // Named as the C archive client names its own client.
+    const char *name = aeron_archive_context_get_client_name(cContext(*ctx));
+    clientContext.clientName(nullptr == name || '\0' == name[0] ? "archive-client" : name);
     clientContext.errorHandler([](const std::exception &e) {
         std::cerr << "aeron-glide: Aeron archive client error: " << e.what() << std::endl;
     });
@@ -276,7 +280,7 @@ ArchiveAsyncConnectWrapper::ArchiveAsyncConnectWrapper(std::unique_ptr<ArchiveCo
     async_ = arc::AeronArchive::asyncConnect(*context_->ctx);
 }
 
-// Upstream (1.53.3): AsyncConnect has no destructor, so a pending connect would
+// Upstream (still in 1.54.0): AsyncConnect has no destructor, so a pending connect would
 // leak; release it with the C function its failure path uses.
 ArchiveAsyncConnectWrapper::~ArchiveAsyncConnectWrapper() {
     ConductorLock::Guard guard(context_->lock, true);
@@ -327,8 +331,9 @@ ArchiveWrapper::~ArchiveWrapper() {
     archive_.reset();
 }
 
-// Read through the C getters: the C++ string getters construct a std::string
-// from the C value, which is null for an unset channel (upstream bug).
+// Read through the C getters, lossily: some C++ string getters construct a
+// std::string from a C value that can be null (aeronDirectoryName() still does
+// in Aeron 1.54.0; the channel getters check since then).
 ArchiveContextInfo ArchiveWrapper::context() const {
     const arc::Context &context = archive_->context();
     aeron_archive_context_t *c = cContext(context);
@@ -342,6 +347,11 @@ ArchiveContextInfo ArchiveWrapper::context() const {
     info.message_timeout_ns = static_cast<int64_t>(aeron_archive_context_get_message_timeout_ns(c));
     info.message_retry_attempts = aeron_archive_context_get_message_retry_attempts(c);
     info.max_error_message_length = context.maxErrorMessageLength();
+    info.client_name = lossyOrEmpty(aeron_archive_context_get_client_name(c));
+    info.recording_events_stream_id = aeron_archive_context_get_recording_events_stream_id(c);
+    info.control_term_buffer_length = aeron_archive_context_get_control_term_buffer_length(c);
+    info.control_mtu_length = aeron_archive_context_get_control_mtu_length(c);
+    info.control_term_buffer_sparse = aeron_archive_context_get_control_term_buffer_sparse(c);
     return info;
 }
 
@@ -627,10 +637,9 @@ int64_t ArchiveWrapper::replicate(int64_t src_recording_id, int32_t src_control_
         .subscriptionTagId(subscription_tag_id)
         .fileIoMaxLength(file_io_max_length)
         .replicationSessionId(replication_session_id);
-    // Always set: upstream's ReplicationParams() points the C params at an
-    // uninitialised credentials struct, which replicate() then copies from.
-    params.encodedCredentials(
-        {credentials.empty() ? nullptr : credentials.data(), static_cast<std::uint32_t>(credentials.size())});
+    if (!credentials.empty()) {
+        params.encodedCredentials({credentials.data(), static_cast<std::uint32_t>(credentials.size())});
+    }
     return archive_->replicate(src_recording_id, src_control_stream_id, str(src_control_channel), params);
 }
 
@@ -693,30 +702,18 @@ int64_t recordingPosGetRecordingId(const CountersReaderWrapper &reader, int32_t 
     return arc::RecordingPos::getRecordingId(reader.reader(), counter_id);
 }
 
-// Read here: the C function trusts the source identity length in the counter's
-// key (shared memory), and a negative one overflows its stack buffer.
+// Through the C function with a lossy conversion (the C++ one builds a
+// std::string, which Rust needs as UTF-8). Since Aeron 1.54.0 it checks the
+// length in the counter's key (shared memory) and terminates the result.
 rust::String recordingPosGetSourceIdentity(const CountersReaderWrapper &wrapper, int32_t counter_id) {
-    aeron::CountersReader &reader = wrapper.reader();
-    if (counter_id < 0 || counter_id > reader.maxCounterId()) {
-        throw aeron::util::IllegalArgumentException(
-            "counter id " + std::to_string(counter_id) + " out of range: maxCounterId=" +
-                std::to_string(reader.maxCounterId()),
-            SOURCEINFO, EINVAL);
+    char identity[AERON_COUNTER_MAX_LABEL_LENGTH + 1] = {'\0'};
+    size_t length = sizeof(identity);
+    if (aeron_archive_recording_pos_get_source_identity(
+            wrapper.reader().countersReader(), counter_id, identity, &length) < 0) {
+        using namespace aeron::util;
+        ARCHIVE_MAP_ERRNO_TO_SOURCED_EXCEPTION_AND_THROW;
     }
-    if (reader.getCounterState(counter_id) != aeron::CountersReader::RECORD_ALLOCATED ||
-        reader.getCounterTypeId(counter_id) != aeron::AeronCounters::ARCHIVE_RECORDING_POSITION_TYPE_ID) {
-        return rust::String();
-    }
-    aeron::AtomicBuffer metadata = reader.metaDataBuffer();
-    // Key: recording id (8), session id (4), source identity length (4), source identity.
-    const auto key = aeron::CountersReader::metadataOffset(counter_id) + aeron::CountersReader::KEY_OFFSET;
-    const std::int32_t maxLength = aeron::CountersReader::MAX_KEY_LENGTH - 16;
-    const std::int32_t length = std::min(std::max(metadata.getInt32(key + 12), 0), maxLength);
-    std::string identity(length, '\0');
-    for (std::int32_t i = 0; i < length; i++) {
-        identity[i] = static_cast<char>(metadata.getUInt8(key + 16 + i));
-    }
-    return rust::String::lossy(identity);
+    return rust::String::lossy(identity, length);
 }
 
 bool recordingPosIsActive(const CountersReaderWrapper &reader, int32_t counter_id, int64_t recording_id) {

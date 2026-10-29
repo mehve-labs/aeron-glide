@@ -122,20 +122,6 @@ impl<'a> ReplayMerge<'a> {
         merge_progress_timeout: std::time::Duration,
     ) -> Result<Self> {
         crate::callback::ensure_not_in_conductor_callback("starting a replay merge")?;
-        // The C merge dereferences the replay destination's endpoint unchecked.
-        let destination = crate::ChannelUri::parse(replay_destination)?;
-        if destination.media() != crate::channel::UDP_MEDIA
-            || destination
-                .get(crate::channel::ENDPOINT_PARAM_NAME)
-                .is_none_or(|endpoint| endpoint.len() < 2)
-        {
-            return Err(crate::Error::new(
-                crate::ErrorKind::IllegalArgument,
-                format!(
-                    "the replay destination must be a UDP channel with an endpoint: {replay_destination}"
-                ),
-            ));
-        }
         let inner = ffi::create_replay_merge(
             subscription.inner_pin_mut(),
             archive.wrapper(),

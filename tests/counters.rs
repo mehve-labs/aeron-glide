@@ -587,9 +587,9 @@ fn counter_dropped_from_a_handler_with_the_last_client_reference() {
 
 #[test]
 fn compare_and_set_never_reports_a_phantom_success() {
-    // On ARM the upstream C++ compareAndSet could report success without
-    // writing when the value changed away and back to `expected` (ABA): a
-    // flipper alternates 0 and 1 and counts the 100s it overwrites, which must
+    // On ARM, the C++ compareAndSet of Aeron before 1.54.0 could report success
+    // without writing when the value changed away and back to `expected` (ABA):
+    // a flipper alternates 0 and 1 and counts the 100s it overwrites, which must
     // match the successful compare-and-sets of 0 -> 100.
     let driver = TestDriver::start();
     let client = driver.client();
