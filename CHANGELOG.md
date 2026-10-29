@@ -5,6 +5,65 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-10-29
+
+Built against Aeron 1.54.0 (was 1.53.3), which fixes 18 of the 44 upstream
+bugs aeron-glide had found, and 5 in part: the workarounds it no longer needs
+are removed (see below).
+
+### Changed
+
+- Bump bundled Aeron to 1.54.0 (from 1.53.3).
+- **Breaking:** `archive::recording_pos::find_counter_id_by_recording_id` and
+  `find_counter_id_by_session_id` take the `archive_id`
+  (`AeronArchive::archive_id`), as in the C++ API: several archives can share
+  a media driver, and their recording IDs overlap.
+- **Breaking:** the media driver settings `cpuset_affinity` and
+  `cpuset_warnings_as_errors` are renamed `thread_affinity_use_cpuset_offsets`
+  and `thread_affinity_fail_on_validation_errors`, as in Aeron (environment
+  variables `AERON_THREAD_AFFINITY_USE_CPUSET_OFFSETS` and
+  `AERON_THREAD_AFFINITY_FAIL_ON_VALIDATION_ERRORS`). On Linux the driver now
+  validates its CPU affinities against the CPU topology on start, as `aeronmd`
+  does.
+- `archive::recording_pos::get_source_identity` fails for a negative identity
+  length in the counter's key (was an empty string), and returns at most 88
+  bytes: the archive ID now follows the identity in the key.
+- After a fatal client error (e.g. the driver timed out), Aeron refuses every
+  later call with its new `CLIENT_ILLEGAL_STATE` code; these are
+  `ErrorKind::IllegalState`, as before. The archive client's own new codes are
+  `ErrorKind::Reentrant` (a call from one of its callbacks) and
+  `ErrorKind::IllegalState` (any call after it failed fatally, e.g. once
+  disconnected from the archive, which Aeron 1.54.0 makes permanent).
+- An internal archive client (no `archive::Context::aeron`) is named after
+  `archive::Context::client_name`, or `archive-client`, as the C archive
+  client names its own.
+
+### Added
+
+- Media driver settings new in Aeron 1.54.0: `socket_tos` (UDP traffic class),
+  `receiver_poll_to_slow_work_ratio`,
+  `udp_channel_transport_poller_iteration_threshold` and
+  `udp_channel_transport_poller_socket_poll_limit`.
+- `archive::Context::client_name`, `recording_events_stream_id`,
+  `control_term_buffer_length`, `control_mtu_length` and
+  `control_term_buffer_sparse` (new in the C++ API), also in
+  `archive::ContextInfo`.
+- Counter type IDs new in Aeron 1.54.0.
+
+### Fixed
+
+- Replay over a response channel (`control-mode=response`) with
+  `AeronArchive::replay` works (Aeron 1.54.0 fixes the session ID clash).
+
+### Removed
+
+Workarounds for upstream bugs fixed in Aeron 1.54.0, now calling Aeron
+directly: `ExclusivePublication::channel_status`, `Counter::compare_and_set`
+on ARM, the archive client's recording signal poll (which could leave the
+archive locked), the invoking idle strategy for archive waits with an agent
+invoker client, the replication credentials initialisation, the replay merge
+destination pre-check, and the recording position source identity reader.
+
 ## [0.4.0] - 2026-10-04
 
 ### Changed

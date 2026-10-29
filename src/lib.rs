@@ -144,7 +144,7 @@ use std::marker::PhantomData;
 pub use subscription::{ControlledAction, PollAction, Subscription};
 
 /// The version and build of the Aeron C library this crate is built with (C++
-/// `Aeron::version()`), e.g. `"aeron version=1.53.3 commit=..."`.
+/// `Aeron::version()`), e.g. `"aeron version=1.54.0 commit=..."`.
 pub fn aeron_version() -> String {
     ffi::aeronVersion()
 }

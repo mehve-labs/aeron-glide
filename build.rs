@@ -34,7 +34,7 @@ fn main() {
 
     // Configurable Aeron version. The generated src/driver_gen.{rs,h} target the
     // default; other versions may need `scripts/gen_driver_context.py` rerun.
-    let aeron_version = env::var("AERON_VERSION").unwrap_or_else(|_| "1.53.3".to_string());
+    let aeron_version = env::var("AERON_VERSION").unwrap_or_else(|_| "1.54.0".to_string());
     println!("cargo:rerun-if-env-changed=AERON_VERSION");
 
     let aeron_dir = aeron_source(&aeron_version, &out_dir);
@@ -186,14 +186,13 @@ fn main() {
     builder.compile("aeron_rs_cxx");
 
     if archive_enabled {
-        // Plain C helpers reaching into the client conductor (see the file),
-        // linked after the shim that calls them.
+        // A plain C helper reaching into the client conductor (see the file),
+        // linked after the shim that calls it.
         println!("cargo:rerun-if-changed=src/conductor_helper.c");
         let mut helper = cc::Build::new();
         helper
             .file("src/conductor_helper.c")
-            .include(&c_client_include_path)
-            .include(aeron_dir.join("aeron-archive/src/main/c/client"));
+            .include(&c_client_include_path);
         for flag in sanitizer.iter().flat_map(|flags| flags.split(' ')) {
             helper.flag(flag);
         }
@@ -246,8 +245,8 @@ fn main() {
 
 /// SHA-256 of the GitHub source tarball of each supported Aeron version.
 const AERON_SHA256: &[(&str, &str)] = &[(
-    "1.53.3",
-    "b7861c4aa9bd4918c0c3cb3b83b4a631cf48c1403e496008ccbcb950a121f125",
+    "1.54.0",
+    "e2acde5971a3823153a5a445cc081f3d4f7d40cf7d65e2b941f434a68321ef29",
 )];
 
 /// The Aeron source tree: `AERON_SOURCE_DIR` if set (offline builds), otherwise

@@ -265,9 +265,8 @@ impl ReplayParams {
 
     /// The registration ID of the subscription to replay to, for a response
     /// channel replay started with
-    /// [`AeronArchive::start_replay`](super::AeronArchive::start_replay) (which
-    /// the C archive client of Aeron 1.53.3 fails to set up, see
-    /// [`AeronArchive::replay`](super::AeronArchive::replay)).
+    /// [`AeronArchive::start_replay`](super::AeronArchive::start_replay)
+    /// ([`AeronArchive::replay`](super::AeronArchive::replay) sets it up for you).
     pub fn subscription_registration_id(mut self, registration_id: i64) -> Self {
         self.subscription_registration_id = registration_id;
         self

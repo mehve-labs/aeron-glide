@@ -10,17 +10,29 @@ use super::ffi;
 use crate::error::Ffi;
 use crate::{CountersReader, Result};
 
-/// The ID of the position counter of an active recording, if any.
-pub fn find_counter_id_by_recording_id(reader: &CountersReader, recording_id: i64) -> Option<i32> {
-    ffi::recordingPosFindCounterIdByRecordingId(&reader.inner, recording_id)
+/// The ID of the position counter of an active recording of the archive
+/// `archive_id` ([`AeronArchive::archive_id`](super::AeronArchive::archive_id)),
+/// if any. Several archives can share a media driver, and their recording IDs
+/// overlap.
+pub fn find_counter_id_by_recording_id(
+    reader: &CountersReader,
+    recording_id: i64,
+    archive_id: i64,
+) -> Option<i32> {
+    ffi::recordingPosFindCounterIdByRecordingId(&reader.inner, recording_id, archive_id)
         .ok()
         .filter(|&id| id >= 0)
 }
 
 /// The ID of the position counter of the active recording of a session (the
-/// recorded stream's session ID), if any.
-pub fn find_counter_id_by_session_id(reader: &CountersReader, session_id: i32) -> Option<i32> {
-    ffi::recordingPosFindCounterIdBySessionId(&reader.inner, session_id)
+/// recorded stream's session ID) by the archive `archive_id`
+/// ([`AeronArchive::archive_id`](super::AeronArchive::archive_id)), if any.
+pub fn find_counter_id_by_session_id(
+    reader: &CountersReader,
+    session_id: i32,
+    archive_id: i64,
+) -> Option<i32> {
+    ffi::recordingPosFindCounterIdBySessionId(&reader.inner, session_id, archive_id)
         .ok()
         .filter(|&id| id >= 0)
 }
@@ -35,7 +47,8 @@ pub fn get_recording_id(reader: &CountersReader, counter_id: i32) -> Option<i64>
 
 /// The source identity of a recording position counter's stream (e.g. a
 /// socket address); empty if the counter is not an allocated recording
-/// position counter. Fails for an out-of-range counter ID.
+/// position counter. Fails for an out-of-range counter ID, or a negative
+/// identity length in the counter's key.
 pub fn get_source_identity(reader: &CountersReader, counter_id: i32) -> Result<String> {
     ffi::recordingPosGetSourceIdentity(&reader.inner, counter_id).ffi()
 }

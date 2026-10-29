@@ -28,7 +28,7 @@ fn jar() -> Option<PathBuf> {
     if let Some(jar) = std::env::var_os("AERON_ALL_JAR") {
         return Some(PathBuf::from(jar));
     }
-    let version = std::env::var("AERON_VERSION").unwrap_or_else(|_| "1.53.3".to_string());
+    let version = std::env::var("AERON_VERSION").unwrap_or_else(|_| "1.54.0".to_string());
     let jar_path = format!("aeron-all/build/libs/aeron-all-{version}.jar");
     // Built inside the source tree when building from AERON_SOURCE_DIR.
     if let Some(source) = std::env::var_os("AERON_SOURCE_DIR") {

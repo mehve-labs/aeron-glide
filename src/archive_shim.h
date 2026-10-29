@@ -51,30 +51,6 @@ private:
     RustOwned owner_;
 };
 
-// Runs an agent invoker client's conductor, then idles. Upstream (1.53.3): some
-// archive client wait loops (adding recorded publications, replay
-// subscriptions) only call the idle strategy, never the client's conductor, so
-// with an agent invoker client they would wait forever. Requests hold the
-// client's conductor lock, so the conductor runs on the waiting thread.
-class InvokingIdleStrategy : public IdleStrategy {
-public:
-    InvokingIdleStrategy(std::shared_ptr<aeron::Aeron> aeron, std::shared_ptr<IdleStrategy> next)
-        : aeron_(std::move(aeron)), next_(std::move(next)) {}
-    void idle(int workCount) override {
-        int work = aeron_->conductorAgentInvoker().invoke();
-        if (next_) {
-            next_->idle(workCount + work);
-        } else {
-            yielding_.idle(workCount + work);
-        }
-    }
-
-private:
-    std::shared_ptr<aeron::Aeron> aeron_;
-    std::shared_ptr<IdleStrategy> next_;
-    aeron::concurrent::YieldingIdleStrategy yielding_;
-};
-
 // Configuration for an archive connection or a persistent subscription
 // (aeron::archive::client::Context). Settings are applied to the C++ context
 // as they are set.
@@ -92,6 +68,11 @@ public:
     void setMessageTimeoutNs(int64_t timeout_ns);
     void setMessageRetryAttempts(uint32_t attempts);
     void setMaxErrorMessageLength(uint32_t length);
+    void setClientName(rust::Str name);
+    void setRecordingEventsStreamId(int32_t stream_id);
+    void setControlTermBufferLength(size_t length);
+    void setControlMtuLength(size_t length);
+    void setControlTermBufferSparse(bool sparse);
     // Each takes ownership of its ctx (released with the last copy of the handler).
     void setIdleStrategy(IdleFn idle, ReleaseFn release, size_t ctx);
     void setDelegatingInvoker(InvokerFn invoker, ReleaseFn release, size_t ctx);
@@ -222,8 +203,10 @@ std::unique_ptr<ArchiveAsyncConnectWrapper> archive_async_connect(std::unique_pt
 
 
 // RecordingPos (A10).
-int32_t recordingPosFindCounterIdByRecordingId(const CountersReaderWrapper &reader, int64_t recording_id);
-int32_t recordingPosFindCounterIdBySessionId(const CountersReaderWrapper &reader, int32_t session_id);
+int32_t recordingPosFindCounterIdByRecordingId(
+    const CountersReaderWrapper &reader, int64_t recording_id, int64_t archive_id);
+int32_t recordingPosFindCounterIdBySessionId(
+    const CountersReaderWrapper &reader, int32_t session_id, int64_t archive_id);
 int64_t recordingPosGetRecordingId(const CountersReaderWrapper &reader, int32_t counter_id);
 rust::String recordingPosGetSourceIdentity(const CountersReaderWrapper &reader, int32_t counter_id);
 bool recordingPosIsActive(const CountersReaderWrapper &reader, int32_t counter_id, int64_t recording_id);

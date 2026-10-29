@@ -211,3 +211,36 @@ fn closed_publications_report_no_position() {
         .unwrap_err();
     assert_eq!(err.kind(), ErrorKind::IllegalState, "{err}");
 }
+
+/// After a fatal error (here the driver goes away and the client times out),
+/// every later call fails as an illegal state (also when it reaches Aeron,
+/// which refuses it with CLIENT_ILLEGAL_STATE since 1.54.0).
+#[test]
+fn calls_after_a_fatal_client_error_are_illegal_state() {
+    let driver = TestDriver::start();
+    let client = driver.connect(
+        Context::new()
+            .use_conductor_agent_invoker(true)
+            .driver_timeout(Duration::from_secs(1))
+            .error_handler(|_| {}),
+    );
+    drop(driver);
+    wait_until("the client to time out", || {
+        client.invoke().ok();
+        client.is_closed()
+    });
+    for err in [
+        client
+            .add_publication("aeron:ipc", 1)
+            .map(drop)
+            .unwrap_err(),
+        client
+            .add_subscription("aeron:ipc", 1)
+            .map(drop)
+            .unwrap_err(),
+        client.add_counter(1001, &[], "late").map(drop).unwrap_err(),
+    ] {
+        assert_eq!(err.kind(), ErrorKind::IllegalState, "{err}");
+    }
+    assert_eq!(client.invoke().unwrap(), 0, "no work once closed");
+}

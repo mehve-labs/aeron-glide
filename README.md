@@ -7,7 +7,7 @@
 
 A safe, idiomatic Rust API for [Aeron](https://github.com/aeron-io/aeron): the
 client, the embedded C media driver and the archive client, built on Aeron's
-C++ API with [`cxx`](https://cxx.rs/). It is built against Aeron **1.53.3**.
+C++ API with [`cxx`](https://cxx.rs/). It is built against Aeron **1.54.0**.
 
 ```rust
 use aeron_glide::AeronClient;
@@ -134,7 +134,7 @@ subscription.poll(10, |msg, header| { /* ... */ })?;
 
 ```toml
 [dependencies]
-aeron-glide = "0.4"
+aeron-glide = "0.5"
 ```
 
 | Feature | Default | What it adds |
@@ -146,7 +146,7 @@ aeron-glide = "0.4"
 ### Prerequisites
 
 - **Rust 1.97+**
-- **CMake 3.30+** (Aeron 1.53 requires it; Debian 12 ships 3.25, so install a
+- **CMake 3.30+** (Aeron 1.54 requires it; Debian 12 ships 3.25, so install a
   newer one from cmake.org or pip)
 - **A C++17 compiler**
 - **Java 17+**, only with the `archive` feature
@@ -163,7 +163,7 @@ you. Environment variables:
 | Variable | Effect |
 |---|---|
 | `AERON_SOURCE_DIR` | Build from this Aeron source tree instead of downloading (offline builds). With `archive`, Aeron's Gradle build of the jar runs in that tree and needs the network unless Gradle's cache is warm |
-| `AERON_VERSION` | Another Aeron release (the generated bindings target 1.53.3) |
+| `AERON_VERSION` | Another Aeron release (the generated bindings target 1.54.0) |
 | `AERON_SHA256` | The expected SHA-256 of the downloaded tarball (overrides the built-in one) |
 | `AERON_GLIDE_SANITIZER` | Build Aeron and the shims with `-fsanitize=<value>`, e.g. `address` |
 

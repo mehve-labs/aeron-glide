@@ -76,6 +76,16 @@ pub struct ContextInfo {
     pub message_retry_attempts: u32,
     /// The maximum length of an error message from the archive.
     pub max_error_message_length: u32,
+    /// The name of the client the archive client creates (empty when unset).
+    pub client_name: String,
+    /// The stream ID recording events are published on.
+    pub recording_events_stream_id: i32,
+    /// The default term buffer length of the control channels.
+    pub control_term_buffer_length: usize,
+    /// The default MTU length of the control channels.
+    pub control_mtu_length: usize,
+    /// Whether the control channels' term buffers are sparse by default.
+    pub control_term_buffer_sparse: bool,
 }
 
 impl ContextInfo {
@@ -90,6 +100,11 @@ impl ContextInfo {
             message_timeout: Duration::from_nanos(u64::try_from(c.message_timeout_ns).unwrap_or(0)),
             message_retry_attempts: c.message_retry_attempts,
             max_error_message_length: c.max_error_message_length,
+            client_name: c.client_name,
+            recording_events_stream_id: c.recording_events_stream_id,
+            control_term_buffer_length: c.control_term_buffer_length,
+            control_mtu_length: c.control_mtu_length,
+            control_term_buffer_sparse: c.control_term_buffer_sparse,
         }
     }
 }
@@ -177,6 +192,37 @@ impl Context {
     /// The maximum length of an error message from the archive (default 1000).
     pub fn max_error_message_length(self, length: u32) -> Self {
         self.set(move |ctx| ctx.setMaxErrorMessageLength(length).ffi())
+    }
+
+    /// The name of the client the archive client creates when none is set
+    /// with [`aeron`](Self::aeron) (default `archive-client`;
+    /// `AERON_ARCHIVE_CLIENT_NAME`). At most 100 bytes.
+    pub fn client_name(self, name: &str) -> Self {
+        let name = name.to_string();
+        self.set(move |ctx| ctx.setClientName(&name).ffi())
+    }
+
+    /// The stream ID the archive publishes recording events on.
+    pub fn recording_events_stream_id(self, stream_id: i32) -> Self {
+        self.set(move |ctx| ctx.setRecordingEventsStreamId(stream_id).ffi())
+    }
+
+    /// The term buffer length of the control request and response channels,
+    /// for each that does not set `term-length`.
+    pub fn control_term_buffer_length(self, length: usize) -> Self {
+        self.set(move |ctx| ctx.setControlTermBufferLength(length).ffi())
+    }
+
+    /// The MTU length of the control request and response channels, for each
+    /// that does not set `mtu`.
+    pub fn control_mtu_length(self, length: usize) -> Self {
+        self.set(move |ctx| ctx.setControlMtuLength(length).ffi())
+    }
+
+    /// Whether the term buffers of the control request and response channels
+    /// are sparse, for each that does not set `sparse`.
+    pub fn control_term_buffer_sparse(self, sparse: bool) -> Self {
+        self.set(move |ctx| ctx.setControlTermBufferSparse(sparse).ffi())
     }
 
     /// Called with the amount of work done each time the client waits for the

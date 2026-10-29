@@ -52,7 +52,7 @@ void MediaDriverWrapper::closeDriver() {
 }
 
 // aeron_driver.h, not in the public aeronmd.h.
-extern "C" int aeron_driver_apply_cpuset_affinity(aeron_driver_context_t *context);
+extern "C" int aeron_driver_validate_and_apply_affinity_configuration(aeron_driver_context_t *context);
 
 void MediaDriverWrapper::start(bool manual_main_loop) {
     if (driver_ != nullptr) {
@@ -66,10 +66,11 @@ void MediaDriverWrapper::start(bool manual_main_loop) {
             "nak_unicast_delay_ns * nak_unicast_retry_delay_ratio exceeds INT64_MAX", SOURCEINFO, EINVAL);
     }
     // As aeronmd does: the cpuset and per-thread CPU affinity settings are only
-    // applied by these two steps (the affinity by each agent thread on start;
-    // in invoker mode the conductor's runs on the thread calling start).
-    if (aeron_driver_apply_cpuset_affinity(context_) < 0) {
-        throwDriverError("Failed to apply the cpuset affinity");
+    // applied by these two steps. The first validates them (on Linux) and
+    // resolves the CPUs; each agent thread then sets its own on start (in
+    // invoker mode the conductor's runs on the thread calling start).
+    if (aeron_driver_validate_and_apply_affinity_configuration(context_) < 0) {
+        throwDriverError("Failed to apply the cpuset and affinity configuration");
     }
     if (aeron_driver_context_get_agent_on_start_function(context_) == nullptr &&
         aeron_driver_context_set_agent_on_start_function(context_, aeron_set_thread_affinity_on_start, context_) < 0) {

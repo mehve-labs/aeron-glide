@@ -716,8 +716,9 @@ CncFileWrapper::CncFileWrapper(rust::Str directory, int64_t timeout_ms) {
             "failed to open existing cnc file in: " + dir + ": " + aeron_errmsg(), SOURCEINFO, aeron_errcode());
     }
     std::unique_ptr<aeron_cnc_t, void (*)(aeron_cnc_t *)> owned(cnc, aeron_cnc_close);
-    // The C client sums the buffer lengths as size_t, so negative lengths in a
-    // corrupt file can pass its size check and place buffers outside the mapping.
+    // Negative lengths in a corrupt file could pass the C client's size check
+    // before Aeron 1.54.0 and place buffers outside the mapping; the buffers'
+    // record-for-record match (below) is still not checked there.
     aeron_cnc_constants_t c = {};
     std::error_code ec;
     const auto fileLength = std::filesystem::file_size(aeron_cnc_filename(cnc), ec);
@@ -783,8 +784,8 @@ size_t alignUp(size_t value, size_t alignment) { return (value + alignment - 1) 
 } // namespace
 
 // aeron_cnc_loss_reporter_read trusts the lengths in the file (a corrupt one is
-// read out of bounds) and steps over records with a length that ignores the
-// channel's padding, so it can land inside a record. This follows the writer
+// read out of bounds; before Aeron 1.54.0 it also stepped over records with a
+// length that ignored the channel's padding). This follows the writer
 // (aeron_loss_reporter_create_entry) and checks every length against the file.
 int32_t CncFileWrapper::readLossReport(LossReportFn handler, size_t ctx) const {
     std::string path = (std::filesystem::path(state_->directory) / "loss-report.dat").string();
@@ -980,10 +981,9 @@ int64_t AeronWrapper::addStaticCounter(
 std::unique_ptr<CounterWrapper> AeronWrapper::findCounter(int64_t registration_id) const {
     ConductorLock::Guard guard(lock_);
     auto counter = aeron->findCounter(registration_id);
-    // Upstream bug (1.53.3): aeron::Counter releases its reference to the client
-    // (a member) before ~AtomicCounter (its base) closes the C counter, which the
-    // client has freed if that was the last reference. Keep the client alive
-    // until the counter is destroyed.
+    // The wrapper keeps the client alive until after the counter: checkWrites
+    // reads through the client's counters reader. (Before Aeron 1.54.0,
+    // aeron::Counter also closed its C counter after releasing the client.)
     if (!counter) {
         return nullptr;
     }
